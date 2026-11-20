@@ -29258,8 +29258,12 @@ This world can now only be viewed and backed up: the world save content cannot b
             <translation>Automatically back up the original level.dat before saving.</translation>
         </message>
         <message>
-            <source>已有存档信息备份，可再次创建。</source>
-            <translation>A world metadata backup already exists. You can create another one.</translation>
+            <source>已有 level.dat 备份。</source>
+            <translation>A level.dat backup already exists.</translation>
+        </message>
+        <message>
+            <source>未写入</source>
+            <translation>Not saved</translation>
         </message>
     </context>
 </TS>

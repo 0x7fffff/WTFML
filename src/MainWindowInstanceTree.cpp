@@ -405,7 +405,7 @@ void MainWindow::rebuildInstanceTree() {
             QString loaderVersion;
             const QString loader = instanceLoaderName(*found, m_versionManager, &loaderVersion);
             (*it)->setData(0, ListRowDelegate::SubtitleRole,
-                           QStringLiteral("Minecraft %1").arg(found->realVersion.isEmpty() ? found->id : found->realVersion));
+                           found->realVersion.isEmpty() ? found->id : found->realVersion);
             (*it)->setData(0, ListRowDelegate::MetaRole,
                            loader.isEmpty() ? tr("原版") : (loader + QLatin1Char(' ') + loaderVersion).trimmed());
             // 封面：用户挑过图标用挑的那张，没挑按实例名稳定配色的等距方块（和主页一致）；

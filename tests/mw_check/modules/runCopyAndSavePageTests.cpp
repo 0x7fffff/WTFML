@@ -768,8 +768,8 @@ void runCopyAndSavePageTests() {
                 pageOpened = worldPage != nullptr && !worldPage->isHidden();
                 // 顺手记下这一页顶上那颗标题 —— 下面要拿它量"开出来的确实是**这一行**那个
                 // 世界的页"，而那一行 `level.dat` 解不出来，所以是坏档那一档的说法。
-                if (worldPage != nullptr && worldPage->titleLabel() != nullptr) {
-                    pageTitle = worldPage->titleLabel()->text();
+                if (worldPage != nullptr) {
+                    pageTitle = worldPage->breadcrumbTitle();
                 }
                 QTimer::singleShot(0, [&] {
                     InlineMessageBox *input = currentPrompt();
@@ -1013,8 +1013,15 @@ void runCopyAndSavePageTests() {
                     return -1;
                 };
                 if (world != nullptr) {
-                    check(world->titleLabel()->text() == QStringLiteral("世界设置：笔改的"),
-                          "T27.7 页面上那颗标题写的是哪一个世界", world->titleLabel()->text());
+                    check(world->breadcrumbTitle() == QStringLiteral("世界设置：笔改的"),
+                          "T27.7 页面上那颗标题写的是哪一个世界", world->breadcrumbTitle());
+                    if (auto *crumbHost = currentPageOverlay()) {
+                        check(crumbHost->pageTitle() == QStringLiteral("世界设置：笔改的") &&
+                                  world->findChild<QPushButton *>(
+                                      QStringLiteral("worldSettingsBackButton")) == nullptr,
+                              "★★ #74 页眉面包屑写「世界设置：<世界名>」，页里不再有第二个「返回」",
+                              crumbHost->pageTitle());
+                    }
                     check(!world->isUnreadable(),
                           "T27.7 这一档是好的，不该摆成「读不出来」那一档");
                     check(world->nameEdit()->text() == diskLevelName,
@@ -1103,9 +1110,11 @@ void runCopyAndSavePageTests() {
                     QWidget *host =
                         world == nullptr || row < 0 ? nullptr : world->ruleList()->itemWidget(
                                                                   world->ruleList()->item(row));
-                    return host != nullptr &&
-                           host->findChild<QLabel *>(WorldSettingsPage::ruleDefaultMarkName()) !=
-                               nullptr;
+                    const auto *mark =
+                        host == nullptr
+                            ? nullptr
+                            : host->findChild<QLabel *>(WorldSettingsPage::ruleDefaultMarkName());
+                    return mark != nullptr && !mark->text().isEmpty();
                 };
                 check(!hasDefaultMark(QStringLiteral("keepInventory")) &&
                           !hasDefaultMark(QStringLiteral("moddedRule")) &&
@@ -1120,8 +1129,8 @@ void runCopyAndSavePageTests() {
                       "极限模式 / 难度这四格一个都不该一进来就摊着）");
                 QList<PromptAnswerer::Answered> boxAsks;
                 {
-                    // 一问：展开那一句备份警告（点第 1 颗「继续改」）。
-                    PromptAnswerer answerer({0});
+                    // 一问：展开那一句备份警告（点第 3 颗「继续改」）。
+                    PromptAnswerer answerer({2});
                     answerer.start();
                     if (world != nullptr) {
                         world->fileToggle()->click();
@@ -1135,10 +1144,10 @@ void runCopyAndSavePageTests() {
                 check(askTitle(boxAsks, 0) == QStringLiteral("改动存档文件"),
                       "★★ T27.7 展开弹的是那一句备份警告", askTitle(boxAsks, 0));
                 check(askButtons(boxAsks, 0) ==
-                          QStringList({QStringLiteral("继续改"), QStringLiteral("先创建备份"),
-                                       QStringLiteral("取消")}),
-                      "★★ T27.7 那三颗是「继续改 / 先备份一份 / 取消」（用户要的那颗备份就在"
-                      "这一问里）",
+                          QStringList({QStringLiteral("取消"), QStringLiteral("先创建备份"),
+                                       QStringLiteral("继续改")}),
+                      "★★ T27.7 那三颗是「取消 / 先创建备份 / 继续改」（用户要的那颗备份就在"
+                      "这一问里，写进存档的「继续改」排最后）",
                       askButtons(boxAsks, 0).join(QLatin1Char('/')));
                 check(world != nullptr && world->fileEditingOpen() &&
                           !world->fileBody()->isHidden(),
@@ -1161,14 +1170,17 @@ void runCopyAndSavePageTests() {
                 {
                     // 再展开一次，这次答「取消」⇒ 框**收回去**（不收回来的话屏幕上那个框
                     // 开着、而用户什么也没答应，看着像那句警告白弹了）。
-                    PromptAnswerer answerer({2});
+                    PromptAnswerer answerer({0});
                     answerer.start();
                     if (world != nullptr) {
                         world->fileToggle()->click();
                     }
                     answerer.stop();
                     check(answerer.answered.size() == 1 && world != nullptr &&
-                              !world->fileEditingOpen() && world->fileBody()->isHidden(),
+                              !world->fileEditingOpen() && world->fileBody()->isHidden() &&
+                              world->fileToggle()->findChild<QLabel *>() != nullptr &&
+                              world->fileToggle()->findChild<QLabel *>()->text() ==
+                                  QStringLiteral("展开"),
                           "★★ T27.7 那一问答「取消」之后框**收回去**（不许留一个开了的框在"
                           "屏幕上，用户什么都没答应）");
                 }
@@ -1209,7 +1221,12 @@ void runCopyAndSavePageTests() {
                     PromptAnswerer answerer({1});
                     answerer.start();
                     if (world != nullptr) {
-                        world->backButton()->click();
+                        if (auto *overlayHost = currentPageOverlay()) {
+                            if (auto *headerBack = overlayHost->findChild<QPushButton *>(
+                                    OverlayHost::overlayBackButtonName())) {
+                                headerBack->click();
+                            }
+                        }
                     }
                     answerer.stop();
                     dirtyAsks = answerer.answered;
@@ -1249,7 +1266,7 @@ void runCopyAndSavePageTests() {
                       "★ T27.7 存完之后底下那行字改口说「已保存」",
                       world != nullptr ? world->noteLabel()->text() : QString());
                 check(world != nullptr &&
-                          world->noteLabel()->text().contains(QStringLiteral("已有存档信息备份")),
+                          world->noteLabel()->text().contains(QStringLiteral("已有 level.dat 备份")),
                       "★ T27.7 而且它知道备份已经有了（存完那一刻 MainWindow 告诉了它）");
 
                 // ---------- 读回来核对 ----------
@@ -1351,7 +1368,12 @@ void runCopyAndSavePageTests() {
                     PromptAnswerer answerer({1, 0});
                     answerer.start();
                     if (world != nullptr) {
-                        world->backButton()->click();
+                        if (auto *overlayHost = currentPageOverlay()) {
+                            if (auto *headerBack = overlayHost->findChild<QPushButton *>(
+                                    OverlayHost::overlayBackButtonName())) {
+                                headerBack->click();
+                            }
+                        }
                     }
                     answerer.stop();
                     backAsks = answerer.answered;
@@ -1361,6 +1383,11 @@ void runCopyAndSavePageTests() {
                       backAsks.isEmpty() ? QString() : askTitle(backAsks, 0));
                 check(world == nullptr || world->isHidden(),
                       "★ T27.7 返回之后回到的是世界列表那一格");
+                if (auto *crumbHost = currentPageOverlay()) {
+                    check(crumbHost->pageOpen() && crumbHost->pageTitle() == QStringLiteral("实例设置"),
+                          "★★ #74 点面包屑的「返回」回到存档列表（整页没关），页眉改回「实例设置」",
+                          crumbHost->pageTitle());
+                }
 
                 // ---------- B：坏档 ----------
                 //
@@ -1395,10 +1422,10 @@ void runCopyAndSavePageTests() {
                       "★★ T27.7 而且开出来的是**「读不出来」那一档**（我们不往读不出来的存档"
                       "上写东西）");
                 if (world != nullptr && world->isUnreadable()) {
-                    check(world->titleLabel()->text() ==
+                    check(world->breadcrumbTitle() ==
                               QStringLiteral("存档读取失败：坏掉的"),
                           "★★ T27.7 标题上写着「这个世界可能坏了」、还带着是哪一个世界",
-                          world->titleLabel()->text());
+                          world->breadcrumbTitle());
                     // 那一句小字 = **原因原文** + "只能看和备份"（`refreshNote()` 那一档）。
                     // 量的是"原因真的搬到页里来了"（原来它在打开之前那一问的正文里）。
                     check(world->noteLabel()->text().contains(QStringLiteral("标签类型 110")) &&
@@ -1412,61 +1439,12 @@ void runCopyAndSavePageTests() {
                           "★★ T27.7 这一档整块正文收着（那一堆值一个都不作数）");
                     check(world->fileBody()->isHidden(),
                           "★ T27.7 连带「修改存档文件」那个折叠框也收着（它是正文的一部分）");
-                    check(world->saveButton()->isHidden(),
+                    check(!world->saveButton()->isVisibleTo(world),
                           "★ T27.7 这一档不给「保存」（没有东西可存）");
-                    check(!world->backupButton()->isHidden(),
-                          "★★ T27.7 但「备份一份」还在 —— 读不动的那一份尤其该留");
+                    check(!world->fullBackupButton()->isHidden(),
+                          "★★ T27.7 但「立即备份」还在 —— 读不动的那一份尤其该留");
                 }
-                // ② 页里那颗「备份一份」：报一句「备份一份」+ 备份落在哪儿，而且**页不关**
-                // （用户接下来还能改名、还能删）。
-                QList<PromptAnswerer::Answered> backupAsks;
-                {
-                    PromptAnswerer answerer({0});
-                    answerer.start();
-                    if (world != nullptr) {
-                        world->backupButton()->click();
-                    }
-                    answerer.stop();
-                    backupAsks = answerer.answered;
-                }
-                check(backupAsks.size() == 1,
-                      "★★ T27.7 点页里「备份一份」报一句话（页里那一颗真的接到了）",
-                      QString::number(backupAsks.size()));
-                check(askTitle(backupAsks, 0) == WorldSettingsPage::backupText(),
-                      "★★ T27.7 报的就是页里那一颗自己的说法「备份一份」",
-                      askTitle(backupAsks, 0));
-                check(askText(backupAsks, 0).contains(
-                          QDir::toNativeSeparators(AppPaths::worldBackupDir())),
-                      "★ T27.7 而且把备份落在哪儿写出来了", askText(backupAsks, 0));
-                check(world == nullptr || !world->isHidden(),
-                      "★ T27.7 备份完**还站在那一页上**（备份不是「离开」）");
-                {
-                    const QString backupRoot = AppPaths::worldBackupDir();
-                    QString dir;
-                    for (const QString &slot :
-                         QDir(backupRoot).entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
-                        if (slot.startsWith(QStringLiteral("T27-源实例__坏掉的-"))) {
-                            dir = backupRoot + QLatin1Char('/') + slot;
-                            break;
-                        }
-                    }
-                    check(!dir.isEmpty(),
-                          "★★ T27.7 找得到「T27-源实例__坏掉的」那一格备份", dir);
-                    const QStringList gens =
-                        QDir(dir).entryList(QDir::Dirs | QDir::NoDotAndDotDot);
-                    check(gens.size() == 1,
-                          "★★ T27.7 坏档那一份也留下来了（一代）",
-                          QString::number(gens.size()));
-                    QFile backup(gens.isEmpty()
-                                     ? QString()
-                                     : dir + QLatin1Char('/') + gens.first() +
-                                           QStringLiteral("/level.dat"));
-                    const QByteArray got =
-                        backup.open(QIODevice::ReadOnly) ? backup.readAll() : QByteArray();
-                    check(got == brokenBytes,
-                          "★ T27.7 备份的就是那几个字节（坏档尤其该留，它可能是最后一份能"
-                          "救回来的样子）");
-                }
+                // 页里没有只备份 level.dat 的按钮了：备份走顶上那颗「立即备份」（有自己的检查）。
             }
 
             // ---------- 收尾：关掉整个「实例设置」 ----------
@@ -1480,11 +1458,16 @@ void runCopyAndSavePageTests() {
             {
                 PromptAnswerer answerer({0});  // 0 = 「丢掉改动」（真问了就认下这一句）
                 answerer.start();
-                if (auto *back =
-                        host->findChild<QPushButton *>(OverlayHost::overlayBackButtonName())) {
-                    back->click();
-                    QApplication::processEvents();
-                } else {
+                // 世界设置页开着时，面包屑上的「返回」先退回存档列表，再点一次才关整页。
+                for (int hop = 0; hop < 2; ++hop) {
+                    if (auto *back =
+                            host->findChild<QPushButton *>(OverlayHost::overlayBackButtonName());
+                        back != nullptr && host->pageOpen()) {
+                        back->click();
+                        QApplication::processEvents();
+                    }
+                }
+                if (host->pageOpen()) {
                     host->dismiss();
                 }
                 answerer.stop();

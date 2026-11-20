@@ -24,6 +24,7 @@
 #include "perf/PerfProbe.hpp"  // 测量构建专用；普通构建里 attach() 是内联空函数
 #include "../ui/ChromeDialog.hpp"
 #include "../ui/Animations.hpp"  // 按下按钮那一份动效（见下面那段 NOTE）
+#include "../ui/WheelFocusFilter.hpp"  // 下拉框、数字框没有焦点时不认滚轮
 #include "../ui/InlineMessage.hpp"
 #include "../ui/OverlayHost.hpp"
 #include "../ui/AppIcon.hpp" // 窗口 / 任务栏图标（自绘标题栏里不画，见那个文件头）
@@ -280,6 +281,8 @@ int main(int argc, char *argv[]) {
     // 另一份：**滚动条一露面就淡进来**（用户 ：「每一次切页面的时候滚动条都是瞬间
     // 出现的」）。同样是往上挂一个事件过滤器，全仓每一处滚动区都不用改。
     Anim::installScrollBarAnimation(app);
+    // 下拉框、数字框没有焦点时不认滚轮（全局，一处处理）。
+    WheelFocusFilter::install(app);
 
 
     MainWindow window;

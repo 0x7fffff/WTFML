@@ -12,6 +12,9 @@
 #include "controllers/CrashReportController.hpp"
 #include "controllers/TaskDetailController.hpp"
 #include "SkinModel.hpp"
+#include "WorldSettingsPage.hpp"
+#include <QDialog>
+#include <QVBoxLayout>
 #include <QAction>
 #include <QListWidget>
 #include <QMenu>
@@ -202,6 +205,49 @@ inline QWidget *gameLog(const QString &text, bool filterEmpty) {
     return log;
 }
 
+/// #74：世界设置页（页眉面包屑是真覆盖层；页面内容摆演示世界）。@p open 展开「修改存档文件」，
+/// @p confirm 再弹展开时那句备份警告（参数和 InstanceDialogController 里一致）。
+inline QWidget *worldPage(MainWindow &w, bool open, bool confirm) {
+    w.ui()->getTabWidget()->setCurrentIndex(MainWindowUI::instancesTabIndex());
+    auto *host = new QDialog;
+    auto *layout = new QVBoxLayout(host);
+    layout->setContentsMargins(0, 0, 0, 0);
+    auto *page = new WorldSettingsPage(host);
+    layout->addWidget(page);
+    WorldSettingsPage::WorldView view;
+    view.dirName = QStringLiteral("New World");
+    view.hasLevelName = true;
+    view.levelName = QStringLiteral("New World");
+    view.hasVersionName = true;
+    view.versionName = QStringLiteral("1.21.4");
+    view.hasSize = true;
+    view.sizeText = QStringLiteral("42.8 MB");
+    view.hasDifficulty = true;
+    view.difficulty = 2;
+    view.hasRules = true;
+    using R = WorldSettingsPage::Rule;
+    using K = WorldSettingsPage::Kind;
+    view.rules = {R{QStringLiteral("keepInventory"), QStringLiteral("true"), K::Bool, true},
+                  R{QStringLiteral("randomTickSpeed"), QStringLiteral("3"), K::Int, true},
+                  R{QStringLiteral("doDaylightCycle"), QStringLiteral("true"), K::Bool, false},
+                  R{QStringLiteral("doMobSpawning"), QStringLiteral("true"), K::Bool, false},
+                  R{QStringLiteral("mobGriefing"), QStringLiteral("true"), K::Bool, true},
+                  R{QStringLiteral("spawnRadius"), QStringLiteral("10"), K::Int, false}};
+    page->setWorld(view);
+    if (open) page->setFileEditingOpen(true);
+    w.ui()->overlay()->showPage(host, QStringLiteral("实例设置"), MainWindowUI::instancesTabIndex());
+    w.ui()->overlay()->setPageTitle(page->breadcrumbTitle());
+    if (confirm) {
+        QTimer::singleShot(200, &w, [&w] {
+            InlineMessage::ask(w.ui()->overlay(), MessageKind::Question, QStringLiteral("改动存档文件"),
+                               QStringLiteral("将直接修改“New World”的存档名称、游戏模式、难度及规则。建议先备份存档信息。"),
+                               {QStringLiteral("取消"), QStringLiteral("先创建备份"), QStringLiteral("继续改")},
+                               1, 2, false, QStringLiteral("备份当前 level.dat，不修改存档。"));
+        });
+    }
+    return &w;
+}
+
 inline QList<Shot> shots() {
     QList<Shot> list;
     for (const QString theme : {QStringLiteral("dark"), QStringLiteral("emerald"), QStringLiteral("ocean")}) {
@@ -216,6 +262,11 @@ inline QList<Shot> shots() {
                              w.ui()->getTabWidget()->setCurrentIndex(index);
                              return &w;
                          }});
+        }
+        if (theme != QLatin1String("ocean")) {
+            list.append({"world-" + theme + ".png", theme, [](MainWindow &w, const Fixture &) { return worldPage(w, false, false); }});
+            list.append({"world-open-" + theme + ".png", theme, [](MainWindow &w, const Fixture &) { return worldPage(w, true, false); }});
+            list.append({"world-confirm-" + theme + ".png", theme, [](MainWindow &w, const Fixture &) { return worldPage(w, true, true); }});
         }
         list.append({"task-crash-" + theme + ".png", theme, [](MainWindow &w, const Fixture &f) { return task(w, f.crash); }});
         if (dark) {
@@ -332,7 +383,13 @@ inline QList<Shot> shots() {
 }
 
 inline void run(QApplication &app, MainWindow &window, const QString &root) {
-    static const QList<Shot> list = shots();
+    // 环境变量 WTFML_SHOT_FILTER 非空时只拍文件名里含这段的样张（开发时挑着拍）。
+    static const QList<Shot> list = [] {
+        QList<Shot> all = shots();
+        const QString filter = qEnvironmentVariable("WTFML_SHOT_FILTER");
+        if (!filter.isEmpty()) all.removeIf([&](const Shot &shot) { return !shot.file.contains(filter); });
+        return all;
+    }();
     static Fixture fixture;
     static int index = 0;
     static QJsonArray report;

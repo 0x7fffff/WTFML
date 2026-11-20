@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include "WheelFocusFilter.hpp"
 int UiWorldEditorChecks() {
     // ==================================================================
     // 要求：「世界根据其存档文件在存档设置（那支笔）里面编辑游戏规则等，打开之前
@@ -139,9 +140,9 @@ int UiWorldEditorChecks() {
               "★★ Z16a 所以那个框默认收起时**一整列规则也看不见**（一进来不该有几十条规则"
               "摊在屏幕上）");
 
-        check(page.titleLabel()->text() == QStringLiteral("世界设置：我的世界"),
-              "Z16a 顶上写的是**哪一个**存档（不看这个的话，改完了根本不知道改的是哪个世界）",
-              page.titleLabel()->text());
+        check(page.breadcrumbTitle() == QStringLiteral("世界设置：我的世界"),
+              "Z16a 面包屑上写的是**哪一个**存档（不看这个的话，改完了根本不知道改的是哪个世界）",
+              page.breadcrumbTitle());
         check(page.nameEdit()->text() == QStringLiteral("我的生存"),
               "Z16a 世界名摆进格子里了");
         QLabel *infoLabel = page.findChild<QLabel *>(WorldSettingsPage::infoLabelName());
@@ -320,11 +321,13 @@ int UiWorldEditorChecks() {
         {
             const auto hasDefaultMark = [&page](int row) {
                 QWidget *host = page.ruleList()->itemWidget(page.ruleList()->item(row));
-                return host != nullptr &&
-                       host->findChild<QLabel *>(WorldSettingsPage::ruleDefaultMarkName()) != nullptr;
+                const auto *mark =
+                    host == nullptr ? nullptr
+                                    : host->findChild<QLabel *>(WorldSettingsPage::ruleDefaultMarkName());
+                return mark != nullptr && mark->text() == QStringLiteral("未写入");
             };
             check(!hasDefaultMark(0) && !hasDefaultMark(1) && hasDefaultMark(2),
-                  "★★ Z16a 盘上有的那几条**不挂**「默认」小标记，盘上没有的那一条挂上 —— "
+                  "★★ Z16a 盘上有的那几条**不挂**「未写入」小标记，盘上没有的那一条挂上 —— "
                   "两种行混在一列里，不标出来用户会以为「屏幕上摆的就是这个世界本来的样子」");
             WorldSettingsPage raw;
             raw.setWorld(view);
@@ -376,9 +379,16 @@ int UiWorldEditorChecks() {
             // 这条盯的是 `setFileEditingOpen()` 里那句 `QSignalBlocker`：不挡的话，
             // 主程序答完之后拿这个函数把框摆开，会**顺着 `toggled` 再发一次**信号 ——
             // 用户点一下、警告弹两次，第二次是在他刚答应完之后弹的。
+            const auto stateText = [&page] {
+                const auto labels = page.fileToggle()->findChildren<QLabel *>();
+                return labels.isEmpty() ? QString() : labels.first()->text();
+            };
+            check(stateText() == QStringLiteral("收起"), "Z16a 展开后折叠行右侧写「收起」", stateText());
             page.setFileEditingOpen(false);
             check(!page.fileToggle()->isChecked() && !page.fileBody()->isVisible(),
                   "★ Z16a `setFileEditingOpen(false)` 把框收回去（用户选了「取消」那一档）");
+            check(stateText() == QStringLiteral("展开"),
+                  "★★ #74 弹窗里选「取消」把框收回去之后，右侧文字变回「展开」", stateText());
             page.setFileEditingOpen(true);
             check(editingCount == 1,
                   "★★ Z16a `setFileEditingOpen(true)` **不再发一次** `fileEditingRequested()` "
@@ -387,6 +397,12 @@ int UiWorldEditorChecks() {
                   QStringLiteral("一共发了 %1 次").arg(editingCount));
             check(page.fileBody()->isVisible() && page.fileToggle()->isChecked(),
                   "Z16a 主程序说「继续改」之后框真的开着");
+            check(page.saveButton()->parentWidget() == page.fileBody() ||
+                      page.fileBody()->isAncestorOf(page.saveButton()),
+                  "★★ #74 「保存」在「修改存档文件」这一组里（框收着时不露面）");
+            check(page.nameEdit()->width() > 340,
+                  "★ #74 展开后世界名输入框占满一行，不再被短值上限（340）截短",
+                  QString::number(page.nameEdit()->width()));
             page.setFileEditingOpen(false);
             check(!page.fileBody()->isVisible(), "Z16a 收回来之后里头那四格又看不见了");
         }
@@ -535,10 +551,9 @@ int UiWorldEditorChecks() {
                   "★★ Z16f 读不出来时**整块正文藏起来**（它摆的那些值一个都不作数）");
             check(!broken.saveButton()->isVisible(),
                   "★★ Z16f 「保存」整个不画 —— 读不出存档内容就不该往上写任何东西");
-            check(broken.backButton()->isVisible() && broken.backupButton()->isVisible() &&
-                      broken.openFolderButton()->isVisible(),
-                  "★★ Z16f 但「返回」「备份一份」「打开文件夹」都还在 —— 这一档最该做的就是"
-                  "这三件事，不能是个死胡同");
+            check(broken.fullBackupButton()->isVisible() && broken.openFolderButton()->isVisible(),
+                  "★★ Z16f 但「立即备份」「打开文件夹」都还在 —— 这一档最该做的就是"
+                  "这两件事，不能是个死胡同");
             check(broken.renameButton()->isVisible() && broken.deleteButton()->isVisible(),
                   "★★ Z16f 「重命名…」「删除世界…」也还在 —— 读不出存档内容，但这个世界还在"
                   "盘上，该能改名、该能删");
@@ -554,15 +569,12 @@ int UiWorldEditorChecks() {
 
         // ---- 四条信号 + 这一层接住的 Esc ----
         int saveCount = 0;
-        int backupCount = 0;
         int openCount = 0;
         int backCount = 0;
         int renameCount = 0;
         int deleteCount = 0;
         QObject::connect(&page, &WorldSettingsPage::saveRequested, &page,
                          [&saveCount] { ++saveCount; });
-        QObject::connect(&page, &WorldSettingsPage::backupRequested, &page,
-                         [&backupCount] { ++backupCount; });
         QObject::connect(&page, &WorldSettingsPage::openFolderRequested, &page,
                          [&openCount] { ++openCount; });
         QObject::connect(&page, &WorldSettingsPage::backRequested, &page,
@@ -572,19 +584,16 @@ int UiWorldEditorChecks() {
         QObject::connect(&page, &WorldSettingsPage::deleteRequested, &page,
                          [&deleteCount] { ++deleteCount; });
         page.saveButton()->click();
-        page.backupButton()->click();
         page.openFolderButton()->click();
-        page.backButton()->click();
         page.renameButton()->click();
         page.deleteButton()->click();
-        check(saveCount == 1 && backupCount == 1 && openCount == 1 && backCount == 1 &&
-                  renameCount == 1 && deleteCount == 1,
-              "Z16g 六颗按钮各发各的信号（这一层不自己写盘、也不自己切格子 / 不自己弹框）",
-              QStringLiteral("%1/%2/%3/%4/%5/%6")
+        check(saveCount == 1 && openCount == 1 && backCount == 0 && renameCount == 1 &&
+                  deleteCount == 1,
+              "Z16g 四颗按钮各发各的信号（这一层不自己写盘、也不自己切格子 / 不自己弹框；"
+              "页内没有「返回」，返回在覆盖层页眉的面包屑上）",
+              QStringLiteral("%1/%2/%3/%4")
                   .arg(saveCount)
-                  .arg(backupCount)
                   .arg(openCount)
-                  .arg(backCount)
                   .arg(renameCount)
                   .arg(deleteCount));
         check(page.renameButton()->text() == WorldSettingsPage::renameText() &&
@@ -595,7 +604,7 @@ int UiWorldEditorChecks() {
         // 是**整个实例设置页**，而用户想的是"退回存档列表"。
         QKeyEvent esc(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
         QApplication::sendEvent(page.nameEdit(), &esc);
-        check(backCount == 2 && esc.isAccepted(),
+        check(backCount == 1 && esc.isAccepted(),
               "★★ Z16g 在世界名那个框上按 Esc = 「返回」：框自己不认它、它冒到这一层被接住"
               "并吃掉（和「配置文件」那一页同一个坑）",
               QStringLiteral("收到 %1 次").arg(backCount));
@@ -673,6 +682,57 @@ int UiWorldEditorChecks() {
         }
 
         page.hide();
+    }
+
+    // ---- #74：全局滚轮规矩（没有焦点的下拉框、数字框不认滚轮，滚轮交给外层滚动区）----
+    {
+        WheelFocusFilter::install(*qApp);
+        QWidget host;
+        auto *area = new QScrollArea(&host);
+        area->setWidgetResizable(true);
+        auto *content = new QWidget(area);
+        content->setMinimumHeight(1200);
+        // 没有逐个装 WheelGuard：全靠应用级过滤器。
+        auto *combo = new QComboBox(content);
+        combo->addItems({QStringLiteral("和平"), QStringLiteral("简单"), QStringLiteral("普通")});
+        combo->setGeometry(10, 10, 140, 32);
+        auto *spin = new QSpinBox(content);
+        spin->setRange(0, 99999);
+        spin->setValue(123);
+        spin->setGeometry(10, 60, 140, 32);
+        auto *other = new QLineEdit(content);
+        other->setGeometry(10, 110, 140, 32);
+        area->setWidget(content);
+        area->resize(240, 160);
+        host.resize(240, 160);
+        host.show();
+        host.activateWindow();
+        QApplication::processEvents();
+        other->setFocus();
+        QApplication::processEvents();
+        check((combo->focusPolicy() & Qt::WheelFocus) != Qt::WheelFocus &&
+                  (spin->focusPolicy() & Qt::WheelFocus) != Qt::WheelFocus,
+              "★★ #74 下拉框、数字框的焦点策略里没有 WheelFocus（滚轮抢不到焦点）");
+        const auto wheel = [](QWidget *target) {
+            QWheelEvent event(QPointF(5, 5), target->mapToGlobal(QPointF(5, 5)), QPoint(0, 0),
+                              QPoint(0, -120), Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase,
+                              false);
+            QApplication::sendEvent(target, &event);
+        };
+        QScrollBar *bar = area->verticalScrollBar();
+        const int before = bar->value();
+        wheel(combo);
+        wheel(spin);
+        QApplication::processEvents();
+        check(combo->currentIndex() == 0 && spin->value() == 123 && bar->value() > before,
+              "★★ #74 没有焦点时滚轮不改下拉框、数字框的值，滚轮转给外层滚动区",
+              QStringLiteral("下拉框 %1 / 数字框 %2 / 滚动 %3→%4")
+                  .arg(combo->currentIndex()).arg(spin->value()).arg(before).arg(bar->value()));
+        combo->setFocus();
+        QApplication::processEvents();
+        wheel(combo);
+        check(combo->hasFocus() && combo->currentIndex() != 0,
+              "#74 有焦点时滚轮照常改值", QString::number(combo->currentIndex()));
     }
     return 0;
 }
