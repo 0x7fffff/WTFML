@@ -25,6 +25,7 @@
 #pragma once
 
 #include <QColor>
+#include <QHash>
 #include <QIcon>
 #include <QList>
 #include <QMap>
@@ -254,6 +255,7 @@ public:
         QString version;       ///< 版本名
         QString players;       ///< `3 / 20`
         QString latency;       ///< `26 ms`
+        int latencyMs = -1;    ///< 本次成功延迟；失败/超时为 -1
         QPixmap icon;          ///< 服务器图标（64×64；没有就是空的）
     };
     void setServerView(const ServerView &view);
@@ -478,6 +480,15 @@ private:
     QLabel *m_serverIcon = nullptr;
     QLabel *m_serverResult = nullptr;
     QListWidget *m_serverHistory = nullptr;
+    /// 本次会话里每个地址的成功次数/延迟范围/超时次数；离开工具即清空。
+    struct ServerHistoryStat {
+        int attempts = 0;
+        int successes = 0;
+        int minMs = 0;
+        int maxMs = 0;
+        int timeouts = 0;
+    };
+    QHash<QString, ServerHistoryStat> m_serverHistoryStats;
 
     // 五、信标计算
     QSpinBox *m_beaconFrom = nullptr;

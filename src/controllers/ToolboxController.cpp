@@ -745,6 +745,7 @@ void ToolboxController::checkServer(const QString &address) {
                         view.players = ToolboxPage::serverPlayerCountText(
                             status.playersOnline, status.playersMax);
                         view.latency = tr("%1 ms").arg(status.latencyMs);
+                        view.latencyMs = status.latencyMs;
                         if (!status.iconPng.isEmpty()) {
                             // 服务器给的字节走 ImageDecode：那一层有尺寸上限（见
                             // `ImageDecode::Limits`），挡解压炸弹。
