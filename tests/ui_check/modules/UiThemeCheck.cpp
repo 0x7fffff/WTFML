@@ -383,6 +383,48 @@ int UiThemeCheck(QApplication &app) {
                 settle();
                 expect(markerOf() == nullptr || !markerOf()->isVisible(), "★ 列表标记：鼠标一点就收回");
             }
+            // ---- 开关控件能用 Tab 到达，只在键盘焦点时画环（#70 第二批 ④）----
+            {
+                QWidget switchHost;
+                switchHost.resize(220, 90);
+                auto *before = new QLineEdit(&switchHost);
+                before->setGeometry(10, 8, 190, 30);
+                auto *tabSwitch = new ToggleSwitch(&switchHost);
+                tabSwitch->move(10, 50);
+                tabSwitch->resize(tabSwitch->sizeHint());
+                switchHost.move(420, 260);
+                switchHost.show();
+                switchHost.activateWindow();
+                before->setFocus(Qt::OtherFocusReason);
+                app.processEvents();
+                expect((tabSwitch->focusPolicy() & Qt::TabFocus) != 0 && (tabSwitch->focusPolicy() & Qt::ClickFocus) == 0,
+                       "★ 开关：能用 Tab 到达（鼠标点它不抢焦点）");
+                const QImage unfocused = tabSwitch->grab().toImage();
+                // 真按 Tab：键盘到达 → 画环。
+                QKeyEvent tabKey(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier);
+                QApplication::sendEvent(before, &tabKey);
+                app.processEvents();
+                const QImage ringed = tabSwitch->grab().toImage();
+                expect(tabSwitch->hasFocus() && tabSwitch->property("wtfmlKeyboardFocus").toBool() && ringed != unfocused,
+                       "★ 开关：Tab 到达后画键盘焦点环");
+                // 空格切换（QAbstractButton 自带）。
+                QKeyEvent spaceDown(QEvent::KeyPress, Qt::Key_Space, Qt::NoModifier, QStringLiteral(" "));
+                QKeyEvent spaceUp(QEvent::KeyRelease, Qt::Key_Space, Qt::NoModifier, QStringLiteral(" "));
+                QApplication::sendEvent(tabSwitch, &spaceDown);
+                QApplication::sendEvent(tabSwitch, &spaceUp);
+                app.processEvents();
+                expect(tabSwitch->isChecked(), "开关：焦点在上面按空格切换");
+                // 鼠标按下：环收掉（焦点仍在，不再画）。
+                const QPoint at = tabSwitch->rect().center();
+                QMouseEvent press(QEvent::MouseButtonPress, QPointF(at), QPointF(tabSwitch->mapToGlobal(at)),
+                                  Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+                QApplication::sendEvent(tabSwitch, &press);
+                QMouseEvent release(QEvent::MouseButtonRelease, QPointF(at), QPointF(tabSwitch->mapToGlobal(at)),
+                                    Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+                QApplication::sendEvent(tabSwitch, &release);
+                app.processEvents();
+                expect(!tabSwitch->property("wtfmlKeyboardFocus").toBool(), "★ 开关：鼠标点过之后不再画键盘焦点环");
+            }
             ToggleSwitch toggle;
             toggle.resize(toggle.sizeHint());
             toggle.setChecked(true);
