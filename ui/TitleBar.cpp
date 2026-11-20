@@ -285,7 +285,11 @@ bool TitleBarButton::event(QEvent *event) {
 
 void TitleBarButton::focusInEvent(QFocusEvent *event) {
     QAbstractButton::focusInEvent(event);
-    m_keyboardFocus = event->reason() == Qt::TabFocusReason || event->reason() == Qt::BacktabFocusReason;
+    // Qt 藏起有焦点的控件（鼠标关浮层、换页）时也把焦点按 TabFocusReason 交给链上下一个，
+    // 所以光看理由不够：还要"最后一次输入是键盘"。后者读 Theme 的焦点过滤器在 FocusIn 之前挂的
+    // wtfmlKeyboardFocus（只在此刻读一次，不跟着后来的按键变，窗口激活后按回车才不会收放导航）。
+    const bool tabReason = event->reason() == Qt::TabFocusReason || event->reason() == Qt::BacktabFocusReason;
+    m_keyboardFocus = tabReason && property("wtfmlKeyboardFocus").toBool();
     update();
 }
 
