@@ -20,6 +20,7 @@
 
 #include "MainWindow.hpp"
 #include "util/FileAssociations.hpp"
+#include "../ui/WindowMotion.hpp"
 #include "perf/PerfProbe.hpp"  // 测量构建专用；普通构建里 attach() 是内联空函数
 #include "../ui/ChromeDialog.hpp"
 #include "../ui/Animations.hpp"  // 按下按钮那一份动效（见下面那段 NOTE）
@@ -285,6 +286,8 @@ int main(int argc, char *argv[]) {
     if (acceptance.enabled() && acceptance.windowWidth > 0) {
         window.resize(acceptance.windowWidth, acceptance.windowHeight);
     }
+    // 开程序「雾散开」：首帧画成起手样子（磨砂、四组内容藏着、品牌标空着），首帧之后才动。
+    WindowMotion::armOpening(&window);
     window.show();
 
     // 日志文件到这一刻才开：窗口立起来 = FolderManager 已经把「当前游戏文件夹」从

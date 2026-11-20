@@ -437,6 +437,7 @@ set(SOURCE_FILES
     # OverlayHost.cpp 都直接调它，少了这一个文件会在链接那一步报一串 undefined reference
     # to Anim::…。
     ${REPO_ROOT}/ui/Animations.cpp
+    ${REPO_ROOT}/ui/WindowMotion.cpp
     # 主题里那两张背景图：`ui/ThemeBackground.cpp` 是四个页面和主页左栏直接
     # new 的那个容器，`src/util/ThemeImage.cpp` 是 MainWindow 收图那一步调的（挑回来的图
     # 拷进数据目录、顺手缩到 2560 以内）。少哪一个都会在链接那一步报一串 undefined reference。

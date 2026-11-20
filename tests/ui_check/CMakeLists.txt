@@ -146,6 +146,7 @@ ${REPO_ROOT}/ui/InstanceSettingsSignature.cpp
                                 # 动效那一层：按钮按下 / 换页 / 展开折叠。
                                 # MainWindowUI.cpp 和 OverlayHost.cpp 都直接调它。
                                 ${REPO_ROOT}/ui/Animations.cpp
+                                ${REPO_ROOT}/ui/WindowMotion.cpp
                                 # 「先铺底色、再铺一张图」的容器：四个页面和主页
                                 # 左栏现在直接 new 它，少了这一个文件会在链接那一步报
                                 # `undefined reference to ThemeBackground::ThemeBackground(…)`。
@@ -297,6 +298,7 @@ add_ui_module(ui_check_home_greeting_shots modules/UiHomeGreetingShots.cpp UiHom
 add_ui_module(ui_check_account_kind_shots modules/UiAccountKindShots.cpp UiAccountKindShots)  # 样张，不进 ctest
 add_ui_module(ui_check_popups modules/UiPopupCheck.cpp UiPopupCheck)
 add_ui_module(ui_check_window_chrome modules/UiWindowChromeCheck.cpp UiWindowChromeCheck)
+add_ui_module(ui_check_window_motion modules/UiWindowMotionCheck.cpp UiWindowMotionCheck)
 add_ui_module(ui_check_armor_trim ArmorTrimChecks.cpp runArmorTrimChecks)
 add_ui_module(ui_check_background_shots modules/UiBackgroundShots.cpp UiBackgroundShots)  # 背景图样张，不进 ctest
 add_ui_module(ui_check_settings_shots modules/UiSettingsShotsCheck.cpp UiSettingsShotsCheck)  # 设置页验收截图，不进 ctest
@@ -399,6 +401,12 @@ set_tests_properties(wtfml.popups-scale PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_SCALE_FACTOR=1.25;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
 )
 wtfml_add_test(NAME wtfml.lifecycle COMMAND ui_check_lifecycle)
+wtfml_add_test(NAME wtfml.window-motion COMMAND ui_check_window_motion)
+set_tests_properties(wtfml.window-motion PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
+    TIMEOUT 60
+    LABELS "ui"
+)
 wtfml_add_test(NAME wtfml.resource-packs COMMAND ui_check_resource_packs)
 set_tests_properties(wtfml.resource-packs PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"

@@ -111,6 +111,8 @@ void MainWindow::closeEvent(QCloseEvent *event) {
     // 窗口大小先落盘（节流那一发可能还没到点）；关窗被取消也无妨，值本来就该是这个。
     if (m_windowSizeSaveTimer != nullptr) m_windowSizeSaveTimer->stop();
     m_settings->setMainWindowSize(MainWindowUI::rememberedWindowSize(this));
+    // 合雾播完回来的这一趟：前面的确认、交出进程都已经做过，直接关。
+    if (m_closeFog == WindowMotion::CloseFog::Done) { QMainWindow::closeEvent(event); return; }
     if (m_presetController && !m_presetController->leaveEditor()) { event->ignore(); return; }
     const QList<LauncherManager::GameSession> games = m_launcherManager->runningGames();
     // 还在跑的那些服务端（键 = serverId，**按名字排序** —— 提示里报出来的名字每次都得是
@@ -139,6 +141,7 @@ void MainWindow::closeEvent(QCloseEvent *event) {
     }
 
     if (games.isEmpty() && serverIds.isEmpty()) {
+        if (WindowMotion::interceptClose(this, event, m_closeFog)) return;
         QMainWindow::closeEvent(event);
         return;
     }
@@ -252,5 +255,6 @@ void MainWindow::closeEvent(QCloseEvent *event) {
         m_launcherManager->detachRunningGame();
         appendLog(tr("已关掉启动器，游戏继续在跑。"));
     }
+    if (WindowMotion::interceptClose(this, event, m_closeFog)) return;
     QMainWindow::closeEvent(event);
 }

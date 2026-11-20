@@ -20,6 +20,8 @@
 #include <QSaveFile>
 #include <QSettings>
 #include <QTimer>
+#include <QThreadPool>
+#include <QImage>
 #include <QFutureWatcher>
 #include <QtConcurrent/QtConcurrentRun>
 
@@ -131,8 +133,17 @@ inline void attach(const Context &context, QWidget &window) {
     if (!context.enabled()) return;
     QTimer::singleShot(500, &window, [context, &window] {
         record(context, {{"mainWindowShown", window.isVisible()},
-            {"windowWidth", window.width()}, {"windowHeight", window.height()},
-            {"screenshot", window.grab().save(context.root + "/window-" + QString::number(QCoreApplication::applicationPid()) + ".png")}});
+            {"windowWidth", window.width()}, {"windowHeight", window.height()}});
+    });
+    // 整窗截图等开窗「雾散开」（ui/WindowMotion，首帧后约 620 ms）播完再拍，PNG 编码和写盘放到线程池：
+    // 在主线程上要卡约 300 ms，以前正好落在开场动效中间（验收 / 测速 / 录像都带这个档案）。
+    QTimer::singleShot(1200, &window, [context, &window] {
+        const QImage shot = window.grab().toImage();
+        const QString path = context.root + "/window-" + QString::number(QCoreApplication::applicationPid()) + ".png";
+        QThreadPool::globalInstance()->start([context, shot, path] {
+            const bool saved = shot.save(path);
+            QMetaObject::invokeMethod(qApp, [context, saved] { record(context, {{"screenshot", saved}}); });
+        });
     });
     // 界面语言那一条链路的验收：切到设置页 → 拍「语言」那一行 → 真改一次（落盘 + 弹提示
     // 卡）→ 拍提示卡 → 点「立即重启」。新进程带着同一个档案起来，也会走这一遍（那时下拉框
