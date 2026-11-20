@@ -73,10 +73,13 @@ int UiQuickPlayChecks(InstanceSettingsDialog &dialog, const QString &instanceDis
                       .arg(joinServer->isHidden() ? 1 : 0).arg(joinServer->text()));
 
             // 自己摆一份确定的表：一条有名字、一条名字是**空串**（屏幕上写成「（无名）」）。
+            // 「隐藏服务器地址」打开：屏幕上是遮过的，才分得出"发出去的是完整地址"。
+            QSettings().setValue(QStringLiteral("Look/HideServerAddress"), true);
             dialog.setServerList({qMakePair(QStringLiteral("有名字的"),
                                             QStringLiteral("one.example.com")),
                                   qMakePair(QString(), QStringLiteral("two.example.com"))},
                                  QString());
+            QSettings().remove(QStringLiteral("Look/HideServerAddress"));
             check(tree->topLevelItemCount() == 2, "U10S 前提：两行摆好了",
                   QStringLiteral("%1 行").arg(tree->topLevelItemCount()));
             check(tree->topLevelItem(1)->text(0) == Dlg::unnamedMark(),
@@ -123,7 +126,7 @@ int UiQuickPlayChecks(InstanceSettingsDialog &dialog, const QString &instanceDis
                   QStringLiteral("hidden=%1「%2」")
                       .arg(joinServer->isHidden() ? 1 : 0).arg(joinServer->text()));
             check(tree->topLevelItem(0)->text(1) == QStringLiteral("o-.e-.c-"),
-                  "U10S 前提：地址那一栏在屏幕上确实是**遮过**的",
+                  "U10S 前提：开关打开时，地址那一栏在屏幕上是**遮过**的",
                   tree->topLevelItem(0)->text(1));
 
             tree->setCurrentItem(tree->topLevelItem(0), 0, QItemSelectionModel::ClearAndSelect);

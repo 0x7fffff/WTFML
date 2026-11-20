@@ -26,6 +26,10 @@
 #include "UpgradeReportDialog.hpp"
 #include "ToggleSwitch.hpp"
 #include "VersionIcons.hpp"
+#include "InstanceSettingsDialog.hpp"
+#include "manage/ServerListFile.hpp"
+#include <QContextMenuEvent>
+#include <QSettings>
 #include <QApplication>
 #include <QVariantAnimation>
 #include <QAbstractButton>
@@ -689,6 +693,11 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
             for (const QSize &size : {QSize(900, 590), QSize(1400, 800)})
                 list.append({QStringLiteral("batch-%1-multi-dark-%2x%3.png").arg(QLatin1String(page)).arg(size.width()).arg(size.height()),
                              QStringLiteral("dark"), size, false, manage, QStringLiteral("multi:%1").arg(QLatin1String(page))});
+        // 服务器地址（#68）：默认原文 / 打开「隐藏服务器地址」 / 右键菜单，浅色（青瓷）与深色各一张。
+        for (const QString &theme : {QStringLiteral("emerald"), QStringLiteral("dark")})
+            for (const char *kind : {"plain", "hidden", "menu"})
+                list.append({QStringLiteral("server-address-%1-%2-1280x800.png").arg(QLatin1String(kind), theme), theme, {1280, 800}, false, manage,
+                             QStringLiteral("srv:") + QLatin1String(kind)});
         // 只出名字含这段字的几张（逐页精修时不必每次跑满 56 张）。
         const QString only = qEnvironmentVariable("WTFML_DESIGN_SHOT_FILTER");
         if (!only.isEmpty())
@@ -886,6 +895,18 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
                 // 面板按屏幕可用区夹位置：窗口伸出屏外时它会被夹回来、不再贴着胶囊右沿。
                 window.move(window.screen()->availableGeometry().topLeft() + QPoint(60, 60));
                 window.ui()->getAccountSkinButton()->click();
+            } else if (shot.page.startsWith(QStringLiteral("srv:"))) {
+                // 「机械动力 Create」的 servers.dat：一条长域名带端口、一条 IP、一条 IPv6、一条没端口。
+                const QString dat = ServerListFile::pathFor(QStringLiteral("create"));
+                QFile::remove(dat);
+                for (const QPair<QString, QString> &server : {
+                         qMakePair(QStringLiteral("长地址服务器"), QStringLiteral("survival.very-long-community-network.example.com:25566")),
+                         qMakePair(QStringLiteral("朋友的服"), QStringLiteral("123.45.67.89")),
+                         qMakePair(QStringLiteral("IPv6 服务器"), QStringLiteral("[2001:db8::1]:25566")),
+                         qMakePair(QStringLiteral("Hypixel"), QStringLiteral("mc.hypixel.net"))})
+                    ServerListFile::addEntry(dat, server.first, server.second, nullptr);
+                QSettings().setValue(QStringLiteral("Look/HideServerAddress"), shot.page.endsWith(QStringLiteral("hidden")));
+                QMetaObject::invokeMethod(&window, "openInstanceSettings", Q_ARG(QString, QStringLiteral("create")), Q_ARG(QString, QStringLiteral("server")));
             } else if (shot.page.startsWith(QStringLiteral("multi:"))) {
                 // 「机械动力 Create」里摆四个世界、世界里摆四个结构文件，再开对应页。
                 const QString saves = AppPaths::versionDir(QStringLiteral("create")) + QStringLiteral("/saves");
@@ -919,6 +940,19 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
                     for (int i = 0; i < 5; ++i) QApplication::processEvents();
                 }
             }
+            if (shot.page == QStringLiteral("srv:menu")) {
+                // 右键第 1 行（长地址那条）弹出菜单；菜单是 Qt::Popup，下面和别的浮层一样合成进图。
+                // 版本支持快速加入时下方多一颗「加入服务器」，菜单里的「加入」跟着亮。
+                if (auto *dialog = window.findChild<InstanceSettingsDialog *>())
+                    dialog->setServerJoinText(InstanceSettingsDialog::serverJoinText(), InstanceSettingsDialog::serverJoinTip());
+                if (auto *tree = window.findChild<QTreeWidget *>(InstanceSettingsDialog::serverTreeName())) {
+                    const QRect cell = tree->visualRect(tree->model()->index(0, 0));
+                    const QPoint at = cell.center() - QPoint(cell.width() / 4, 0);
+                    QContextMenuEvent event(QContextMenuEvent::Mouse, at, tree->viewport()->mapToGlobal(at));
+                    QApplication::sendEvent(tree->viewport(), &event);
+                    for (int i = 0; i < 5; ++i) QApplication::processEvents();
+                }
+            }
             if (shot.page.startsWith(QStringLiteral("multi:"))) {
                 // 点「全选」。
                 const QString key = shot.page.section(QLatin1Char(':'), 1);
@@ -949,7 +983,7 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
                 panel->close();
             }
             // 智能体页的 ⋯ 菜单 / 实例下拉同理（Qt::Popup）。
-            for (const char *name : {"agentMoreMenu", "agentInstanceMenu"}) {
+            for (const char *name : {"agentMoreMenu", "agentInstanceMenu", "serverMenu"}) {
                 if (auto *menu = window.findChild<QWidget *>(QLatin1String(name)); menu != nullptr && menu->isVisible()) {
                     QPainter painter(&shotImage);
                     painter.drawPixmap(window.mapFromGlobal(menu->mapToGlobal(QPoint(0, 0))), menu->grab());

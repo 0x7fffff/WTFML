@@ -14,7 +14,10 @@
 #include "Animations.hpp"
 #include "Theme.hpp"   // 浮层的底色（Theme::Part::Panel）
 
-#include <QAbstractItemView>  // eventFilter()：那两件导航控件共同的兜底（focusInEvent 替人挑第一条）
+#include <QAbstractItemView>
+#include <QApplication>
+#include <QStyle>
+#include <QStyleOptionViewItem>  // eventFilter()：那两件导航控件共同的兜底（focusInEvent 替人挑第一条）
 #include <QCheckBox>
 #include <QComboBox>
 #include <QCompleter>
@@ -85,6 +88,69 @@ bool fileKeyCanToggle(const QString &key) {
 #include "InstanceSettingsDialogInternals.hpp"
 
 using namespace InstanceSettingsDialogInternals;
+
+namespace {
+/// 服务器列表「地址」那一列的代理：放不下时省略中间、保留开头和端口（见 elidedServerAddress()）。
+/// 表开着 wordWrap（状态那一列要两行），这一列关掉换行，自己省略。
+class ServerAddressDelegate final : public DesignDefaults::RowDelegate {
+public:
+    using DesignDefaults::RowDelegate::RowDelegate;
+
+protected:
+    void initStyleOption(QStyleOptionViewItem *option, const QModelIndex &index) const override {
+        RowDelegate::initStyleOption(option, index);
+        option->features &= ~QStyleOptionViewItem::WrapText;
+        if (option->rect.width() <= 0) {
+            return;  // sizeHint 那一路没有格子宽度
+        }
+        const int margin = 2 * (QApplication::style()->pixelMetric(QStyle::PM_FocusFrameHMargin, nullptr, option->widget) + 1);
+        option->text = InstanceSettingsDialog::elidedServerAddress(
+            option->text, option->fontMetrics, option->rect.width() - 2 * DesignDefaults::cellTextInset() - margin);
+    }
+};
+}  // namespace
+
+void InstanceSettingsDialog::popUpServerMenu(QTreeWidgetItem *item, const QPoint &globalPos) {
+    if (item == nullptr || m_serverTree == nullptr || m_serverEdit == nullptr || m_serverJoin == nullptr) {
+        return;
+    }
+    // 右键先选中那一行（只选它一行）：「加入」「编辑」按的是列表下方那两颗，它们认选中行。
+    m_serverTree->clearSelection();
+    m_serverTree->setCurrentItem(item);
+    item->setSelected(true);
+    // 上一次那块还没收走就换掉，免得两个同名浮层并存。
+    if (auto *old = findChild<QWidget *>(serverMenuName())) {
+        old->hide();
+        old->setObjectName(QString());
+        old->deleteLater();
+    }
+    const QString address = item->data(1, MainWindowUI::serverAddressRole()).toString();
+    auto *menu = new MenuPopup(this);
+    menu->setObjectName(serverMenuName());
+    menu->setAttribute(Qt::WA_DeleteOnClose);
+    auto *box = new QVBoxLayout(menu);
+    box->setContentsMargins(kMenuPadding, kMenuPadding, kMenuPadding, kMenuPadding);
+    box->setSpacing(kMenuRowSpacing);
+    const auto addEntry = [&](const QString &name, const QString &text, bool enabled, std::function<void()> action) {
+        auto *button = new QPushButton(text, menu);
+        button->setObjectName(name);
+        button->setStyleSheet(menuEntryStyle(menu->palette()));
+        button->setCursor(Qt::PointingHandCursor);
+        button->setEnabled(enabled);
+        connect(button, &QPushButton::clicked, this, [menu, action = std::move(action)] {
+            menu->close();
+            action();
+        });
+        box->addWidget(button);
+    };
+    // 「加入」收着时（版本没有快速加入参数）灰掉，和下方那颗的可见性一致。
+    addEntry(serverMenuJoinName(), serverMenuJoinText(), !m_serverJoin->isHidden() && m_serverJoin->isEnabled(),
+             [this] { m_serverJoin->click(); });
+    addEntry(serverMenuEditName(), serverEditText(), m_serverEdit->isEnabled(), [this] { m_serverEdit->click(); });
+    addEntry(serverMenuCopyName(), serverMenuCopyText(), !address.isEmpty(),
+             [this, address] { emit copyServerAddressRequested(address); });
+    menu->popUpAt(globalPos);
+}
 
 /// 「文件管理」那八页（服务器列表 + 七份同一个 `InstanceFilesPage`）里**的一页**。
 ///
@@ -504,7 +570,7 @@ void InstanceSettingsDialog::buildServerPage() {
                 // 默认是"最后一列吃掉多出来的宽度"，那样一来左边两行 MOTD 会被状态那一栏
                 // 挤掉一大截，动不动就出省略号（MOTD 要能显示全）。
                 // 这里让**第 0 列把剩下的全吃掉**，另外两列各占自己需要的那点地方 ——
-                // · 地址那一栏是遮过的（`m-.h-.c-`），本来就窄；
+                // · 地址那一栏按原文显示，放不下时省略中间（ServerAddressDelegate）；
                 // · 状态那一栏按内容定宽（两行里更宽的那一行），文字**靠右**，所以整栏
                 // 贴着右边停住、不跟着窗口一起长。
                 QHeaderView *header = m_serverTree->header();
@@ -513,7 +579,7 @@ void InstanceSettingsDialog::buildServerPage() {
                     header->setSectionResizeMode(0, QHeaderView::Stretch);
                     header->setSectionResizeMode(1, QHeaderView::Interactive);
                     header->setSectionResizeMode(2, QHeaderView::Interactive);
-                    m_serverTree->setColumnWidth(1, 120);
+                    m_serverTree->setColumnWidth(1, 240);
                     m_serverTree->setColumnWidth(2, 144);
                 }
                 // 表头那一格也跟着靠右，不然「状态」两个字会和它底下的数字错开一个身位。
@@ -524,6 +590,7 @@ void InstanceSettingsDialog::buildServerPage() {
                 m_serverTree->setItemDelegateForColumn(
                     0, new VersionTreeDelegate(m_serverTree, /*leafArrow=*/false,
                                                MainWindowUI::serverIconSize()));
+                m_serverTree->setItemDelegateForColumn(1, new ServerAddressDelegate(m_serverTree));
                 // 图标从表头字那条竖线起（代理自己只让 versionTreeRowPadding()，表头让 cellTextInset()）。
                 m_serverTree->setProperty("wtfmlRowLeftPad",
                     DesignDefaults::cellTextInset() - MainWindowUI::versionTreeRowPadding());
@@ -537,10 +604,8 @@ void InstanceSettingsDialog::buildServerPage() {
                 // 图标会被另算一遍尺寸。
                 m_serverTree->setIconSize(
                     QSize(MainWindowUI::serverIconSize(), MainWindowUI::serverIconSize()));
-                // 地址那一格**右键 = 复制那一串完整的地址**。走 `Qt::CustomContextMenu`
-                // 只是为了拿到"在哪儿按的"这一个坐标 —— **不弹菜单**：这一页上右键只有
-                // 这一件事可做，而悬停提示（serverAddressCopyHint()）已经把这句话告诉
-                // 用户了。
+                // 右键整行弹出「加入 / 编辑 / 复制地址」（popUpServerMenu()）。走
+                // `Qt::CustomContextMenu` 拿"在哪儿按的"这个坐标。
                 //
                 // NOTE: 不用 QMenu（更别说 QMenu::exec()）：仓库里那几块浮层一律是
                 // Qt::Popup 手搭的，理由写在 MainWindowUI.hpp 里 folderMenuName()
@@ -548,21 +613,10 @@ void InstanceSettingsDialog::buildServerPage() {
                 m_serverTree->setContextMenuPolicy(Qt::CustomContextMenu);
                 connect(m_serverTree, &QTreeWidget::customContextMenuRequested, this,
                         [this](const QPoint &pos) {
-                            if (m_serverTree == nullptr) {
-                                return;
+                            // pos 是 viewport 坐标（条目视图自己就是这么发的）。
+                            if (m_serverTree != nullptr) {
+                                popUpServerMenu(m_serverTree->itemAt(pos), m_serverTree->viewport()->mapToGlobal(pos));
                             }
-                            // pos 是**viewport 坐标**（条目视图自己就是这么发的），
-                            // itemAt()/columnAt() 要的也正是它。
-                            QTreeWidgetItem *item = m_serverTree->itemAt(pos);
-                            if (item == nullptr || m_serverTree->columnAt(pos.x()) != 1) {
-                                return;
-                            }
-                            const QString address =
-                                item->data(1, MainWindowUI::serverAddressRole()).toString();
-                            if (address.isEmpty()) {
-                                return;
-                            }
-                            emit copyServerAddressRequested(address);
                         });
                 // 「编辑」和「加入」靠"选中了哪一行"活着：选一下重算一次
                 // 那两颗的灰/亮。别的什么都不做 —— 这一发只跟那两颗按钮有关。

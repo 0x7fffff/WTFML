@@ -37,6 +37,7 @@
 #include <QDialog>
 #include <QCoreApplication>
 #include <QDateTime>
+#include <QFontMetrics>  // elidedServerAddress()
 #include <QHash>
 #include <QIcon>  // ServerRowStatus 里那一枚（服务器图标）
 #include <QImage>  // 截图缩略图缓存（m_lifecycleThumbCache）
@@ -1383,30 +1384,34 @@ public:
     /// 那一格窄（`ResizeToContents`），而「它没答话」和「网络不通」这两个理由对这个
     /// 格子的读者（想点进去玩的人）是同一件事：现在连不上。
     static QString serverTimeoutText() { return QCoreApplication::translate("InstanceSettingsDialog", "超时"); }
-    /// 地址那一格悬停提示里那句**告诉用户右键能复制**的话。
-    ///
-    /// NOTE: 唯一出处。那一格显示的是**遮过的**地址（`m-.h-.c-`），所以这句话还得说清
-    /// "复制到的是完整的那个" —— 不然用户看到 `m-.h-.c-`、复制出来却是一长串，
-    /// 会以为我们复制错了东西。
-    static QString serverAddressCopyHint() {
-        return QCoreApplication::translate("InstanceSettingsDialog", "右键复制完整的地址");
-    }
+    /// 右键服务器行弹出的菜单：objectName 与三项的文字（验证工程按它们取控件）。
+    static QString serverMenuName() { return QStringLiteral("serverMenu"); }
+    static QString serverMenuJoinName() { return QStringLiteral("serverMenuJoin"); }
+    static QString serverMenuEditName() { return QStringLiteral("serverMenuEdit"); }
+    static QString serverMenuCopyName() { return QStringLiteral("serverMenuCopy"); }
+    static QString serverMenuJoinText() { return QCoreApplication::translate("InstanceSettingsDialog", "加入"); }
+    static QString serverMenuCopyText() { return QCoreApplication::translate("InstanceSettingsDialog", "复制地址"); }
     // NOTE: 状态那一格**不加任何前缀**（连「上次：」都不行）—— 缓存里那一份和当场
     // 测出来那一份写的是同一句字。要在界面上给这一格加前缀，等于重新发明一句不该出现的话。
     static QString serverNameColumnText() { return QCoreApplication::translate("InstanceSettingsDialog", "名称"); }
     static QString serverAddressColumnText() { return QCoreApplication::translate("InstanceSettingsDialog", "地址"); }
     static QString serverStatusColumnText() { return QCoreApplication::translate("InstanceSettingsDialog", "状态"); }
 
-    /// 地址那一栏显示的**遮过的**写法。**唯一出处**（完整地址只在悬停提示里给）。
+    /// 设置页「隐藏服务器地址」（`Look/HideServerAddress`，默认关）。每次灌列表时读一次。
+    static bool hideServerAddress();
+    /// 地址那一栏默认显示用户填写的**原文**；「隐藏服务器地址」打开时显示 `maskedServerAddress()`。
+    static QString shownServerAddress(const QString &address, bool hide);
+    /// 地址太长放不下时省略中间：保留开头和 `:端口`（没有端口就中间各留一截）。放得下就原样返回。
+    static QString elidedServerAddress(const QString &text, const QFontMetrics &metrics, int width);
+
+    /// 「隐藏服务器地址」打开时地址那一栏显示的**遮过的**写法。
     ///
     /// 规矩：
     /// - **域名** —— 每一个点分开的段取**首字母 + 一条横杠**（`mc.hyperlands.cloud`
-    /// ⇒ `m-.h-.c-`）。域名要遮的是**那个名字**，留个首字母已经足够认人；
+    /// ⇒ `m-.h-.c-`）；
     /// - **数字地址**（四段全数字的 IPv4 / 带冒号的 IPv6）—— 留头两段、后面一律 `*`
-    /// （`123.45.67.89` ⇒ `123.45.*.*`）。数字地址要遮的是**后面那几段**：头两段留着
-    /// 还看得出是哪个网段 / 哪个机房，认不出的部分才该打掉；
-    /// - `[...]` 那种方括号**留着**，`:` 后面那个端口**照抄** —— 它们不是身份，而且
-    /// 端口不写的话有些服务器根本分不出来（同一个域名上开好几个）。
+    /// （`123.45.67.89` ⇒ `123.45.*.*`）；
+    /// - `[...]` 那种方括号**留着**，`:` 后面那个端口**照抄**。
     ///
     /// NOTE: 认不出来（空串、光一个方括号）就**原样回**，不猜也不报错：这一格只是个显示，
     /// 真正的"这个地址能不能用"由 ServerPing::splitAddress 说了算。
@@ -1918,13 +1923,12 @@ signals:
     void refreshServerListRequested();
 
     /**
-     * @brief 用户在地址那一格**按了右键** ⇒ 请把那一串**完整的**地址放进剪贴板。
+     * @brief 用户在右键菜单里选了「复制地址」 ⇒ 请把那一串**完整的**地址放进剪贴板。
      *
-     * 给出去的是**没遮过**的那一串（`host:port`，就是 servers.dat 里写的那个）—— 屏幕上
-     * 那一格显示的是遮过的写法（`maskedServerAddress()`），复制一份"屏幕上那样的"给用户
-     * 没有任何用（粘到游戏里连不上）。
+     * 给出去的是**没遮过**的那一串（`host:port`，就是 servers.dat 里写的那个），和「隐藏服务器地址」
+     * 开不开无关：复制是用户自己的操作。
      *
-     * NOTE: 这一层**不碰剪贴板**（也不写日志）：和 `copyNameRequested` 那边同一条路数 ——
+     * NOTE: 这一层**不碰剪贴板**（也不写日志、不弹提示）：和 `copyNameRequested` 那边同一条路数 ——
      * 复制出去的东西进哪儿由调用方说了算，而且这一层够不着 MainWindow 的日志。
      */
     void copyServerAddressRequested(const QString &address);
@@ -2007,6 +2011,9 @@ private:
     /// NOTE: 三个地方要喊它 —— 建完那棵树（初值）、`setServerList()`（整张表换掉 ⇒ 选中
     /// 没了）、以及 `itemSelectionChanged`（用户点了一行）。
     void updateServerSelectionActions();
+    /// 右键服务器行：选中 @p item，在 @p globalPos 弹出「加入 / 编辑 / 复制地址」（手搭 Qt::Popup，不用 QMenu::exec()）。
+    /// 「加入」「编辑」直接点列表下方那两颗按钮，和它们走同一处理。
+    void popUpServerMenu(QTreeWidgetItem *item, const QPoint &globalPos);
     void refreshServerFavorites();
 
     /// 服务器列表里**现在选中的那一行**（没选中 = nullptr）。

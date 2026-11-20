@@ -7192,6 +7192,10 @@ Backup location: %1</translation>
             <translation>Copied server address: %1</translation>
         </message>
         <message>
+            <source>已复制服务器地址</source>
+            <translation>Server address copied</translation>
+        </message>
+        <message>
             <source>编辑服务器</source>
             <translation>Edit server</translation>
         </message>
@@ -8902,8 +8906,12 @@ Discard changes?</translation>
             <translation>Time out</translation>
         </message>
         <message>
-            <source>右键复制完整的地址</source>
-            <translation>Right click and copy the complete address</translation>
+            <source>加入</source>
+            <translation>Join</translation>
+        </message>
+        <message>
+            <source>复制地址</source>
+            <translation>Copy address</translation>
         </message>
         <message>
             <source>名称</source>
@@ -14091,6 +14099,14 @@ Are you sure to delete?</translation>
         <message>
             <source>日志颜色显示</source>
             <translation>Log color display</translation>
+        </message>
+        <message>
+            <source>隐藏服务器地址</source>
+            <translation>Hide server addresses</translation>
+        </message>
+        <message>
+            <source>实例设置的服务器列表中，域名只显示每段首字母，IP 只显示前两段。</source>
+            <translation>In the instance settings server list, domain names show only the first letter of each part and IPs show only the first two parts.</translation>
         </message>
         <message>
             <source>日志颜色</source>

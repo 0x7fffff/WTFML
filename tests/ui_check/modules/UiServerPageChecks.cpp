@@ -419,7 +419,7 @@ int UiServerPageChecks(InstanceSettingsDialog &dialog) {
                       .arg(kindOf(dialog.serverJoinButton()), kindOf(remove)));
         }
 
-        // ---- U10L-8 地址那一栏遮起来（悬停才给全）----
+        // ---- U10L-8 地址那一栏：默认原文，「隐藏服务器地址」打开后遮起来，右键整行弹菜单 ----
         //
         // 要求：「域名就显示首个字母+一条横杠（如 m-.h-.c- 来表示
         // mc.hyperlands.cloud），悬停在上方时才显示完整的，ipv4 的显示为 123.45.*.*，
@@ -465,62 +465,138 @@ int UiServerPageChecks(InstanceSettingsDialog &dialog) {
                   "这一条对的是「真的没露」）",
                   Dlg::maskedServerAddress(QStringLiteral("mc.hyperlands.cloud")));
 
-            // 表里那一格写的是遮过的、完整的那一串挂在悬停提示上（**而且那句提示还得
-            // 告诉用户"右键能复制"** —— 用户 ：「这一点在悬停文本上也告知」）。
+            // ---- 默认：显示用户填的原文（域名、IP、IPv6 方括号、端口都照原样，没填端口不补）----
+            const QString hideKey = QStringLiteral("Look/HideServerAddress");
+            QSettings().remove(hideKey);
             const QString address = QStringLiteral("mc.hyperlands.cloud:25566");
-            dialog.setServerList(
-                {qMakePair(QStringLiteral("我的服"), address)}, QString());
+            const QList<QPair<QString, QString>> rows = {
+                qMakePair(QStringLiteral("我的服"), address),
+                qMakePair(QStringLiteral("IP"), QStringLiteral("123.45.67.89")),
+                qMakePair(QStringLiteral("IPv6"), QStringLiteral("[2001:db8::1]:25566")),
+                qMakePair(QStringLiteral("无端口"), QStringLiteral("play.example.net"))};
+            dialog.setServerList(rows, QString());
+            for (int i = 0; i < rows.size(); ++i) {
+                QTreeWidgetItem *row = tree->topLevelItem(i);
+                check(row->text(1) == rows.at(i).second && row->toolTip(1) == rows.at(i).second &&
+                          row->data(1, MainWindowUI::serverAddressRole()).toString() == rows.at(i).second,
+                      QStringLiteral("★★ U10L 默认显示原文（%1）：格子、悬停、完整地址三处都是用户填的那一串")
+                          .arg(rows.at(i).first),
+                      QStringLiteral("格「%1」提示「%2」").arg(row->text(1), row->toolTip(1)));
+            }
+
+            // ---- 「隐藏服务器地址」打开：遮蔽，悬停不露完整地址，完整地址仍挂在 role 上 ----
+            QSettings().setValue(hideKey, true);
+            dialog.setServerList(rows, QString());
             QTreeWidgetItem *item = tree->topLevelItem(0);
-            check(item->text(1) == QStringLiteral("m-.h-.c-:25566") &&
-                      item->toolTip(1) ==
-                          address + QLatin1Char('\n') + Dlg::serverAddressCopyHint(),
-                  "★★ U10L 表里写遮过的那一串，**完整的只在悬停时**给，"
-                  "并且那句悬停里写明右键能复制",
-                  QStringLiteral("格「%1」提示「%2」")
-                      .arg(item->text(1), item->toolTip(1)));
-            // 右键要复制的就是那一串**完整的**（屏幕上那一格写的是遮过的 —— 复制一份
-            // "屏幕上那样的"给用户，粘到游戏里连不上）。
+            check(item->text(1) == QStringLiteral("m-.h-.c-:25566") && item->toolTip(1).isEmpty(),
+                  "★★ U10L 开关打开 ⇒ 格子是遮过的，悬停提示里没有完整地址",
+                  QStringLiteral("格「%1」提示「%2」").arg(item->text(1), item->toolTip(1)));
+            check(tree->topLevelItem(1)->text(1) == QStringLiteral("123.45.*.*") &&
+                      tree->topLevelItem(2)->text(1) == QStringLiteral("[2001:db8::*]:25566"),
+                  "U10L 开关打开 ⇒ IP 留前两段、IPv6 方括号和端口留着",
+                  tree->topLevelItem(1)->text(1) + QLatin1Char('/') + tree->topLevelItem(2)->text(1));
             check(item->data(1, MainWindowUI::serverAddressRole()).toString() == address,
-                  "★★ U10L 完整的地址另挂一份在第 1 列的 serverAddressRole 上"
-                  "（右键复制的就是它，不许去拆 tooltip 那个字符串）",
+                  "★★ U10L 开关打开时完整地址仍挂在第 1 列的 serverAddressRole 上（编辑、加入、复制都取它）",
                   item->data(1, MainWindowUI::serverAddressRole()).toString());
+            QSettings().remove(hideKey);
 
-            // ---- 右键 = 发一条"复制这一串"（**不弹菜单**，要求「ip地址右键可以复制」）----
+            // ---- 过长省略中间：开头和端口都留着，放得下的原样 ----
             {
+                const QFontMetrics metrics(tree->font());
+                const QString longAddress = QStringLiteral("very-long-subdomain.of.some.example.network.com:25566");
+                const int width = metrics.horizontalAdvance(QStringLiteral("very-long-sub…:25566"));
+                const QString shown = Dlg::elidedServerAddress(longAddress, metrics, width);
+                check(shown.startsWith(QStringLiteral("very")) && shown.endsWith(QStringLiteral(":25566")) &&
+                          shown.contains(QChar(0x2026)) && metrics.horizontalAdvance(shown) <= width,
+                      "★★ U10L 长地址省略中间：开头和 :端口 都在，宽度不超", shown);
+                check(Dlg::elidedServerAddress(address, metrics, 4000) == address,
+                      "U10L 放得下的地址原样返回");
+                const QString noPort = Dlg::elidedServerAddress(
+                    QStringLiteral("very-long-subdomain.of.some.example.network.com"), metrics, width);
+                check(noPort.startsWith(QStringLiteral("very")) && noPort.endsWith(QStringLiteral(".com")) &&
+                          noPort.contains(QChar(0x2026)),
+                      "U10L 没端口的长地址：中间省略、两头留着", noPort);
+            }
+
+            // ---- 右键整行 ⇒ 手搭浮层「加入 / 编辑 / 复制地址」----
+            {
+                dialog.setServerJoinText(Dlg::serverJoinText(), Dlg::serverJoinTip());
+                dialog.setServerList(rows, QString());
                 QString copied;
-                int fired = 0;
-                const auto link = QObject::connect(
-                    &dialog, &Dlg::copyServerAddressRequested,
-                    [&copied, &fired](const QString &text) {
-                        copied = text;
-                        ++fired;
-                    });
-
-                // 那一格的中心（viewport 坐标）—— 条目视图发的就是这一套坐标。
-                const QRect cell = tree->visualRect(tree->model()->index(0, 1));
-                check(cell.isValid() && cell.width() > 2,
-                      "U10L 地址那一格量得出来", QStringLiteral("%1x%2")
-                                                     .arg(cell.width()).arg(cell.height()));
-                QContextMenuEvent onAddress(QContextMenuEvent::Mouse, cell.center(),
+                QString editedName;
+                QString editedAddress;
+                QString joinedAddress;
+                const QMetaObject::Connection links[] = {
+                    QObject::connect(&dialog, &Dlg::copyServerAddressRequested,
+                                     [&copied](const QString &text) { copied = text; }),
+                    QObject::connect(&dialog, &Dlg::editServerRequested,
+                                     [&](const QString &name, const QString &text) {
+                                         editedName = name;
+                                         editedAddress = text;
+                                     }),
+                    QObject::connect(&dialog, &Dlg::joinServerRequested,
+                                     [&joinedAddress](const QString &, const QString &text) {
+                                         joinedAddress = text;
+                                     })};
+                const auto rightClick = [&](int row) {
+                    const QRect cell = tree->visualRect(tree->model()->index(row, 0));
+                    QContextMenuEvent event(QContextMenuEvent::Mouse, cell.center(),
                                             tree->viewport()->mapToGlobal(cell.center()));
-                QApplication::sendEvent(tree->viewport(), &onAddress);
-                check(fired == 1 && copied == address,
-                      "★★ U10L 在**地址那一格**上按右键 ⇒ 发一条复制请求，给的是完整地址"
-                      "（菜单一个都不弹）",
-                      QStringLiteral("发了 %1 次、内容是「%2」").arg(fired).arg(copied));
+                    QApplication::sendEvent(tree->viewport(), &event);
+                };
+                const auto findMenu = [&dialog] { return dialog.findChild<QWidget *>(Dlg::serverMenuName()); };
+                const auto menuEntry = [&](const QString &name) -> QPushButton * {
+                    auto *popup = findMenu();
+                    return popup != nullptr ? popup->findChild<QPushButton *>(name) : nullptr;
+                };
 
-                // 别的格上按右键**什么都不发**：这一页上右键只对地址那一格有意义，
-                // 放行的话用户在想复制 MOTD 时会莫名其妙往剪贴板里塞一个服务器地址。
-                fired = 0;
-                copied.clear();
-                const QRect nameCell = tree->visualRect(tree->model()->index(0, 0));
-                QContextMenuEvent onName(QContextMenuEvent::Mouse, nameCell.center(),
-                                         tree->viewport()->mapToGlobal(nameCell.center()));
-                QApplication::sendEvent(tree->viewport(), &onName);
-                check(fired == 0 && copied.isEmpty(),
-                      "★ U10L 名字那一格上按右键一发都不发（右键只认地址那一格）",
-                      QStringLiteral("发了 %1 次").arg(fired));
-                QObject::disconnect(link);
+                tree->clearSelection();
+                rightClick(0);
+                check(findMenu() != nullptr && findMenu()->isVisible() && findMenu()->windowFlags().testFlag(Qt::Popup),
+                      "★★ U10L 右键一行 ⇒ 弹出手搭的 Qt::Popup 浮层");
+                check(tree->selectedItems().size() == 1 && tree->selectedItems().first() == tree->topLevelItem(0),
+                      "★★ U10L 右键时先选中那一行");
+                auto *join = menuEntry(Dlg::serverMenuJoinName());
+                auto *edit = menuEntry(Dlg::serverMenuEditName());
+                auto *copy = menuEntry(Dlg::serverMenuCopyName());
+                check(join != nullptr && edit != nullptr && copy != nullptr &&
+                          join->text() == Dlg::serverMenuJoinText() && edit->text() == Dlg::serverEditText() &&
+                          copy->text() == Dlg::serverMenuCopyText() && join->isEnabled() && edit->isEnabled() &&
+                          copy->isEnabled(),
+                      "★★ U10L 菜单三项「加入 / 编辑 / 复制地址」都在、都可点");
+                if (edit != nullptr) edit->click();
+                check(editedName == QStringLiteral("我的服") && editedAddress == address,
+                      "★★ U10L 菜单「编辑」和下方按钮同一处理：发出原名 + 完整地址",
+                      editedName + QLatin1Char('/') + editedAddress);
+                QApplication::processEvents();
+                QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+                check(findMenu() == nullptr, "U10L 点完一项菜单收起");
+
+                // 开关打开时，复制的仍是完整地址；「加入」同样走下方那颗的处理。
+                QSettings().setValue(hideKey, true);
+                dialog.setServerList(rows, QString());
+                rightClick(1);
+                if (auto *entry = menuEntry(Dlg::serverMenuCopyName())) entry->click();
+                check(copied == rows.at(1).second,
+                      "★★ U10L 开关打开时「复制地址」复制的是完整地址", copied);
+                QApplication::processEvents();
+                QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+                rightClick(2);
+                if (auto *entry = menuEntry(Dlg::serverMenuJoinName())) entry->click();
+                check(joinedAddress == rows.at(2).second,
+                      "U10L 菜单「加入」和下方按钮同一处理：发出完整地址", joinedAddress);
+                QApplication::processEvents();
+                QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+                QSettings().remove(hideKey);
+
+                // 版本没有快速加入参数（下方那颗收着）时，菜单里的「加入」灰着。
+                dialog.setServerJoinText(QString(), QString());
+                rightClick(0);
+                check(menuEntry(Dlg::serverMenuJoinName()) != nullptr && !menuEntry(Dlg::serverMenuJoinName())->isEnabled(),
+                      "U10L 下方「加入」收着时菜单里的「加入」灰着");
+                if (auto *popup = findMenu()) popup->close();
+                QApplication::processEvents();
+                for (const auto &link : links) QObject::disconnect(link);
             }
         }
 

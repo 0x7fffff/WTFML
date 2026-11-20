@@ -33,6 +33,7 @@
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QScreen>
+#include <QSettings>
 #include <QScrollArea>
 #include <QSignalBlocker>
 #include <QSize>
@@ -136,23 +137,21 @@ void InstanceSettingsDialog::setServerList(const QList<QPair<QString, QString>> 
     m_serverStatuses.resize(servers.size());
 
     m_serverTree->clear();
+    const bool hide = hideServerAddress();
     for (const QPair<QString, QString> &server : servers) {
         auto *item = new QTreeWidgetItem(m_serverTree);
         item->setText(0, server.first.isEmpty() ? unnamedMark() : server.first);
         // 那一格里**真正**的名字（可以是空串）。屏幕上空名字写的是「（无名）」——那是我们
         // 编的一句话，「编辑」那颗要预填的是文件里原本那一串（见 MainWindowUI::serverNameRole()）。
         item->setData(0, MainWindowUI::serverNameRole(), server.first);
-        // 地址那一栏写**遮过的**（`m-.h-.c-`），完整的那一串只在悬停时给（见
-        // maskedServerAddress 那段）。左边那两行 MOTD 因此能多占一大截宽度 —— MOTD
-        // 要能显示全。
-        item->setText(1, maskedServerAddress(server.second));
-        // 那一串**完整的**地址挂在这一格上：屏幕上写的是遮过的，而右键要复制的是真的那一串
-        // （见 MainWindowUI::serverAddressRole()）。悬停提示给的是同一串 + 一句"右键能复制"
-        // —— "这一点在悬停文本上也要告知"就是后半句（serverAddressCopyHint()）。
+        // 地址那一栏默认写用户填的原文，「隐藏服务器地址」打开时写遮过的（`m-.h-.c-`）。
+        // 放不下时由那一列的代理省略中间（见 InstanceSettingsFilePages.cpp）。
+        item->setText(1, shownServerAddress(server.second, hide));
+        // 完整的地址挂在这一格上：右键「复制地址」和「编辑 / 加入」都取它，不取屏幕上的字
+        // （见 MainWindowUI::serverAddressRole()）。悬停提示给完整地址，开关打开时不给，
+        // 否则截图时一悬停就露出来。
         item->setData(1, MainWindowUI::serverAddressRole(), server.second);
-        item->setToolTip(1, server.second.isEmpty()
-                                ? QString()
-                                : server.second + QLatin1Char('\n') + serverAddressCopyHint());
+        item->setToolTip(1, hide ? QString() : server.second);
         // 状态那一格**一开始就有字**（「还没测」）。空着和"测了没通"在屏幕上是同一个样子，
         // 而这两件事对用户完全不是一回事（一个是"点一下测速"、一个是"这台死了"）。
         item->setText(2, serverUntestedText());
@@ -312,6 +311,31 @@ QString InstanceSettingsDialog::serverStatusTooltip(const ServerRowStatus &statu
         parts.append(line);
     }
     return parts.join(QStringLiteral(" / "));
+}
+
+bool InstanceSettingsDialog::hideServerAddress() {
+    return QSettings().value(QStringLiteral("Look/HideServerAddress"), false).toBool();
+}
+
+QString InstanceSettingsDialog::shownServerAddress(const QString &address, bool hide) {
+    return hide ? maskedServerAddress(address) : address.trimmed();
+}
+
+QString InstanceSettingsDialog::elidedServerAddress(const QString &text, const QFontMetrics &metrics, int width) {
+    if (metrics.horizontalAdvance(text) <= width) {
+        return text;
+    }
+    // `:端口` 单独留着：主机名从右边收，省略号接在端口前面。冒号右边不是全数字（IPv6、没端口）就不拆。
+    const int colon = text.lastIndexOf(QLatin1Char(':'));
+    const QString port = text.mid(colon + 1);
+    const QString head = text.left(colon);
+    const bool hasPort = colon > 0 && !port.isEmpty() && (!head.contains(QLatin1Char(':')) || head.endsWith(QLatin1Char(']'))) &&
+                         std::all_of(port.begin(), port.end(), [](QChar c) { return c.isDigit(); });
+    if (!hasPort) {
+        return metrics.elidedText(text, Qt::ElideMiddle, width);
+    }
+    const QString tail = text.mid(colon);
+    return metrics.elidedText(head, Qt::ElideRight, qMax(0, width - metrics.horizontalAdvance(tail))) + tail;
 }
 
 QString InstanceSettingsDialog::maskedServerAddress(const QString &address) {

@@ -37,6 +37,8 @@
 #include <QDialogButtonBox>
 #include <QApplication>
 #include <QClipboard>
+#include <QCursor>
+#include <QToolTip>
 #include <QSet>
 #include <atomic>
 #include <functional>
@@ -2564,9 +2566,8 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                 m_owner->openInstanceFileResource(targetId, pageKey, path);
             });
 
-    // 地址那一格右键 ⇒ 把**完整的**地址放进剪贴板（要求「ip地址右键可以
-    // 复制」）。复制完**不弹话**：这一下是用户自己按的，粘一下就看得见 —— 和资源详情页
-    // 那条「复制名称」逐字同一个路数（那边进日志留个痕就够）。
+    // 右键菜单「复制地址」⇒ 把**完整的**地址放进剪贴板（和「隐藏服务器地址」开不开无关），
+    // 在鼠标旁提示一下、写一行日志。
     connect(&dialog, &InstanceSettingsDialog::copyServerAddressRequested, m_owner,
             [this](const QString &address) {
                 if (address.isEmpty()) {
@@ -2574,6 +2575,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                 }
                 if (QClipboard *clipboard = QApplication::clipboard()) {
                     clipboard->setText(address);
+                    QToolTip::showText(QCursor::pos(), tr("已复制服务器地址"), nullptr, QRect(), 1500);
                     m_owner->appendLog(tr("已复制服务器地址：%1").arg(address));
                 }
             });

@@ -994,7 +994,7 @@ void runInstanceFilesPagesTests() {
         // 那一条屏幕上写着「（无名）」，而发出去的必须是**空串** —— 发成那三个字的话，
         // 用户点一下「编辑」再点确定，`servers.dat` 里就真多出一台叫「（无名）」的服务器；
         // - 地址取的是 `serverAddressRole()` 那一格（**完整的那一串**），不是第 1 栏里
-        // 遮过的那串 `m-.h-.c-`；
+        // 隐藏服务器地址打开时的遮过那串 `m-.h-.c-`；
         // - 没选中任何一行时那两颗是**灰的**，而且点了什么都不发（两道闸）。
         {
             const QString datPath = dirV + QStringLiteral("/servers.dat");
