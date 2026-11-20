@@ -19,6 +19,7 @@
 #include <QThread>
 #include <QTimer>
 #include <QVariantAnimation>
+#include <QEasingCurve>
 
 #include <cmath>
 #include <optional>
@@ -484,7 +485,6 @@ Backdrop::Backdrop(QWidget *parent) : QWidget(parent) {
     });
     connect(m_heroFade, &QAbstractAnimation::finished, this, [this] {
         m_heroOpacity = m_heroFade->endValue().toReal();  // 终值钉死成 0 / 1，不留缓动的尾数
-        window()->setProperty(Anim::kBackdropFadingProperty, false);
         update();
         emit heroOpacityChanged(m_heroOpacity);
     });
@@ -547,10 +547,16 @@ void Backdrop::noteHeroShown() {
 
 void Backdrop::fadeHeroTo(qreal target) {
     m_heroFade->stop();
+    // 开程序「雾散开」：首帧之前风景停在 0（只有磨砂），首帧画完再从 0 淡上来（见 paintEvent 末尾）。
+    if (!m_painted && m_deferHero) {
+        m_heroOpacity = 0.0;
+        emit heroOpacityChanged(m_heroOpacity);
+        return;
+    }
+    m_heroFade->setEasingCurve(QEasingCurve::InOutQuad);
     const qreal from = m_heroOpacity;
     if (!Anim::enabled() || !isVisible() || !m_painted || from == target) {
         m_heroOpacity = target;
-        window()->setProperty(Anim::kBackdropFadingProperty, false);
         update();
         emit heroOpacityChanged(m_heroOpacity);
         return;
@@ -559,7 +565,6 @@ void Backdrop::fadeHeroTo(qreal target) {
     m_heroFade->setStartValue(from);
     m_heroFade->setEndValue(target);
     m_heroFade->setDuration(qMax(1, qRound(kHeroFadeMs * qAbs(target - from))));
-    window()->setProperty(Anim::kBackdropFadingProperty, true);
     m_heroFade->start();
 }
 
@@ -880,6 +885,19 @@ void Backdrop::paintEvent(QPaintEvent *) {
             painter.setOpacity(m_heroOpacity);
             painter.drawPixmap(rect(), m_heroPixmap, m_heroPixmap.rect());
         }
+    }
+    if (!m_painted && m_deferHero) {
+        m_deferHero = false;
+        // 首帧已经画了（磨砂 + 没有风景）：下一轮事件循环起雾散，不占首帧。
+        QTimer::singleShot(0, this, [this]() {
+            if (!heroShown()) return;
+            m_heroFade->stop();
+            m_heroFade->setEasingCurve(QEasingCurve::OutQuad);
+            m_heroFade->setStartValue(0.0);
+            m_heroFade->setEndValue(1.0);
+            m_heroFade->setDuration(520);
+            m_heroFade->start();
+        });
     }
     m_painted = true;
 }

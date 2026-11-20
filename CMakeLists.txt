@@ -810,6 +810,7 @@ set(SOURCE_FILES
     ui/ThemeAdvancedEditor.cpp
     # 动效那一层：按下按钮 / 换页 / 展开折叠。
     ui/Animations.cpp
+    ui/WindowMotion.cpp
     ui/ThemeBackground.cpp
     ui/Glass.cpp
     # 浮层那一层：自绘 tooltip / 下拉弹层 / 菜单共用的磨砂外壳（不碰窗口与失焦磨砂）。

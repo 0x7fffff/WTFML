@@ -467,6 +467,8 @@ int UiInputWidthCheck(QApplication &app);
 int UiSurfaceSweepCheck(QApplication &app);
 int UiResourcePacksCheck(QApplication &app);
 int UiLifecycleCheck(QApplication &app);
+/// 开关程序「雾散开」（ui/WindowMotion）：开场时间线终态、关窗合雾的拦截 / 放行、换页幕布负偏移。
+int UiWindowMotionCheck(QApplication &app);
 int UiUiRefreshCheck(QApplication &app);
 /// 文件页的行由代理画：60 行不建 60 套控件、点开关真改盘上文件名、刷新不跳滚动。
 int UiFilesRowsCheck(QApplication &app);
