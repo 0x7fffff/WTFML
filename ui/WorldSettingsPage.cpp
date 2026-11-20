@@ -12,6 +12,7 @@
 #include <QAbstractButton>
 #include <QComboBox>
 #include <QDateTime>
+#include <QFontMetrics>
 #include <QHBoxLayout>
 #include <QKeyEvent>
 #include <QLabel>
@@ -120,7 +121,7 @@ QString signatureOf(const WorldSettingsPage::WorldView &view) {
 
 /// 搭一格"标签 + 控件"的行，返回那一行（标签宽度统一，控件靠右留 stretch）。
 QHBoxLayout *makeOptionRow(QWidget *parent, const QString &labelText, QWidget *control,
-                           const QString &tip) {
+                           const QString &tip, bool stretchControl = false) {
     auto *row = new QHBoxLayout;
     row->setContentsMargins(0, 0, 0, 0);
     row->setSpacing(8);
@@ -130,8 +131,12 @@ QHBoxLayout *makeOptionRow(QWidget *parent, const QString &labelText, QWidget *c
         label->setToolTip(tip);
     }
     row->addWidget(label);
-    row->addWidget(control);
-    row->addStretch(1);
+    if (stretchControl) {
+        row->addWidget(control, 1);   // 输入框占满这一行（世界名不限长）
+    } else {
+        row->addWidget(control);
+        row->addStretch(1);
+    }
     return row;
 }
 
@@ -144,40 +149,16 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
     root->setContentsMargins(0, 0, 0, 0);
     root->setSpacing(8);
 
-    // ---------- 首行：返回与世界名称 ----------
-    auto *top = new QHBoxLayout;
-    top->setContentsMargins(0, 0, 0, 0);
-    top->setSpacing(8);
-    m_back = new QPushButton(backText(), this);
-    m_back->setObjectName(backButtonName());
-    Theme::markButton(m_back, Theme::ButtonKind::Neutral);
-    connect(m_back, &QPushButton::clicked, this, &WorldSettingsPage::backRequested);
-    top->addWidget(m_back);
+    // 页眉的「返回 / 世界设置：<世界名>」在覆盖层上（`OverlayHost`），这一页自己不再画
+    // 返回钮和标题；标题文字由 `breadcrumbTitle()` 给出。
 
-    m_title = new ElidedLabel(this);
-    m_title->setObjectName(titleLabelName());
-    m_title->setMinimumWidth(1);
-    // 标题里是**存档文件夹 + 世界名**，两头都有用的信息 ⇒ 从中间省略
-    // （和文件管理那几页的行名同一条理由，见 ElidedLabel::setElideMode 的 NOTE）。
-    static_cast<ElidedLabel *>(m_title)->setElideMode(Qt::ElideMiddle);
-    {
-        QFont titleFont = m_title->font();
-        titleFont.setBold(true);
-        m_title->setFont(titleFont);
-    }
-    top->addWidget(m_title, 1);
-    root->addLayout(top);
-
-    // ---------- 这个世界能做的三件事 ----------
+    // ---------- 这个世界能做的事（一排）----------
     //
-    // 三颗都在这儿，**一个字节的盘都不碰**：改名和删除是 MainWindow 的事（它要弹输入框 /
+    // 都在这儿，**一个字节的盘都不碰**：改名和删除是 MainWindow 的事（它要弹输入框 /
     // 确认框、还要在成功之后把这一页的名字摆回来或者干脆收掉这一页）。
     auto *actions = new QHBoxLayout;
     actions->setContentsMargins(0, 0, 0, 0);
     actions->setSpacing(8);
-    auto *folders = new QHBoxLayout;
-    folders->setContentsMargins(0, 0, 0, 0);
-    folders->setSpacing(8);
 
     m_rename = new QPushButton(renameText(), this);
     m_rename->setObjectName(renameButtonName());
@@ -191,18 +172,12 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
     Theme::markButton(m_openFolder, Theme::ButtonKind::Accent);
     connect(m_openFolder, &QPushButton::clicked, this,
             [this] { emit openFolderRequested(); });
-    folders->addWidget(m_openFolder);
+    actions->addWidget(m_openFolder);
 
     // ---------- 整份存档的备份 / 还原 / 打开备份目录 ----------
     //
-    // 三颗放在**这一排**（"这个世界能做的几件事"）而不是最底下那一排（"整页的两件动作"）：
     // 它们动的是**这个存档**（打它、还原它、去看它的备份），和「重命名 / 打开文件夹 /
-    // 删除世界」是同一档；底下那两颗里，「备份一份」抄的是 `level.dat` 一个文件、
-    // 「保存」写的是页面上改过的几格 —— 那两件才是"整页"的。
-    //
-    // 「立即备份」和底下那颗「备份一份」**必须一眼分得开**，所以名字里带"立即"
-    // （它的意思正是"现在就把整个文件夹打一份"），tooltip 也各说各的：一个是整个存档的
-    // 压缩包、一个是单文件的救命稻草。上面 `fullBackupButtonName()` 那段有完整来路。
+    // 删除世界」在同一排。整份备份只有「立即备份」这一条路（保存前另会自动备份 `level.dat`）。
     m_fullBackup = new QPushButton(fullBackupText(), this);
     m_fullBackup->setObjectName(fullBackupButtonName());
     m_fullBackup->setToolTip(tr("将完整存档保存为压缩包并校验。"));
@@ -228,7 +203,7 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
     Theme::markButton(m_backupFolder, Theme::ButtonKind::Accent);
     connect(m_backupFolder, &QPushButton::clicked, this,
             [this] { emit openBackupFolderRequested(); });
-    folders->addWidget(m_backupFolder);
+    actions->addWidget(m_backupFolder);
 
     m_delete = new QPushButton(deleteText(), this);
     m_delete->setObjectName(deleteButtonName());
@@ -237,26 +212,17 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
     // 存档目录（里面的 region 是几十上百 MB 的游玩记录，删了拿不回来）。
     Theme::markButton(m_delete, Theme::ButtonKind::Danger);
     connect(m_delete, &QPushButton::clicked, this, &WorldSettingsPage::deleteRequested);
+    actions->addWidget(m_delete);
     actions->addStretch(1);
-    folders->addStretch(1);
-    folders->addWidget(m_delete);
     root->addLayout(actions);
-    root->addLayout(folders);
-    setTabOrder({m_back, m_rename, m_fullBackup, m_restore, m_openFolder, m_backupFolder, m_delete});
-
-    m_backup = new QPushButton(backupText(), this);
-    m_backup->setObjectName(backupButtonName());
-    m_backup->setToolTip(tr("备份存档信息，保存修改前也会自动备份。"));
-    // 「备份」= 多出一份（一般性）。
-    Theme::markButton(m_backup, Theme::ButtonKind::Neutral);
-    connect(m_backup, &QPushButton::clicked, this, &WorldSettingsPage::backupRequested);
+    // 页眉面包屑上的「返回」在覆盖层上；这一页的顺序跟着这一排的版面走。
+    setTabOrder({m_rename, m_openFolder, m_fullBackup, m_restore, m_backupFolder, m_delete});
 
     m_save = new QPushButton(saveText(), this);
     m_save->setObjectName(saveButtonName());
     // 一律红：这一档叫「不可撤销（如**修改存档**，删除实例）」——
-    // 这一颗写的就是存档里那份 level.dat。上面确实会自动留一代备份
-    // （那是"能挽回来"的保障），但对用户而言这仍然是一次**向着已有存档**
-    // 的写入 —— 和右边那颗「备份」（多出一份）正好一红一黑。
+    // 这一颗写的就是存档里那份 level.dat。写之前会自动留一代备份
+    // （那是"能挽回来"的保障），但对用户而言这仍然是一次**向着已有存档**的写入。
     Theme::markButton(m_save, Theme::ButtonKind::Danger);
     connect(m_save, &QPushButton::clicked, this, &WorldSettingsPage::saveRequested);
 
@@ -294,6 +260,9 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
     // 折叠行：整行一颗按钮，右边「展开 / 收起」，不放 ▸ 方框钮（8 号反馈）。
     m_fileToggle = Theme::makeFoldRow(m_body, fileToggleText());
     m_fileToggle->setObjectName(fileToggleName());
+    // 标题靠左（应用级样式表没写 text-align，设置页那几颗折叠行也是各自补这一句）。
+    m_fileToggle->setStyleSheet(QStringLiteral(
+        "QPushButton[wtfmlFoldRow=\"true\"] { text-align: left; padding-left: 14px; }"));
     m_fileToggle->setChecked(false);
     m_fileToggle->setToolTip(tr("世界名、难度、游戏规则等写在存档文件里，修改前会先确认。"));
     body->addWidget(m_fileToggle, 0);
@@ -312,11 +281,11 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
     // refreshFileHints()）。
     m_nameEdit = new QLineEdit(m_fileBody);
     m_nameEdit->setObjectName(nameEditName());
-    InputSizing::shortValue(m_nameEdit, InputSizing::kNameChars, InputSizing::Script::Han);  // 世界名，不限长
+    InputSizing::longValue(m_nameEdit, "世界名不限长，输入框占满一行");  // i18n-ignore
     fileBody->addLayout(makeOptionRow(
         m_fileBody, tr("世界名"), m_nameEdit,
         // 星号在界面上是原样画出来的，重点一律用「」。
-        tr("存档信息中保存的世界名称。")));
+        tr("存档信息中保存的世界名称。"), /*stretchControl=*/true));
 
     m_allowCommands = new ToggleSwitch(m_fileBody);
     m_allowCommands->setObjectName(allowCommandsName());
@@ -347,6 +316,9 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
                                       tr("0 和平 / 1 简单 / 2 普通 / 3 困难。")));
 
     connect(m_fileToggle, &QAbstractButton::toggled, this, [this](bool open) {
+        if (m_applyingFileEditing) {
+            return;   // `setFileEditingOpen()` 自己在摆，不是用户点的
+        }
         // 先把样子摆出来（框开/收 + 箭头翻面），再发信号问那一句 —— 不先摆的话，用户按
         // 下去屏幕上什么都不动（警告还在弹），像按了个坏按钮。
         // MainWindow 那一头有两种回话：答应 ⇒ `setFileEditingOpen(true)`（和现在一样）、
@@ -412,6 +384,13 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
     // 自然塌掉（`m_fileBody` 一隐藏，`body` 里就只剩说明和那颗钮）。
     fileBody->addWidget(m_ruleList, 1);
 
+    // 「保存」是「修改存档文件」这一组的最后一件事：写的就是上面这些格子，折叠框收着时不露面。
+    auto *saveRow = new QHBoxLayout;
+    saveRow->setContentsMargins(0, 0, 0, 0);
+    saveRow->addStretch(1);
+    saveRow->addWidget(m_save);
+    fileBody->addLayout(saveRow);
+
     body->addWidget(m_fileBody, 1);
 
     // 正文收尾那根弹簧。
@@ -436,18 +415,6 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
     m_note->setForegroundRole(QPalette::PlaceholderText);
     root->addWidget(m_note);
 
-    // ---------- 最底下那一排：备份一份 | 保存 ----------
-    //
-    // 这两颗是**整页**的两件动作（不是"这个世界"的三件事，所以不摆在上面那一排）：
-    // 「备份一份」抄的是盘上那份 level.dat，「保存」写的是页面上改过的这几格。
-    auto *bottom = new QHBoxLayout;
-    bottom->setContentsMargins(0, 0, 0, 0);
-    bottom->setSpacing(8);
-    bottom->addStretch(1);
-    bottom->addWidget(m_backup);
-    bottom->addWidget(m_save);
-    root->addLayout(bottom);
-
     // 一开始没摆世界：底下那句"还没打开"和"读不出来"是两回事，但这一页永远不会以
     // 空着的样子露出来（MainWindow 一定先 setWorld / setUnreadable 才切到这一格），
     // 所以这里只摆一个中性的初始文案。
@@ -467,9 +434,6 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
 
 QString WorldSettingsPage::pageName() {
     return QStringLiteral("worldSettingsPage");
-}
-QString WorldSettingsPage::titleLabelName() {
-    return QStringLiteral("worldSettingsTitle");
 }
 QString WorldSettingsPage::infoLabelName() {
     return QStringLiteral("worldSettingsInfo");
@@ -510,12 +474,6 @@ QString WorldSettingsPage::noteLabelName() {
 QString WorldSettingsPage::saveButtonName() {
     return QStringLiteral("worldSettingsSaveButton");
 }
-QString WorldSettingsPage::backupButtonName() {
-    return QStringLiteral("worldSettingsBackupButton");
-}
-QString WorldSettingsPage::backButtonName() {
-    return QStringLiteral("worldSettingsBackButton");
-}
 QString WorldSettingsPage::openFolderButtonName() {
     return QStringLiteral("worldSettingsOpenFolderButton");
 }
@@ -544,14 +502,8 @@ QString WorldSettingsPage::bodyName() {
     return QStringLiteral("worldSettingsBody");
 }
 
-QString WorldSettingsPage::backText() {
-    return tr("返回");
-}
 QString WorldSettingsPage::saveText() {
     return tr("保存");
-}
-QString WorldSettingsPage::backupText() {
-    return tr("创建备份");
 }
 QString WorldSettingsPage::openFolderText() {
     return tr("打开文件夹");
@@ -639,7 +591,7 @@ void WorldSettingsPage::setWorld(const WorldView &view) {
 
     m_ruleFilter->clear();
 
-    m_title->setText(tr("世界设置：%1").arg(view.dirName));
+    m_titleText = tr("世界设置：%1").arg(view.dirName);
     m_nameEdit->setText(view.levelName);
     m_allowCommands->setChecked(view.allowCommands);
     m_hardcore->setChecked(view.hardcore);
@@ -712,7 +664,7 @@ void WorldSettingsPage::setUnreadable(const QString &dirName, const QString &rea
     m_unreadableReason = reason;
     m_savedAt.clear();
     m_backupAvailable = false;
-    m_title->setText(tr("存档读取失败：%1").arg(dirName));
+    m_titleText = tr("存档读取失败：%1").arg(dirName);
     m_ruleList->clear();
     m_ruleRows.clear();
     // 这一档里那个折叠框**整个收起来**（连那颗钮一起藏，见 applyUnreadableState()）——
@@ -725,12 +677,10 @@ void WorldSettingsPage::setUnreadable(const QString &dirName, const QString &rea
 
 void WorldSettingsPage::applyUnreadableState() {
     // 读不出来那一档：**整块正文藏起来**（它摆的那些值一个都不作数，连"改文件"那颗折叠钮
-    // 也是正文的一部分），顶上只留「返回」「重命名」「打开文件夹」「立即备份」「恢复备份…」
-    // 「打开备份目录」「删除世界」「备份一份」—— 这几颗在这一档里正是最该做的事（改不了
-    // 内容，但这个世界还在盘上，该能改名、能整份备份、能删）。
+    // 也是正文的一部分，「保存」在正文里一并藏起来），顶上只留「重命名」「打开文件夹」
+    // 「立即备份」「恢复备份…」「打开备份目录」「删除世界」—— 这几颗在这一档里正是最该做的事
+    // （改不了内容，但这个世界还在盘上，该能改名、能整份备份、能删）。
     m_body->setVisible(!m_unreadable);
-    m_save->setVisible(!m_unreadable);
-    m_backup->setVisible(true);
 }
 
 void WorldSettingsPage::refreshFileHints() {
@@ -759,25 +709,29 @@ void WorldSettingsPage::setDirName(const QString &dirName) {
     m_view.dirName = dirName;
     // 「读不出来」那一档的标题是另一种说法（那句"这个世界可能坏了"），也得跟着改。
     if (m_unreadable) {
-        m_title->setText(tr("存档读取失败：%1").arg(dirName));
+        m_titleText = tr("存档读取失败：%1").arg(dirName);
     } else {
-        m_title->setText(tr("世界设置：%1").arg(dirName));
+        m_titleText = tr("世界设置：%1").arg(dirName);
     }
     // `signatureOf()` 里**没有** `dirName` ⇒ `isDirty()` 和基线都不动：用户在改名之前
     // 改过的那几格还是"改过还没存"。
 }
 
 void WorldSettingsPage::setFileEditingOpen(bool open) {
-    // 那句 `QSignalBlocker` **不能删**（见 .hpp 里那段）：不挡的话这一句会顺着
+    // 那道 `m_applyingFileEditing` **不能删**（见 .hpp 里那段）：不挡的话这一句会顺着
     // `toggled` 再发一次 `fileEditingRequested()` —— 用户点一下那个钮，警告弹两次，
     // 第二次是在他**刚答应完之后**弹的（屏幕上看着像"这按钮点不完"）。
-    const QSignalBlocker blocker(m_fileToggle);
+    // 挡的是页面自己的那条槽，**不是**按钮的信号：折叠行右侧「展开 / 收起」那两个字是
+    // 按钮自己接着 `toggled` 换的（`Theme::makeFoldRow`），信号被整个挡掉的话，
+    // 弹窗里点「取消」把框收回去之后那两个字还停在「收起」。
+    m_applyingFileEditing = true;
     m_fileToggle->setChecked(open);
+    m_applyingFileEditing = false;
     // 正文收尾那根弹簧（见 `m_bodyTail` 那段 —— 这一条路和用户点那颗钮那一条路都要叫它）。
     updateBodyTail(open);
     m_fileMotion->setOpen(open);
     // 那行小字里有一句跟着框的开合走（`rulesSourceHint()`，理由见 `refreshNote()` 那段）。
-    // 这一条路被 `QSignalBlocker` 挡着，所以**得自己叫一次** —— 不然主程序答完那句警告、
+    // 这一条路被 `m_applyingFileEditing` 挡着，所以**得自己叫一次** —— 不然主程序答完那句警告、
     // 把框摆开之后，底下那句"这一列是怎么来的"要等到用户自己再点一下那颗钮才说得出口。
     refreshNote();
 }
@@ -899,6 +853,7 @@ void WorldSettingsPage::rebuildRuleRows(bool harvestFromRows) {
     // 平方级。这一页每一条规则都有行控件，而每换一个世界、每筛一次都要整表重摆
     // （模组世界几百条规则时最看得出）。
     QList<QPair<QListWidgetItem *, QWidget *>> pendingRows;
+    const int markWidth = QFontMetrics(font()).horizontalAdvance(tr("未写入")) + 4;
     for (const Rule &rule : m_view.rules) {
         if (!ruleMatches(rule)) {
             continue;
@@ -912,9 +867,10 @@ void WorldSettingsPage::rebuildRuleRows(bool harvestFromRows) {
         layout->setContentsMargins(6, 0, 6, 0);
         layout->setSpacing(8);
 
-        // 「盘上还没有这一条」得让人看得出来（见 Rule::inFile 的 NOTE）：名字前面挂一枚
-        // 「默认」小标记，名字和值那两格的 tooltip 上再说一遍。不标的话，用户会以为
-        // "屏幕上摆的"就是"这个存档本来的样子"—— 而这一列现在是**全集**。
+        // 「盘上还没有这一条」得让人看得出来（见 Rule::inFile 的 NOTE）：名字右边挂一枚
+        // 「未写入」小标记（这一条没写进存档，屏幕上摆的是游戏默认值），名字和值那两格的
+        // tooltip 上再说一遍。不标的话，用户会以为"屏幕上摆的"就是"这个存档本来的样子"
+        // —— 而这一列现在是**全集**。
         //
         // 这一串（英文规则名）**只出现在 tooltip 里** —— 行上那一格盖的是
         // 官方中文名（见下面 `setText()` 那儿）。英文名不能丢：它才是写进存档的那个键，
@@ -922,15 +878,6 @@ void WorldSettingsPage::rebuildRuleRows(bool harvestFromRows) {
         const QString ruleTip =
             rule.inFile ? rule.name
                         : rule.name + QLatin1Char('\n') + defaultedHintText();
-
-        if (!rule.inFile) {
-            auto *mark = new QLabel(tr("默认"), row);
-            mark->setObjectName(ruleDefaultMarkName());
-            mark->setToolTip(defaultedHintText());
-            // 「次要信息」那一档颜色（和上面那行 facts 同一把尺子）。
-            mark->setForegroundRole(QPalette::PlaceholderText);
-            layout->addWidget(mark);
-        }
 
         auto *name = new ElidedLabel(row);
         name->setObjectName(ruleNameLabelName());
@@ -941,6 +888,20 @@ void WorldSettingsPage::rebuildRuleRows(bool harvestFromRows) {
         name->setText(GameRuleNames::displayName(rule.name));
         name->setToolTip(ruleTip);
         layout->addWidget(name, 1);
+
+        // 标记放在名字和值之间、**每一行都占同样宽的一格**（盘上有的行留空）：值那一列才对得齐。
+        {
+            auto *mark = new QLabel(rule.inFile ? QString() : tr("未写入"), row);
+            mark->setObjectName(ruleDefaultMarkName());
+            mark->setFixedWidth(markWidth);
+            mark->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+            if (!rule.inFile) {
+                mark->setToolTip(defaultedHintText());
+            }
+            // 「次要信息」那一档颜色（和上面那行 facts 同一把尺子）。
+            mark->setForegroundRole(QPalette::PlaceholderText);
+            layout->addWidget(mark);
+        }
 
         if (rule.kind == Kind::Bool) {
             auto *toggle = new ToggleSwitch(row);
@@ -1161,7 +1122,7 @@ void WorldSettingsPage::refreshNote() {
         lines.append(tr("保存前自动备份原有 level.dat。"));
     }
     if (m_backupAvailable) {
-        lines.append(tr("已有存档信息备份，可再次创建。"));
+        lines.append(tr("已有 level.dat 备份。"));
     }
     // 这一列是**全集**，所以底下那句是"这一列是怎么来的"
     // 的说明书（`rulesSourceHint()`，盘上有没有那一格各说一句）。

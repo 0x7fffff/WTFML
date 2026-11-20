@@ -320,14 +320,13 @@ int UiInputWidthCheck(QApplication &app) {
                 page->setWorld(view);
                 page->setFileEditingOpen(true);
                 standalone(page, QStringLiteral("存档设置"), [&] {
-                    const auto *back = page->findChild<QPushButton *>(WorldSettingsPage::backButtonName());
                     const auto *rename = page->findChild<QPushButton *>(WorldSettingsPage::renameButtonName());
                     const auto *openFolder = page->findChild<QPushButton *>(WorldSettingsPage::openFolderButtonName());
                     const auto *backupFolder = page->findChild<QPushButton *>(WorldSettingsPage::backupFolderButtonName());
-                    check(back && rename && openFolder && backupFolder && back->y() < rename->y() &&
-                              rename->y() < openFolder->y() && openFolder->y() == backupFolder->y() &&
+                    check(rename && openFolder && backupFolder && rename->y() == openFolder->y() &&
+                              openFolder->y() == backupFolder->y() &&
                               backupFolder->geometry().right() < page->width(),
-                          "存档设置：返回与世界名在首行，目录操作另成一组且不越界", tag);
+                          "存档设置：操作按钮同一排且不越界", tag);
                     auto *difficulty = page->findChild<QComboBox *>(WorldSettingsPage::difficultyName());
                     check(difficulty && difficulty->count() == 4, "存档设置：难度有四个选项", tag);
                     if (!difficulty) return;

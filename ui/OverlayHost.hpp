@@ -290,6 +290,15 @@ QWidget *promptCardWidget() const { return m_promptCard; }
      */
     void setPageTitle(const QString &title);
 
+    /**
+     * @brief 页眉「返回」被**用户点下**时先问 @p handler：它回 true = 页面自己接住了（页里
+     * 还有一层要先退，例如世界设置页退回存档列表），这一下就不再发 `backPressed()`。
+     *
+     * 只管点击页眉那颗钮；`evict()` 之类程序要关页走的 `backPressed()` 不经过它，照旧关整页。
+     * 开页和收页时清空，页面要用就在页开着的时候设。
+     */
+    void setBackOverride(std::function<bool()> handler);
+
     /// 页眉上现在那行标题（没有页时是空串）。
     ///
     /// 给**挡在门口的那一句提示**用的：用户点了个开不起来的页，那句话要说清"现在开着的是
@@ -500,6 +509,7 @@ private:
     QPointer<QDialog> m_pageWidget;
     /// 上面那一页的两条收页接线（见 `showPage()`）—— 收页时一并断掉，下次摆上来重接。
     QMetaObject::Connection m_pageWidgetBack;
+    std::function<bool()> m_backOverride;
     QMetaObject::Connection m_pageWidgetFinished;
 
     /// 提示那张卡片（常驻，同上）。卡片自己画底和边 —— 于是"嵌进来的对话框"和

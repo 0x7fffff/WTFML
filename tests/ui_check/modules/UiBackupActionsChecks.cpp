@@ -22,7 +22,6 @@ int UiBackupActionsChecks() {
         auto *restore = widgetByName(WorldSettingsPage::restoreButtonName());
         auto *backupFolder = widgetByName(WorldSettingsPage::backupFolderButtonName());
         auto *remove = widgetByName(WorldSettingsPage::deleteButtonName());
-        auto *backupOne = widgetByName(WorldSettingsPage::backupButtonName());
 
         check(fullBackup != nullptr && restore != nullptr && backupFolder != nullptr,
               "★★ U30.1 世界设置页那一排上三颗都在（立即备份 / 恢复备份… / 打开备份目录）");
@@ -54,35 +53,26 @@ int UiBackupActionsChecks() {
                   "★★ U30.1 三句 tooltip 各说各的（打成一个包 / 挑一份还原 / 备份放在哪儿）"
                   "—— 同款按钮挤一排，说不清就会点错",
                   fullBackup->toolTip());
-            // 和底下那颗「备份一份」**必须分得开**：那一颗抄的是 level.dat 一个文件
-            // （救命稻草），这一颗打的是**整个存档目录**。名字差一个字、说明差一句话，
-            // 用户就会以为是同一件事按两遍。
-            check(backupOne != nullptr && backupOne->text() != fullBackup->text() &&
-                      backupOne->toolTip() != fullBackup->toolTip(),
-                  "★★ U30.1 「立即备份」和底下那颗「备份一份」名字与说明都**不是同一句**"
-                  "（一颗是整个存档的压缩包、一颗只是 level.dat 那个文件）",
-                  backupOne != nullptr ? backupOne->toolTip() : QStringLiteral("<没找到>"));
+            // 页面上没有只备份 level.dat 的按钮了：整份备份只有「立即备份」这一条路。
+            check(page.findChild<QPushButton *>(QStringLiteral("worldSettingsBackupButton")) == nullptr,
+                  "★★ U30.1 页面上不再有只备份 level.dat 的「创建备份」");
 
-            // 次序（453a074f 起分组排）：首行是「← 返回」与世界名，下面两排才是操作 ——
-            //   第二排：重命名 → 立即备份 → 恢复备份…（"叫它什么 / 留一份 / 换回去"）
-            //   第三排：打开文件夹 → 打开备份目录 → 删除世界（"在哪儿 / 备份在哪儿 / 删掉"，
-            //          删除压在最后、贴着右边缘）
-            // 分组是同事那一次的意图：同一次提交里 `UiInputWidthCheck` 钉的也是这个版式。
+            // 次序：重命名 → 打开文件夹 → 立即备份 → 恢复备份… → 打开备份目录 → 删除世界，
+            // 页面宽 1000 时放得下，必须在同一排。
             const auto gx = [](QWidget *w) { return w == nullptr ? -1 : w->mapToGlobal(QPoint(0, 0)).x(); };
             const auto gy = [](QWidget *w) { return w == nullptr ? -1 : w->mapToGlobal(QPoint(0, 0)).y(); };
             const bool rowsFound = rename != nullptr && fullBackup != nullptr && restore != nullptr &&
                                    openFolder != nullptr && backupFolder != nullptr && remove != nullptr;
-            check(rowsFound && gy(rename) == gy(fullBackup) && gy(fullBackup) == gy(restore) &&
-                      gy(openFolder) == gy(backupFolder) && gy(backupFolder) == gy(remove) &&
-                      gy(rename) < gy(openFolder) && gx(rename) < gx(fullBackup) &&
-                      gx(fullBackup) < gx(restore) && gx(openFolder) < gx(backupFolder) &&
-                      gx(backupFolder) < gx(remove),
-                  "★ U30.1 操作分两排：重命名 / 立即备份 / 恢复备份… 一排，打开文件夹 / "
-                  "打开备份目录 / 删除世界 另一排（在下面，删除在最右）",
-                  QStringLiteral("y 重命名 %1 / 打开文件夹 %2；x %3 %4 %5 | %6 %7 %8")
-                      .arg(gy(rename)).arg(gy(openFolder))
-                      .arg(gx(fullBackup)).arg(gx(restore)).arg(gx(rename))
-                      .arg(gx(openFolder)).arg(gx(backupFolder)).arg(gx(remove)));
+            check(rowsFound && gy(rename) == gy(openFolder) && gy(openFolder) == gy(fullBackup) &&
+                      gy(fullBackup) == gy(restore) && gy(restore) == gy(backupFolder) &&
+                      gy(backupFolder) == gy(remove) && gx(rename) < gx(openFolder) &&
+                      gx(openFolder) < gx(fullBackup) && gx(fullBackup) < gx(restore) &&
+                      gx(restore) < gx(backupFolder) && gx(backupFolder) < gx(remove),
+                  "★ U30.1 六颗操作按钮放在同一排：重命名 / 打开文件夹 / 立即备份 / 恢复备份… / "
+                  "打开备份目录 / 删除世界",
+                  QStringLiteral("y %1 %2 %3 %4 %5 %6")
+                      .arg(gy(rename)).arg(gy(openFolder)).arg(gy(fullBackup))
+                      .arg(gy(restore)).arg(gy(backupFolder)).arg(gy(remove)));
 
             // ---- 颜色那一档（`Theme::ButtonKind` 的分法就是唯一出处）----
             const auto kindOf = [](QPushButton *button) {
@@ -115,7 +105,6 @@ int UiBackupActionsChecks() {
             int restoreClicks = 0;
             int folderClicks = 0;
             int deleteClicks = 0;
-            int backupOneClicks = 0;
             QObject::connect(&page, &WorldSettingsPage::renameRequested,
                              [&renameClicks] { ++renameClicks; });
             QObject::connect(&page, &WorldSettingsPage::openFolderRequested,
@@ -128,8 +117,6 @@ int UiBackupActionsChecks() {
                              [&folderClicks] { ++folderClicks; });
             QObject::connect(&page, &WorldSettingsPage::deleteRequested,
                              [&deleteClicks] { ++deleteClicks; });
-            QObject::connect(&page, &WorldSettingsPage::backupRequested,
-                             [&backupOneClicks] { ++backupOneClicks; });
             fullBackup->click();
             restore->click();
             backupFolder->click();
@@ -141,10 +128,8 @@ int UiBackupActionsChecks() {
                       .arg(fullClicks)
                       .arg(restoreClicks)
                       .arg(folderClicks));
-            check(renameClicks == 0 && openClicks == 0 && deleteClicks == 0 &&
-                      backupOneClicks == 0,
-                  "U30.1 也**没顺手**把旁边那几颗（重命名 / 打开文件夹 / 备份一份 / 删除世界）"
-                  "的信号带上");
+            check(renameClicks == 0 && openClicks == 0 && deleteClicks == 0,
+                  "U30.1 也**没顺手**把旁边那几颗（重命名 / 打开文件夹 / 删除世界）的信号带上");
             // 这三颗**都只发信号**：真打包 / 挑包 / 开目录全在 MainWindow（那几步要任务
             // 账本、后台线程、覆盖层）。这一页自己要是动了盘，实例设置那边就没法统一管了。
         }

@@ -14,8 +14,9 @@
  *
  * 落到这一页上就是三段，从上到下：
  *
- * ① **标题与操作区**：首行是返回和世界名。下面分开排列重命名、整份存档备份和恢复、打开目录
- * 以及删除世界（删除由 MainWindow 弹窗确认）。点笔就直接进这一页。
+ * ① **操作区**：一排按钮，重命名、打开文件夹、整份存档备份和恢复、打开备份目录以及
+ * 删除世界（删除由 MainWindow 弹窗确认）。点笔就直接进这一页。页眉的面包屑
+ * 「返回 / 世界设置：<世界名>」在覆盖层上，文字取 `breadcrumbTitle()`。
  * ② **「修改存档文件」**（`fileToggleName()` 那个折叠框）：`level.dat` 里那几格
  * ——**世界名 / 允许作弊 / 极限模式 / 难度**。这几格游戏里改不了（游戏只有"建世界时
  * 选一次"的那一面），只能动文件，所以它们收在一个**默认收起**的框里；点开的那一刻
@@ -195,7 +196,7 @@ public:
     /// 摆一个世界的设置（点那支笔时由 InstanceSettingsDialog 调）。
     void setWorld(const WorldView &view);
 
-    /// 摆成"读不出来"那一档：整页只留那句原因 + 「返回」「打开文件夹」「备份一份」。
+    /// 摆成"读不出来"那一档：整页只留那句原因 + 顶上那一排按钮（重命名、打开文件夹、备份、删除）。
     ///
     /// NOTE: 这一档存在的理由是**不要留下一个死胡同** —— 用户看到「这个存档可能坏了」那句
     /// 警告之后，总得有个地方落下去（至少能看见原因、能备份、能打开那个文件夹）。
@@ -221,7 +222,7 @@ public:
     /// 还是刚打开时的样子），于是"存过再关"会被判成"改过还没存"，白问一句。
     bool isDirty() const;
 
-    /// 这个文件**留过备份没有**（有 ⇒ 「备份一份」旁边的说明改口，见 refreshNote()）。
+    /// 这个文件**留过备份没有**（有 ⇒ 底下那行小字多一句「已有 level.dat 备份」，见 refreshNote()）。
     ///
     /// NOTE: 由 MainWindow 在打开时告诉它（这一层不碰盘）。和 `ConfigFileEditorPage::
     /// setBackupAvailable()` 同一件事：进这一页**同时清掉**上一条的答案。
@@ -239,9 +240,10 @@ public:
     /// 用户点那个折叠按钮只会发出 `fileEditingRequested()`（MainWindow 要先去弹那句备份
     /// 警告），答完之后由 MainWindow 拿这个函数把结果摆回来。
     ///
-    /// 里面那句 `QSignalBlocker` **不能删**：不挡的话，`setFileEditingOpen()` 会顺着
+    /// 里面那道 `m_applyingFileEditing` **不能删**：不挡的话，`setFileEditingOpen()` 会顺着
     /// `toggled` 再发一次 `fileEditingRequested()` —— 用户点一下、弹两次警告，第二次
-    /// 是在他自己刚答应完之后弹的。
+    /// 是在他自己刚答应完之后弹的。挡的只是本页的槽，按钮自己的信号照发，折叠行右侧
+    /// 「展开 / 收起」的字才会跟着变。
     void setFileEditingOpen(bool open);
     /// 那个折叠框现在是打开的吗。
     bool fileEditingOpen() const;
@@ -253,7 +255,6 @@ public:
 
     // ---------- 名字（验证工程按这些 objectName 找控件）----------
     static QString pageName();
-    static QString titleLabelName();
     static QString infoLabelName();
     static QString nameEditName();
     static QString allowCommandsName();
@@ -262,28 +263,25 @@ public:
     static QString ruleFilterName();
     static QString ruleListName();
     static QString ruleNameLabelName();
-    /// 值那一格前面那个「默认」小标记（这一条盘上还没有时才有）。
+    /// 名字和值之间那个「未写入」小标记（这一条盘上还没有时才有字，每行都有这一格）。
     static QString ruleDefaultMarkName();
     static QString ruleToggleName();
     static QString ruleEditorName();
     static QString noteLabelName();
     static QString saveButtonName();
-    static QString backupButtonName();
-    static QString backButtonName();
     static QString openFolderButtonName();
     /// 「立即备份」：把**整个存档文件夹**打成一个压缩包。
     ///
-    /// 和上面那颗 `backupButtonName()`（「备份一份」，只抄 `level.dat` 那一个文件）**不是
-    /// 一件事**：那一颗是"编辑器手下留情"留的救命稻草（改坏了 level.dat 能回去），这一颗
-    /// 是用户自己点的、整份存档的备份。两颗都在页面上，名字必须让人一眼分得开。
+    /// 保存 `level.dat` 之前另会自动留一代备份（`backupWorldLevelData()`），页面上没有
+    /// 只备份 `level.dat` 的按钮，整份备份就是这一颗。
     static QString fullBackupButtonName();
     /// 「恢复备份…」：从备份目录里挑一份还原回来。
     static QString restoreButtonName();
     /// 「打开备份目录」：落点那层文件夹。
     static QString backupFolderButtonName();
-    /// 「重命名…」（世界这一行的三颗之一）。
+    /// 「重命名…」。
     static QString renameButtonName();
-    /// 「删除世界…」（世界这一行的三颗之一；确认弹窗在 MainWindow 那一层）。
+    /// 「删除世界…」（确认弹窗在 MainWindow 那一层）。
     static QString deleteButtonName();
     /// 「修改存档文件」那个折叠框的那颗开关。
     static QString fileToggleName();
@@ -292,9 +290,7 @@ public:
     /// 那一堆"读不出来"的行（整块藏起来/露出来就是它）。
     static QString bodyName();
 
-    static QString backText();
     static QString saveText();
-    static QString backupText();
     static QString openFolderText();
     static QString fullBackupText();
     static QString restoreBackupText();
@@ -332,13 +328,12 @@ public:
     QLineEdit *ruleFilter() const { return m_ruleFilter; }
     QListWidget *ruleList() const { return m_ruleList; }
     QLabel *noteLabel() const { return m_note; }
-    QLabel *titleLabel() const { return m_title; }
+    /// 覆盖层页眉面包屑上写的那句：「世界设置：<目录名>」，读不出来的世界写「存档读取失败：<目录名>」。
+    QString breadcrumbTitle() const { return m_titleText; }
     /// 正文顶上那一行事实（版本 / 存档格式 / 上次游玩）。★ 验证工程拿它量"框收着的时候
     /// 排版有没有塌" —— 见 `m_bodyTail` 那段。
     QLabel *infoLabel() const { return m_info; }
     QPushButton *saveButton() const { return m_save; }
-    QPushButton *backButton() const { return m_back; }
-    QPushButton *backupButton() const { return m_backup; }
     QPushButton *openFolderButton() const { return m_openFolder; }
     QPushButton *fullBackupButton() const { return m_fullBackup; }
     QPushButton *restoreButton() const { return m_restore; }
@@ -364,8 +359,6 @@ signals:
     /// 用户点了「保存」。**这一层不带任何值出去** —— MainWindow 用 `editedView()` 取
     /// （它是唯一知道该往哪儿写、写之前要留备份的人）。
     void saveRequested();
-    /// 用户点了「备份一份」。
-    void backupRequested();
     /// 用户点了「立即备份」—— 要的是**整个存档文件夹**那一份压缩包。
     void fullBackupRequested();
     /// 用户点了「恢复备份…」。挑哪一份、以及"还原之前先给现在这一份做安全快照"
@@ -375,8 +368,9 @@ signals:
     void openBackupFolderRequested();
     /// 用户点了「打开文件夹」。
     void openFolderRequested();
-    /// 用户想回到世界列表（点了「返回」，或者按了 Esc）。切格是 InstanceSettingsDialog
-    /// 那两格的事，这一层不自己切。
+    /// 用户想回到世界列表（在这一页里按了 Esc；页眉面包屑上的「返回」由覆盖层接，
+    /// 走的是同一条 `leaveWorldSettings()`）。切格是 InstanceSettingsDialog 那两格的事，
+    /// 这一层不自己切。
     void backRequested();
     /// 用户点了「重命名…」（改目录名那一路全在 MainWindow：它要弹输入框、要碰盘、还要
     /// 把新名字通过 `setDirName()` 摆回来）。
@@ -454,7 +448,9 @@ private:
     /// 靠它把"用户改过的那一格"收回去 —— 没进这张表的那些保持原值。
     QHash<QString, int> m_ruleRows;
 
-    QLabel *m_title = nullptr;
+    QString m_titleText;
+    /// `setFileEditingOpen()` 正在摆折叠框：`toggled` 那条槽见到它就不再发 `fileEditingRequested()`。
+    bool m_applyingFileEditing = false;
     QLabel *m_info = nullptr;
     QWidget *m_body = nullptr;
     /// 正文那一层布局（`updateBodyTail()` 要拿它改 stretch，所以得留个指针）。
@@ -495,13 +491,11 @@ private:
     QTimer *m_ruleFilterTimer = nullptr;
     QListWidget *m_ruleList = nullptr;
     QLabel *m_note = nullptr;
-    QPushButton *m_back = nullptr;
-    QPushButton *m_backup = nullptr;
     QPushButton *m_openFolder = nullptr;
     QPushButton *m_rename = nullptr;
     QPushButton *m_delete = nullptr;
     QPushButton *m_save = nullptr;
-    /// 那三颗（整份存档的备份 / 还原 / 打开备份目录）。和上面那六颗一样是常驻的
+    /// 那三颗（整份存档的备份 / 还原 / 打开备份目录）。和重命名、打开文件夹、删除世界一样是常驻的
     /// —— "读不出来"那一档也照样露着（那正是最需要留一份备份的时候）。
     QPushButton *m_fullBackup = nullptr;
     QPushButton *m_restore = nullptr;

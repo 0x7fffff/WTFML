@@ -6993,7 +6993,7 @@ Minecraft %2 / %3 %4</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>继续改</source>
+        <source>继续修改</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -28646,7 +28646,11 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>已有存档信息备份，可再次创建。</source>
+        <source>已有 level.dat 备份。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>未写入</source>
         <translation type="unfinished"></translation>
     </message>
 </context>

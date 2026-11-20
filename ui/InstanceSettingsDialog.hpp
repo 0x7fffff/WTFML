@@ -1840,6 +1840,15 @@ signals:
     void closeBlockedByUnsavedWorldSettings();
 
     /**
+     * @brief 世界设置那一格露出来了 / 收回去了。
+     *
+     * @param title 露出来时是页眉面包屑要写的那句（「世界设置：<世界名>」），收回去时是空串。
+     * 这一层没有覆盖层，页眉上的字和「返回」点下去回哪儿都是覆盖层的事，所以把这一发交出去，
+     * 由 InstanceDialogController 接着改页眉、设返回钮的去向。
+     */
+    void worldBreadcrumbChanged(const QString &title);
+
+    /**
      * @brief 用户按了「文件管理」某几页顶上那颗「下载新 X」⇒ 请切到下载页对应的那一栏。
      *
      * @param categoryKey `MainWindowUI::downloadCategoryKeys()` 里的一个键 —— 就是那一页

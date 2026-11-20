@@ -1268,6 +1268,7 @@ void InstanceSettingsDialog::openWorldSettings(const WorldSettingsPage::WorldVie
     }
     m_worldSettings->setWorld(view);
     m_worldStack->setCurrentWidget(m_worldSettings);
+    emit worldBreadcrumbChanged(m_worldSettings->breadcrumbTitle());
 }
 
 void InstanceSettingsDialog::openWorldSettingsUnreadable(const QString &dirName,
@@ -1277,6 +1278,7 @@ void InstanceSettingsDialog::openWorldSettingsUnreadable(const QString &dirName,
     }
     m_worldSettings->setUnreadable(dirName, reason);
     m_worldStack->setCurrentWidget(m_worldSettings);
+    emit worldBreadcrumbChanged(m_worldSettings->breadcrumbTitle());
 }
 
 void InstanceSettingsDialog::closeWorldSettings() {
@@ -1290,6 +1292,7 @@ void InstanceSettingsDialog::closeWorldSettings() {
         files->refresh();
     }
     m_worldStack->setCurrentIndex(0);
+    emit worldBreadcrumbChanged(QString());
 }
 
 bool InstanceSettingsDialog::worldSettingsUnreadable() const {

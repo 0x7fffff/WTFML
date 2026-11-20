@@ -207,7 +207,12 @@ OverlayHost::OverlayHost(QWidget *anchor, QWidget *parent) : QWidget(parent), m_
     // 但它自己的高度要等尺寸约束算完），那一步会以 LayoutRequest 的形状落到卡片身上。
     card->installEventFilter(this);
 
-    connect(m_backButton, &QPushButton::clicked, this, &OverlayHost::backPressed);
+    connect(m_backButton, &QPushButton::clicked, this, [this] {
+        if (m_backOverride && m_backOverride()) {
+            return;
+        }
+        emit backPressed();
+    });
 
     if (m_anchor != nullptr) {
         // 锚点一动（窗口缩放、标签栏换行、页面换掉）几何就得重算 —— 覆盖层不归布局管，
@@ -509,6 +514,7 @@ QWidget *OverlayHost::openPage(const QString &title, int ownerTab) {
     // 取当前选项卡的症状见 openPage() 的 doc。
     m_pageOwnerTab = ownerTab >= 0 ? ownerTab : anchorTabIndex();
     m_pageFocus = nullptr;
+    m_backOverride = nullptr;
     m_titleLabel->setText(title);
     applyVisibility();
     if (m_backButton != nullptr) {
@@ -604,6 +610,7 @@ void OverlayHost::closeOverlay() {
             }
         }
         setPageHeaderWidget(nullptr);
+        m_backOverride = nullptr;
         // `showPage()` 摆着的那一页：两条收页接线先断掉（这一页的调用方不是卡在循环里
         // 等我们的，收尾就在这儿）。`execPage()` 那一档这两个本来就是空的。
         disconnect(m_pageWidgetBack);
@@ -835,6 +842,10 @@ bool OverlayHost::showPage(QDialog *dialog, const QString &title, int ownerTab) 
         }
     });
     return true;
+}
+
+void OverlayHost::setBackOverride(std::function<bool()> handler) {
+    m_backOverride = std::move(handler);
 }
 
 void OverlayHost::setPageTitle(const QString &title) {

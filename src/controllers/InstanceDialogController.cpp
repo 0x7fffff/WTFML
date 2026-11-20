@@ -2129,7 +2129,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
         // 那支笔 = **直接进「世界设置」那一页**：三件事（重命名 / 打开文件夹 /
         // 删除世界）都搬进页里当按钮了，所以这一支笔点下去只剩一件事可做。
         //
-        // NOTE: 点下去**一句话都不问，直接进页**：备份是**页里**那颗「备份一份」，以及
+        // NOTE: 点下去**一句话都不问，直接进页**：备份靠页里顶上那颗「立即备份」，以及
         // 展开「修改存档文件」那个折叠框时那一句警告（见 `fileEditingRequested` 那一段）。
         connect(saves, &InstanceFilesPage::editRequested, m_owner,
                 [this, &dialog](const QString &path) { m_owner->showWorldSettingsPage(&dialog, path); });
@@ -2206,20 +2206,25 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     if (WorldSettingsPage *world = dialog.worldSettingsPage()) {
         connect(world, &WorldSettingsPage::saveRequested, m_owner,
                 [this, &dialog]() { m_owner->saveWorldSettings(&dialog); });
-        // 「备份一份」：这一颗**不动页面上任何东西**（用户可能只是想先抄一份再接着改），
-        // 所以只做、只报，不切页、不刷新。
-        connect(world, &WorldSettingsPage::backupRequested, m_owner,
-                [this]() {
-                    QString why;
-                    if (m_owner->backupWorldLevelData(m_owner->m_worldDir, &why)) {
-                        InlineMessage::information(
-                            m_owner->m_ui->overlay(), tr("创建备份"),
-                            tr("已备份存档信息。手动还原时，将备份复制到存档目录并命名为 level.dat。\n\n备份位置：%1")
-                                .arg(QDir::toNativeSeparators(m_owner->latestWorldBackup(m_owner->m_worldDir))));
-                    } else {
-                        InlineMessage::warning(m_owner->m_ui->overlay(), tr("创建备份"),
-                                               tr("备份创建失败：%1").arg(why));
+        // 页眉面包屑「返回 / 世界设置：<世界名>」：世界设置那一格露出来时改页眉的字、
+        // 把「返回」接到 `leaveWorldSettings()`（回存档列表，改过的要先问）；收回去时还原。
+        connect(&dialog, &InstanceSettingsDialog::worldBreadcrumbChanged, m_owner,
+                [this, guard = QPointer<InstanceSettingsDialog>(&dialog)](const QString &title) {
+                    OverlayHost *overlay = m_owner->m_ui->overlay();
+                    if (overlay == nullptr || guard == nullptr) {
+                        return;
                     }
+                    overlay->setPageTitle(title.isEmpty() ? guard->titleText() : title);
+                    if (title.isEmpty()) {
+                        overlay->setBackOverride(nullptr);
+                        return;
+                    }
+                    overlay->setBackOverride([this, guard] {
+                        if (guard != nullptr) {
+                            m_owner->leaveWorldSettings(guard);
+                        }
+                        return true;
+                    });
                 });
         // 存档目录一定存在（这一格能开着就是刚从这个目录底下读出来的），所以**不 mkpath**
         // —— 和上面那九颗快捷方式按钮那一条故意不同。
@@ -2376,11 +2381,11 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                         m_owner->m_ui->overlay(), MessageKind::Question, tr("改动存档文件"),
                         tr("将直接修改“%1”的存档名称、游戏模式、难度及规则。建议先备份存档信息。")
                             .arg(worldName),
-                        {tr("继续改"), tr("先创建备份"), tr("取消")},
-                        /*defaultIndex=*/0, /*destructiveIndex=*/-1,
+                        {tr("取消"), tr("先创建备份"), tr("继续修改")},
+                        /*defaultIndex=*/1, /*destructiveIndex=*/2,
                         /*dismissOnOutsideClick=*/false,
                         tr("备份当前 level.dat，不修改存档。"));
-                    if (choice == 2 || choice == -1) {
+                    if (choice == 0 || choice == -1) {
                         // 「取消」和"点外面关掉"都算"不改了" ⇒ 把框**收回去**（不收回来的
                         // 话页面上那个框开着、而用户什么也没答应，看着像那句警告白弹了）。
                         world->setFileEditingOpen(false);
@@ -2402,7 +2407,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                                 .arg(worldName,
                                      QDir::toNativeSeparators(m_owner->latestWorldBackup(m_owner->m_worldDir))));
                     }
-                    // 「继续改」/「先备份一份」（备成了）：框**保持开着**。
+                    // 「继续修改」/「先备份一份」（备成了）：框**保持开着**。
                     //
                     // NOTE: 这里显式摆一次而不是"什么都不做" —— 页面上那颗钮是在**信号发
                     // 出去之前**摆的样子，中间跑了两个嵌套事件循环（那一问、以及备份
