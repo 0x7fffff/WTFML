@@ -227,10 +227,11 @@ QStringList LaunchController::launchArguments(const QString &versionId, const QJ
         m_owner->m_authManager->playerUuid(), window, screen, quickPlay);
 }
 
-void LaunchController::abortStart() {
+void LaunchController::abortStart(bool byUser) {
     // 只竖旗子、不做别的：调用方是 `closeEvent`，它自己正卡在"启动"那条调用栈的嵌套
     // 事件循环里。在这里直接收尾（finishTask / 删东西）会踩到那条栈上的状态。
     m_abortRequested = true;
+    m_abortByUser = byUser;
     // 排着的那一发"加入世界"也一起作废：这一趟都被取消了，它没有"下一次"可等 ——
     // 留着它，用户下次自己点「启动」时游戏会莫名其妙地进一个他早就放弃的世界。
     m_owner->m_pendingQuickPlay = QuickPlay::Target();
@@ -257,10 +258,14 @@ void LaunchController::onStartButtonClicked() {
     const FlagGuard startGuard(m_startInProgress);
     // 上一趟"关窗取消"留下的旗子不能带到这一趟里来（见 `abortStart()`）。
     m_abortRequested = false;
+    m_abortByUser = false;
     // 检查点：每一处**刚从一个嵌套事件循环里出来**的地方都用它判一次。用户在那段等待里
     // （换令牌最长 15 秒、下 Java 可能几分钟）点关闭并确认之后，路就停在这里，
     // 不再把游戏拉起来、也不再往下写盘。
     const auto shouldStop = [this] { return m_abortRequested; };
+    const auto logStopped = [this] {
+        m_owner->appendLog(m_abortByUser ? m_owner->tr("启动已取消。") : m_owner->tr("启动已取消：启动器正在关闭。"));
+    };
 
     // 「加入选中的世界 / 加入服务器」排上的那一发：**开头就取走并清掉**。
     //
@@ -358,7 +363,10 @@ void LaunchController::onStartButtonClicked() {
     // 这一趟的收尾责任挂在栈上：从这儿往下到函数末尾有七八个早退（版本信息缺失 / 继承链
     // 不全 / natives 起不来 / ASCII 别名建不出 / 启动前检查没过 / Java 不匹配那个框里点了
     // 取消…），每一个都会让这件任务永远停在"正在启动"上。见 TaskAbortGuard 那段。
-    TaskAbortGuard launchGuard([this, launchTask]() { m_owner->finishTask(launchTask, false); });
+    // failReason：早退时写进任务的那一句（主页启动卡片「启动失败」下面那一行读它）。
+    // 用户自己点了取消的那几条早退留空 —— 卡片据此直接还原，不报「启动失败」。
+    QString failReason;
+    TaskAbortGuard launchGuard([this, launchTask, &failReason]() { m_owner->finishTask(launchTask, false, failReason); });
 
     // 这一趟走不走离线：**只看当前账号是不是离线账号**（唯一出处，见 m_owner->offlineIdentity()）。
     const bool offlineMode = m_owner->offlineIdentity();
@@ -371,9 +379,7 @@ void LaunchController::onStartButtonClicked() {
         QString tokenError;
         // 这一段**是同步的**：令牌需要换的时候它要在 UI 线程上发请求（单次超时 15 秒），
         // 期间界面完全不重绘。先给用户一句话再进去，别让他以为点了没反应。
-        m_owner->enterSyncWait(tr("正在校验登录状态…"));
         token = m_owner->m_authManager->loadSavedToken(&tokenError);
-        m_owner->leaveSyncWait();
         if (token.isEmpty()) {
             // NOTE: 这里的"离线"指的是**那一个动作**：在
             // 「账号与外观…」那个窗里填个名字、点「添加离线账号」。
@@ -382,13 +388,14 @@ void LaunchController::onStartButtonClicked() {
                                      ? tr("请先登录微软账号，或在「账号与外观…」中添加离线账号。")
                                      : tr("%1\n\n请重新登录微软账号，或在「账号与外观…」中添加离线账号。")
                                            .arg(tokenError));
+            failReason = tr("登录状态失效，请重新登录");
             return;
         }
     }
 
     // 换令牌那一段转过嵌套事件循环 —— 用户可能在里面点了关闭。
     if (shouldStop()) {
-        m_owner->appendLog(m_owner->tr("启动已取消：启动器正在关闭。"));
+        logStopped();
         return;
     }
 
@@ -414,6 +421,7 @@ void LaunchController::onStartButtonClicked() {
         InlineMessage::warning(m_owner->m_ui->overlay(), tr("版本信息缺失"),
             tr("找不到版本 %1 的 version.json，无法确定所需的 Java 版本。\n请先选中该版本并点击\"下载\"重新获取版本信息。")
                 .arg(versionId));
+        failReason = tr("找不到版本信息");
         return;
     }
 
@@ -426,6 +434,7 @@ void LaunchController::onStartButtonClicked() {
     if (!inheritanceProblem.isEmpty()) {
         m_owner->appendLog(m_owner->tr("版本继承链不完整：%1").arg(versionId));
         InlineMessage::warning(m_owner->m_ui->overlay(), tr("版本不完整"), inheritanceProblem);
+        failReason = tr("版本不完整");
         return;
     }
 
@@ -440,7 +449,6 @@ void LaunchController::onStartButtonClicked() {
     QStringList nativeErrors;
     QString nativesDir;
     LauncherManager *launcher = m_owner->m_launcherManager;
-    m_owner->enterSyncWait(tr("正在准备游戏文件…"));
     {
         auto stageActive = std::make_shared<std::atomic_bool>(true);
         const QPointer<MainWindow> weakOwner(m_owner);
@@ -465,7 +473,6 @@ void LaunchController::onStartButtonClicked() {
         stageActive->store(false);
         m_owner->m_activityCenter->tasks()->setProgress(launchTask, 0, 0);
     }
-    m_owner->leaveSyncWait();
     if (nativesDir.isEmpty() && !nativeErrors.isEmpty()) {
         m_owner->appendLog(m_owner->tr("准备 natives 失败："));
         for (const QString &error : nativeErrors) {
@@ -476,6 +483,7 @@ void LaunchController::onStartButtonClicked() {
         InlineMessage::warning(m_owner->m_ui->overlay(), tr("无法启动"),
                              tr("准备 natives 失败，游戏起不来：\n\n%1")
                                  .arg(nativeErrors.join(QStringLiteral("\n"))));
+        failReason = tr("准备 natives 失败");
         return;
     }
     if (!nativesDir.isEmpty()) {
@@ -501,6 +509,7 @@ void LaunchController::onStartButtonClicked() {
                 // 同上面那两条：拦下用户操作的话一律要弹窗（否则用户看到的只是"点了没反应"，
                 // 或者一句被 Java 8 说岔了的 `找不到主类`）。
                 InlineMessage::warning(m_owner->m_ui->overlay(), tr("无法启动"), aliasProblem);
+                failReason = tr("准备路径别名失败");
                 return;
             }
             m_owner->appendLog(m_owner->tr("这个实例的路径里有非 ASCII 字符（Java 8 打不开），已改用 ASCII 别名：%1")
@@ -518,6 +527,7 @@ void LaunchController::onStartButtonClicked() {
         InlineMessage::warning(m_owner->m_ui->overlay(), tr("无法启动"),
                              tr("启动前检查没通过，游戏起不来：\n\n%1")
                                  .arg(errors.join(QStringLiteral("\n"))));
+        failReason = tr("启动前检查未通过：%1").arg(errors.value(0));
         return;
     }
 
@@ -601,7 +611,7 @@ void LaunchController::onStartButtonClicked() {
     }
     // 那一问本身也是内嵌提示（`execPrompt` 转嵌套事件循环）。
     if (shouldStop()) {
-        m_owner->appendLog(m_owner->tr("启动已取消：启动器正在关闭。"));
+        logStopped();
         return;
     }
     // 「仍然用这个 Java 启动」只有一个后果：把"允许不匹配"那个口子打开。判在
@@ -619,7 +629,6 @@ void LaunchController::onStartButtonClicked() {
     QString javaError;
     bool javaReady = false;
     GlobalJavaSettings *javaStore = m_owner->m_javaSettings;
-    m_owner->enterSyncWait(tr("正在准备 Java 运行时…"));
     {
         auto stageActive = std::make_shared<std::atomic_bool>(true);
         const QPointer<MainWindow> weakOwner(m_owner);
@@ -645,9 +654,8 @@ void LaunchController::onStartButtonClicked() {
         stageActive->store(false);
         m_owner->m_activityCenter->tasks()->setProgress(launchTask, 0, 0);
     }
-    m_owner->leaveSyncWait();
     if (shouldStop()) {
-        m_owner->appendLog(m_owner->tr("启动已取消：启动器正在关闭。"));
+        logStopped();
         return;
     }
     if (!javaReady) {
@@ -658,6 +666,7 @@ void LaunchController::onStartButtonClicked() {
                       .arg(m_owner->instanceDisplayName(versionId))
                       .arg(javaMajorVersion)
                 : tr("找不到或无法下载 Java %1，请手动指定 Java 路径。").arg(javaMajorVersion));
+        failReason = tr("找不到可用的 Java %1").arg(javaMajorVersion);
         return;
     }
 
@@ -669,6 +678,7 @@ void LaunchController::onStartButtonClicked() {
         InlineMessage::warning(m_owner->m_ui->overlay(), tr("账号被切换了"),
             tr("准备 Java 时，当前账号由「%1」切换为「%2」。\n为避免账号信息与凭据不匹配，已取消启动。请重新启动游戏。")
                 .arg(launchPlayerName, m_owner->m_authManager->playerName()));
+        failReason = tr("准备 Java 时账号被切换");
         return;
     }
 
@@ -694,6 +704,7 @@ void LaunchController::onStartButtonClicked() {
             InlineMessage::warning(m_owner->m_ui->overlay(), tr("实例设置写入失败"),
                 tr("已找到兼容的 Java（%1），但无法保存在实例「%2」的设置中：\n%3\n\n请在「实例设置」中手动指定路径，再启动游戏。")
                     .arg(javaSettings.javaPath, m_owner->instanceDisplayName(versionId), writeError));
+            failReason = tr("实例设置写入失败");
             return;
         }
         m_owner->appendLog(m_owner->tr("已把「%1」指定的 Java 换成 %2")
@@ -740,10 +751,9 @@ void LaunchController::onStartButtonClicked() {
     // 最后一道：到这里为止没有再让出过事件循环，但下面那句 `startGame()` 一旦返回就
     // 已经有进程了 —— 取消只在这一句之前还有意义。
     if (shouldStop()) {
-        m_owner->appendLog(m_owner->tr("启动已取消：启动器正在关闭。"));
+        logStopped();
         return;
     }
-    m_owner->enterSyncWait(MainWindowUI::launchingStatusText(m_owner->instanceDisplayName(versionId)));
     // 身份和实例名都在**启动这一刻**钉进会话里（LauncherManager 的 GameSession 快照）：
     // 之后切账号、改实例名都不会影响"这一份当初是谁跑的"。多开这件事最要紧的就是这条 ——
     // 同一个实例挂两个账号各开一个时，两份会话的 accountName 必须是各自的，不能都读
@@ -767,7 +777,6 @@ void LaunchController::onStartButtonClicked() {
         launchPlayerName, launchPlayerUuid,
         m_owner->m_settings->processPriority());
     QObject::disconnect(startErrorConnection);
-    m_owner->leaveSyncWait();
     if (sessionId <= 0 && !startFailure.isEmpty()) {
         // 拦下用户操作的消息一律要弹窗（产品硬约束），并且要把原因写进那件任务 ——
         // 否则任务中心里只有一行"失败"，点进去也说不清是为什么。
@@ -777,12 +786,14 @@ void LaunchController::onStartButtonClicked() {
         InlineMessage::warning(m_owner->m_ui->overlay(), tr("无法启动"), startFailure);
         m_owner->finishTask(launchTask, false, startFailure);
         launchGuard.disarm();
+    } else if (sessionId <= 0) {
+        failReason = tr("游戏进程没有启动");
     }
     if (sessionId > 0) {
         m_owner->m_settings->setLastLaunchedVersion(versionId);
         m_owner->appendLog(m_owner->tr("已开始启动游戏，正在执行 JVM 参数..."));
         // 启动进度从这里开始走到"这一份自己吐出第一行输出"为止。startGame() 返回之前
-        // 那段只能报"在等什么"（见上面那次 m_owner->enterSyncWait()）—— 这里能覆盖的是随后的
+        // 那段由任务中心的步骤和主页启动卡片报"在等什么"—— 这里能覆盖的是随后的
         // JVM/游戏初始化。
         // 顺序上安全：startGame() 内部那条 "游戏已启动" 的 processOutput 是在它
         // return 之前同步发出的，那时这一份还不在集合里，所以不会被当成"游戏已经出话了"。

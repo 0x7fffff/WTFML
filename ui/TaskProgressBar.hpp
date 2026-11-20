@@ -41,6 +41,9 @@ public:
     void setRing(bool ring) { m_ring = ring; update(); }
     bool isRing() const { return m_ring; }
 
+    /// 走满时仍用主题色（默认走满换成功绿）。只有主页启动卡片打开：它的成功和失败另由眉题与 W 区分。
+    void setFullUsesAccent(bool on) { m_fullAccent = on; update(); }
+
 protected:
     void paintEvent(QPaintEvent *event) override;
     void showEvent(QShowEvent *event) override;
@@ -54,5 +57,6 @@ private:
     /// 不确定态那一截现在滚到哪儿（0..1）。关掉动效时恒 0（定住的那一格）。
     qreal m_phase = 0.0;
     bool m_ring = false;
+    bool m_fullAccent = false;
     QTimer *m_busyTimer = nullptr;
 };

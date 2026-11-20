@@ -896,6 +896,24 @@ MainWindow::MainWindow(QWidget *parent)
                                [this]() { m_activityCenter->clearFinished(); });
     // 点任务中心里的**一行** = 开任务详情页（点击任务进入内嵌 TaskDetailPage）。
     m_ui->setTaskCenterRowActivatedHandler([this](const QString &key) { openTaskDetailPage(key); });
+    // 主页启动卡片（#65）：数据只有任务中心那一份（阶段 / 进度 / 失败原因），卡片和任务中心说的是同一件事。
+    connect(m_activityCenter->tasks(), &Tasks::TaskManager::taskChanged, this,
+            [this](Tasks::TaskId id) { syncLaunchCard(id); });
+    m_ui->setLaunchCardActionHandler([this](quint64 id, MainWindowUI::LaunchCardAction action) {
+        if (action == MainWindowUI::LaunchCardAction::Details) {
+            openTaskDetailPage(QString::number(id));
+            return;
+        }
+        // 卡片上唯一一处取消。进程已起来（任务挂上了会话号）= 停掉那一份会话（同任务中心那颗「取消」）；
+        // 还在起来之前 = 让启动路在下一个检查点停下。
+        // shortcut: #61 的统一取消入口合进来之后改调那一个。
+        const Tasks::TaskSnapshot task = m_activityCenter->tasks()->snapshot(id);
+        if (task.sessionId > 0) {
+            cancelTaskFromDetail(QString::number(id));
+        } else if (m_launchController != nullptr) {
+            m_launchController->abortStart(true);
+        }
+    });
     // 行尾那颗「取消」：走的是和详情页里那一颗**完全同一条路**（`onTaskDetailAction`）——
     // 两处各写一遍的话，"取消"的语义迟早会分家（一处删文件、一处不删）。
     m_ui->setTaskCenterRowActionHandler(

@@ -19,7 +19,9 @@ public:
     /// 取消正在走的那一趟启动。**只是竖个旗子**，真正的退出发生在下一个检查点
     /// （换令牌之后 / 问完 Java 之后 / 下完 Java 之后 / `startGame()` 之前）——
     /// 那些正是嵌套事件循环把用户输入放进来过的地方。
-    void abortStart();
+    /// @p byUser 为 true：用户在主页启动卡片上点了「取消」（日志写「启动已取消。」）；
+    /// 默认是关窗那一路（日志写「启动器正在关闭」）。
+    void abortStart(bool byUser = false);
 private:
  MainWindow *m_owner = nullptr;
  /// 这一条启动路**此刻正在走**。判据在 `onStartButtonClicked()` 开头（见那儿的长注释）：
@@ -28,5 +30,6 @@ private:
  bool m_startInProgress = false;
  /// `abortStart()` 竖的旗子。**每趟开头清掉**（否则上一趟的取消会把下一趟立刻掐死）。
  bool m_abortRequested = false;
+ bool m_abortByUser = false;
 };
 

@@ -351,6 +351,53 @@ int MwTaskSummaryChecks(MainWindow &window) {
                   abVm == nullptr ? QStringLiteral("<没拿到 vm>") : QStringLiteral("还忙着"));
         }
     }
+    // ---- AB7. 主页启动卡片（#65）的数据就是这一项启动任务：阶段名、件数、失败原因 ----
+    {
+        using Phase = MainWindowUI::LaunchCard::Phase;
+        Tasks::TaskSnapshot t;
+        t.id = 42;
+        t.kind = Tasks::TaskKind::Launch;
+        t.state = Tasks::TaskState::Running;
+        t.targetId = QStringLiteral("spring");
+        for (const char *name : {"校验登录状态", "检查启动文件", "准备 Java 运行环境", "等待游戏启动", "完成"})
+            t.steps.append(Tasks::TaskStep{QString::fromUtf8(name), Tasks::TaskStepState::Pending, QString()});
+        const auto doneUpTo = [&t](int n) {
+            for (int i = 0; i < t.steps.size(); ++i)
+                t.steps[i].state = i < n ? Tasks::TaskStepState::Done : Tasks::TaskStepState::Pending;
+        };
+        doneUpTo(0);
+        MainWindowUI::LaunchCard c = MainWindow::launchCardFor(t, true);
+        check(c.phase == Phase::Running && c.stage == QStringLiteral("校验登录") && c.taskId == 42
+                  && c.instanceKey == QStringLiteral("spring") && c.login == QStringLiteral("离线登录"),
+              "AB7 启动卡片：第一步 = 校验登录，登录方式按账号", c.stage);
+        doneUpTo(1);
+        check(MainWindow::launchCardFor(t, false).stage == QStringLiteral("检查文件")
+                  && MainWindow::launchCardFor(t, false).login == QStringLiteral("微软账号登录"),
+              "AB7 检查启动文件还没报件数 = 检查文件");
+        t.doneUnits = 312;
+        t.totalUnits = 1024;
+        c = MainWindow::launchCardFor(t, true);
+        check(c.stage == QStringLiteral("补全文件与资源") && c.done == 312 && c.total == 1024 && !c.bytes,
+              "AB7 报了件数 = 补全文件与资源 312 / 1024", c.stage);
+        doneUpTo(2);
+        c = MainWindow::launchCardFor(t, true);
+        check(c.stage == QStringLiteral("准备 Java") && c.bytes, "AB7 准备 Java 按字节报", c.stage);
+        doneUpTo(3);
+        t.doneUnits = t.totalUnits = 0;
+        c = MainWindow::launchCardFor(t, true);
+        check(c.stage == QStringLiteral("等待游戏窗口") && c.total == 0, "AB7 等待游戏启动 = 等待游戏窗口（不定进度）", c.stage);
+        t.state = Tasks::TaskState::Failed;
+        t.errorSummary = QStringLiteral("游戏进程没有启动");
+        c = MainWindow::launchCardFor(t, true);
+        check(c.phase == Phase::Failed && c.reason == t.errorSummary && c.stage == QStringLiteral("等待游戏窗口"),
+              "AB7 失败带原因 = 启动失败，停在当时那一段", c.reason);
+        t.errorSummary.clear();
+        check(MainWindow::launchCardFor(t, true).phase == Phase::Idle, "AB7 失败但没有原因（用户自己取消的）= 卡片收起");
+        t.state = Tasks::TaskState::Cancelled;
+        check(MainWindow::launchCardFor(t, true).phase == Phase::Idle, "AB7 取消 = 卡片收起");
+        t.state = Tasks::TaskState::Succeeded;
+        check(MainWindow::launchCardFor(t, true).phase == Phase::Succeeded, "AB7 成功 = 游戏已启动");
+    }
 return 0;
 }
 

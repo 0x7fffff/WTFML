@@ -431,6 +431,7 @@ set(SOURCE_FILES
     # MainWindowUI.cpp 直接 new 它们两个，少了这两行会在链接那一步报
     # `undefined reference to TitleBar::TitleBar(QWidget*)` / `WindowChrome::…`。
     ${REPO_ROOT}/ui/TitleBar.cpp
+    ${REPO_ROOT}/ui/BrandMark.cpp
     ${REPO_ROOT}/ui/DesignDefaults.cpp
     ${REPO_ROOT}/ui/Theme.cpp
     # 动效那一层：按钮按下 / 换页 / 展开折叠。MainWindowUI.cpp 和

@@ -88,7 +88,7 @@ void TaskProgressBar::paintEvent(QPaintEvent *) {
     const QPalette palette = QApplication::palette();
     const QColor track = Theme::progressTrackColor(palette);
     // 走满的那一根是「完成」：设计稿用成功绿。
-    const QColor fill = maximum() > minimum() && value() >= maximum() ? Theme::tokens().ok
+    const QColor fill = !m_fullAccent && maximum() > minimum() && value() >= maximum() ? Theme::tokens().ok
                                                                        : Theme::progressFillColor(palette);
 
     if (m_ring) {

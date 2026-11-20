@@ -1215,6 +1215,9 @@ private slots:
     /// 拖到**主窗口**上的（没有哪一页开着）：装到哪个实例里要问用户。
 public:
     void handleWindowDrop(const QStringList &paths);
+    /// 主页启动卡片（#65）的数据：把任务中心里那一项启动任务翻成卡片那几样（阶段名、件数、
+    /// 失败原因）。阶段名照 card-spec §3 的定稿字；失败但没有原因的（用户自己取消）回 Idle。
+    static MainWindowUI::LaunchCard launchCardFor(const Tasks::TaskSnapshot &task, bool offline);
     /// 关联/命令行带进来的文件：原理图类打开摘要，其余按拖入处理。
     void openExternalFile(const QString &path);
 private slots:
@@ -2078,6 +2081,9 @@ private:
     /// 这里**：服务端安装那一趟和版本/资源下载那一批不是同一份状态，怎么分派的判据和
     /// `cancelWouldWork()` 必须逐字对齐（见 .cpp 里那段 ★）。
     void cancelTaskFromDetail(const QString &key);
+    /// 任务中心那一项启动任务变了 ⇒ 主页启动卡片跟着换。只跟最近那一次启动（多开时卡片只说最新的）。
+    void syncLaunchCard(Tasks::TaskId id);
+    Tasks::TaskId m_launchCardTask = Tasks::invalidTaskId();
     /// 「重试」那一下，同上（判据本体是 `retryWouldWork()`，和取消左右对称）。
     void retryTaskFromDetail(const QString &key);
 
