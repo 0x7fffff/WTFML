@@ -235,9 +235,10 @@ int MwAccountAppearanceChecks() {
                                   QString("%1 -> %2")
                                       .arg(before.name())
                                       .arg(dialogViewer->skin().pixelColor(0, 0).name()));
-                            check(!dialogViewer->cape().isNull() &&
-                                      dialogViewer->cape().pixelColor(0, 0) == QColor(200, 30, 30),
-                                  "Z3 披风也一起进去了");
+                            // 披风：账号页预览的披风只认披风列表里应用过的那件（c46dd959），
+                            // 资料接口带回来的披风图（常是旧图）不直接进预览；这里没有披风列表，所以是空的。
+                            check(dialogViewer->cape().isNull(),
+                                  "Z3 资料里的披风不直接进账号页预览（只认披风列表里应用的那件）");
                         }
                         QFile::remove(skinPath);
                         QFile::remove(capePath);
