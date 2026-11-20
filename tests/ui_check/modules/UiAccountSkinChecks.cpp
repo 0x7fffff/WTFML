@@ -359,9 +359,15 @@ int UiAccountSkinChecks() {
                     painter.fillRect(0, 0, 64, 32, QColor(200, 30, 30));
                 }
 
+                QList<AccountSkinDialog::CapeRow> lookCapes;
+                lookCapes.append(AccountSkinDialog::CapeRow{QStringLiteral("look-cape"),
+                                                            QStringLiteral("Look"), true,
+                                                            QStringLiteral("look-url")});
+                dialog.setCapes(lookCapes);
+                dialog.setCapeTexture(QStringLiteral("look-url"), testCape);
                 dialog.setLooks(testSkin, testCape, true);
                 check(viewer->skin() == testSkin && viewer->cape() == testCape,
-                      "喂进去的皮肤和披风都进了预览");
+                      "喂进去的皮肤进预览，披风由披风列表贴上去");
                 check(dialog.selectedVariant() == AccountSkinDialog::variantSlimValue(),
                       "纤细模型 → 下拉框自动切到「纤细（Alex）」（用户多半是在当前模型上调）",
                       dialog.selectedVariant());
@@ -369,7 +375,8 @@ int UiAccountSkinChecks() {
                 dialog.setLooks(testSkin, QImage(), false);
                 check(dialog.selectedVariant() == AccountSkinDialog::variantClassicValue(),
                       "经典模型 → 下拉框切回「经典（Steve）」");
-                check(viewer->cape().isNull(), "披风传空图 → 预览上就没披风了");
+                check(viewer->cape() == testCape,
+                      "setLooks 的披风参数不再覆盖列表里的当前披风（旧资料图不能闪一下）");
 
                 // 空皮肤不许把预览留成空白 —— 那个控件任何一档都得有东西可看。
                 dialog.setLooks(QImage(), QImage(), false);

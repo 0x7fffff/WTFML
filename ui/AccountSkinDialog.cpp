@@ -728,12 +728,11 @@ void AccountSkinDialog::setStatusText(const QString &text) {
 }
 
 void AccountSkinDialog::setLooks(const QImage &skin, const QImage &cape, bool slim) {
+    Q_UNUSED(cape);
     QImage effectiveCape;
-    if (!m_capesLoaded) {
-        effectiveCape = cape;  // 列表还没喂进来，先用接口这份兜底
-    } else if (!m_noCapeApplied) {
-        // 列表已经在了：以「应用过的那件」/当前披风为准。资料接口常常带回旧图
-        // （你这里永远是 15 周年），不能再信它。
+    if (m_capesLoaded && !m_noCapeApplied) {
+        // 只认披风列表里「应用过的那件」/当前披风。资料接口常常带回旧图
+        // （你这里永远是 15 周年），打开动画播到一半更不能先闪它一下。
         for (int i = 0; i < m_capeList->count(); ++i) {
             QListWidgetItem *row = m_capeList->item(i);
             const bool wanted = !m_previewCapeId.isEmpty()
