@@ -1375,6 +1375,10 @@ private:
     friend class ServerMenuController;
     void setupConnections();
 
+    /// 键盘入口（实现在 MainWindowEventFilter.cpp）：主页回车启动。
+    /// 返回 true = 这一发归窗口处理掉了（调用方把事件吃掉）。
+    bool handleHomeEnter();
+
     // ---------- 「世界设置」那两格状态----------
     //
     // 这两条**必须落在 `private:` 里**，跟上面那一堆"世界设置"的函数（它们在

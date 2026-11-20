@@ -27,15 +27,54 @@
 
 #include "..\ui\InstanceGroupDelegate.hpp"
 #include "..\ui\MainWindowUI.hpp"
+#include "..\ui\OverlayHost.hpp"
 #include "..\ui\VersionTreeDelegate.hpp"
+#include "controllers/ActivityCenterController.hpp"
 #include "controllers/InstallPageController.hpp"
 #include "download/ResourceCatalog.hpp"
 
+#include <QAbstractButton>
+#include <QAbstractScrollArea>
+#include <QAbstractSlider>
+#include <QAbstractSpinBox>
+#include <QApplication>
+#include <QComboBox>
+#include <QKeyEvent>
+#include <QLineEdit>
 #include <QListWidget>
 #include <QMouseEvent>
+#include <QPushButton>
 #include <QTreeWidget>
 
+namespace {
+
+/// 焦点落在这些控件上时，回车归**它自己**（输入框提交、按钮按下、列表展开…），
+/// 窗口级那一发不抢。焦点在窗口本身（或压根没有焦点）才算"没有交互焦点"。
+bool keyboardFocusTakesEnter(QWidget *focus) {
+    if (focus == nullptr || focus->isWindow()) {
+        return false;
+    }
+    return qobject_cast<QAbstractButton *>(focus) != nullptr ||
+           qobject_cast<QAbstractSlider *>(focus) != nullptr ||
+           qobject_cast<QAbstractSpinBox *>(focus) != nullptr ||
+           qobject_cast<QComboBox *>(focus) != nullptr ||
+           qobject_cast<QLineEdit *>(focus) != nullptr ||
+           qobject_cast<QAbstractScrollArea *>(focus) != nullptr;
+}
+
+}  // namespace
+
 bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
+    // ---------- 主页回车 = 点「启动游戏」 ----------
+    // 判据全部在 `handleHomeEnter()` 里（主页是否露着、有没有浮层、焦点在谁身上）。
+    if (watched == this && event->type() == QEvent::KeyPress) {
+        auto *key = static_cast<QKeyEvent *>(event);
+        if (!key->isAutoRepeat() && key->modifiers() == Qt::NoModifier &&
+            (key->key() == Qt::Key_Return || key->key() == Qt::Key_Enter) && handleHomeEnter()) {
+            key->accept();
+            return true;
+        }
+    }
     // 安装页那棵树上**唯一一个"行里的按钮"**：选中那条加载器右边的「取消」小叉
     // （谁画的、画在哪一格，见 VersionTreeDelegate::clearRect() 那段 NOTE）。
     //
@@ -216,4 +255,41 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
         }
     }
     return QMainWindow::eventFilter(watched, event);
+}
+
+/// 「主页可见、没有浮层占着、焦点不在可交互控件上」时，回车 = 点那颗「启动游戏」。
+///
+/// 主页可见就用那颗按钮自己的状态认（它只在主页上露着、正在启动时收起来）；
+/// 不新记一份"当前在哪一页"。按钮不可用（没选版本 / 正在启动）就什么都不做。
+bool MainWindow::handleHomeEnter() {
+    // 主页可见 = 选项卡停在第 0 页（那颗「启动游戏」是给既有接线用的兼容控件，平时收着，
+    // 不能拿它露没露当判据）。
+    if (m_ui == nullptr || m_ui->getTabWidget() == nullptr ||
+        m_ui->getTabWidget()->currentIndex() != MainWindowUI::homeTabIndex()) {
+        return false;
+    }
+    QPushButton *start = m_ui->getStartButton();
+    if (start == nullptr || !start->isEnabled()) {
+        return false;
+    }
+    // 正在启动：这一发不给"再启动一次"。
+    if (m_activityCenter != nullptr && m_launchCardTask != Tasks::invalidTaskId()) {
+        const Tasks::TaskSnapshot task = m_activityCenter->tasks()->snapshot(m_launchCardTask);
+        if (task.kind == Tasks::TaskKind::Launch && Tasks::isActiveState(task.state)) {
+            return false;
+        }
+    }
+    // 下拉、右键菜单、自己搭的 `Qt::Popup` 开着：这一发先归它们。
+    if (QApplication::activePopupWidget() != nullptr) {
+        return false;
+    }
+    OverlayHost *overlay = m_ui->overlay();
+    if (overlay != nullptr && overlay->isOpen()) {
+        return false;
+    }
+    if (keyboardFocusTakesEnter(QApplication::focusWidget())) {
+        return false;
+    }
+    start->click();
+    return true;
 }

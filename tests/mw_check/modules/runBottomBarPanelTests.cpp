@@ -10,6 +10,11 @@
 #include "controllers/LaunchController.hpp"
 #include "controllers/TaskDetailController.hpp"
 
+#include <QAbstractButton>
+#include <QKeyEvent>
+#include <QLineEdit>
+#include <QTabWidget>
+
 void runBottomBarPanelTests() {
     const QString originalDir = AppPaths::minecraftDir();
     QTemporaryDir root;
@@ -1651,6 +1656,77 @@ void runBottomBarPanelTests() {
 
         SkinApi::setBaseUrlOverride(QString());
         AuthManager::setEndpointOverridesForTest({});
+    }
+
+    // ---- AH14 键盘入口：主页回车 = 点「启动游戏」 ----
+    //
+    // 判据是"这一发有没有变成一次点击"，不是"游戏真的起来了"：产品那条接线在这一节里
+    // 摘掉、换成计数器 —— 否则这一下会真去起一个进程。
+    {
+        if (w.ui()->getTabWidget() != nullptr) {
+            w.ui()->getTabWidget()->setCurrentIndex(MainWindowUI::homeTabIndex());
+            QApplication::processEvents();
+        }
+        QPushButton *start = w.ui()->getStartButton();
+        check(start != nullptr && start->isEnabled(),
+              "AH14 主页上那颗「启动游戏」点得动（它是给既有接线用的兼容控件，平时收着）");
+        if (start != nullptr) {
+            QObject::disconnect(start, &QPushButton::clicked, &w, nullptr);
+            int launches = 0;
+            QObject::connect(start, &QPushButton::clicked, &w, [&launches] { ++launches; });
+
+            const auto pressEnter = [&w](bool autoRepeat = false) {
+                QKeyEvent press(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier, QString(), autoRepeat);
+                QApplication::sendEvent(&w, &press);
+                QApplication::processEvents();
+            };
+
+            // 焦点在窗口本身（= 没有交互焦点）：回车等于一次点击。
+            w.setFocus();
+            QApplication::processEvents();
+            pressEnter();
+            check(launches == 1, "AH14 主页没有交互焦点时，回车点一次「启动游戏」",
+                  QStringLiteral("%1 次").arg(launches));
+
+            // 按住不放的那几发不算。
+            pressEnter(true);
+            check(launches == 1, "AH14 回车的 auto-repeat 不再多点一次",
+                  QStringLiteral("%1 次").arg(launches));
+
+            // 不在主页（切到下载页）：这一发不启动。
+            if (QTabWidget *tabs = w.ui()->getTabWidget()) {
+                tabs->setCurrentIndex(MainWindowUI::downloadTabIndex());
+                QApplication::processEvents();
+            }
+            pressEnter();
+            check(launches == 1, "AH14 不在主页时回车不启动",
+                  QStringLiteral("%1 次").arg(launches));
+
+            // 焦点落在可交互控件上：这一发归它自己，窗口不抢。
+            if (QTabWidget *tabs = w.ui()->getTabWidget()) {
+                tabs->setCurrentIndex(MainWindowUI::homeTabIndex());
+                QApplication::processEvents();
+            }
+            QWidget *interactive = nullptr;
+            for (QWidget *widget : w.findChildren<QWidget *>()) {
+                if (!widget->isVisible()) continue;
+                if (qobject_cast<QAbstractButton *>(widget) != nullptr ||
+                    qobject_cast<QLineEdit *>(widget) != nullptr) {
+                    interactive = widget;
+                    break;
+                }
+            }
+            check(interactive != nullptr, "AH14 主页上找得到一颗可交互控件（下面拿它验焦点那一档）");
+            if (interactive != nullptr) {
+                interactive->setFocus();
+                QApplication::processEvents();
+                pressEnter();
+                check(launches == 1, "AH14 焦点在可交互控件上时窗口不抢回车",
+                      QStringLiteral("%1 次").arg(launches));
+            }
+
+            // NOTE: 产品那条接线这一节里不再接回去（本函数到这儿只剩收尾，没人再点它）。
+        }
     }
 
     // ---- AH12 收尾：会话一份不剩、账号清掉、目录换回来 ----
