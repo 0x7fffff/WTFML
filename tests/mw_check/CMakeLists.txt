@@ -697,9 +697,10 @@ set_tests_properties(wtfml.workspace PROPERTIES
     TIMEOUT 30
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
 )
+# TIMEOUT 480：单独跑约 200 秒，和其他套件并行或机器忙时会超过 240 秒。
 set_tests_properties(wtfml.main-window PROPERTIES
     LABELS "ui;integration"
-    TIMEOUT 240
+    TIMEOUT 480
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
 )
 
