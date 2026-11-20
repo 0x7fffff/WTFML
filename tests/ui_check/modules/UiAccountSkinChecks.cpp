@@ -276,7 +276,8 @@ int UiAccountSkinChecks() {
 
                 QList<AccountSkinDialog::CapeRow> capes;
                 capes.append(AccountSkinDialog::CapeRow{QStringLiteral("cape-1"),
-                                                        QStringLiteral("Migrator"), true});
+                                                        QStringLiteral("Migrator"), true,
+                                                        QStringLiteral("https://textures.example/cape-1")});
                 capes.append(AccountSkinDialog::CapeRow{QStringLiteral("cape-2"),
                                                         QStringLiteral("MineCon 2016"), false,
                                                         QStringLiteral("https://textures.example/cape-2")});
@@ -291,6 +292,12 @@ int UiAccountSkinChecks() {
                     check(capeList->item(1)->data(Qt::UserRole + 3).value<QImage>().size() == QSize(64, 32) &&
                               capeList->item(0)->data(Qt::UserRole + 3).isNull(),
                           "★ 披风贴图按地址认领：对得上的那一格换成贴图，对不上的不动");
+                    check(viewer->cape().isNull(),
+                          "没选中的非当前披风贴图到了，不要把人物身上的披风换掉");
+                    dialog.setCapeTexture(QStringLiteral("https://textures.example/cape-1"), texture);
+                    check(viewer->cape().size() == QSize(64, 32) &&
+                              viewer->cape().pixelColor(0, 0) == Qt::red,
+                          "当前披风的贴图到了才贴到人物身上");
                 }
                 check(capeList->count() == 2, "两件披风都摆出来了",
                       QString::number(capeList->count()));
@@ -376,7 +383,8 @@ int UiAccountSkinChecks() {
                 dialog.setAccounts(rows);
                 QList<AccountSkinDialog::CapeRow> capes;
                 capes.append(AccountSkinDialog::CapeRow{QStringLiteral("cape-1"),
-                                                        QStringLiteral("Migrator"), true});
+                                                        QStringLiteral("Migrator"), true,
+                                                        QStringLiteral("https://textures.example/cape-1")});
                 dialog.setCapes(capes);
                 capeList->setCurrentRow(0);
                 QApplication::processEvents();

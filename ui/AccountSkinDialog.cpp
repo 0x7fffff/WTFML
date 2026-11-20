@@ -579,11 +579,14 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     connect(m_applyCapeButton, &QPushButton::clicked, this, [this] {
         const QString id = selectedCapeId();
         if (!id.isEmpty()) {
+            updatePreviewCape(true);
             emit capeSelectRequested(id);
         }
     });
-    connect(m_hideCapeButton, &QPushButton::clicked, this,
-            &AccountSkinDialog::hideCapeRequested);
+    connect(m_hideCapeButton, &QPushButton::clicked, this, [this] {
+        updatePreviewCape(false);
+        emit hideCapeRequested();
+    });
 
     updateCapeCaption();
     refreshButtonStates();
@@ -737,7 +740,18 @@ void AccountSkinDialog::setStatusText(const QString &text) {
 }
 
 void AccountSkinDialog::setLooks(const QImage &skin, const QImage &cape, bool slim) {
-    m_viewer->setSkin(skin.isNull() ? SkinModel::defaultSteveSkin() : skin, cape, slim);
+    // 资料接口不一定当场带回披风贴图；只要「显示」还勾着，就用披风列表里那件的缓存补上。
+    QImage effectiveCape = cape;
+    if (effectiveCape.isNull() && m_applyCapeButton != nullptr && m_applyCapeButton->isChecked()) {
+        for (int i = 0; i < m_capeList->count(); ++i) {
+            const QListWidgetItem *row = m_capeList->item(i);
+            if (row->data(Qt::UserRole + 1).toBool()) {
+                effectiveCape = row->data(Qt::UserRole + 3).value<QImage>();
+                break;
+            }
+        }
+    }
+    m_viewer->setSkin(skin.isNull() ? SkinModel::defaultSteveSkin() : skin, effectiveCape, slim);
     m_currentSkin = skin.isNull() ? SkinModel::defaultSteveSkin() : skin;
     m_accountList->viewport()->update();
     // 下拉框跟着**当前皮肤**走：用户多半是"在这个模型上调一下"，而不是每次都从头选。
@@ -762,6 +776,7 @@ void AccountSkinDialog::setCapes(const QList<CapeRow> &capes) {
     m_capeList->setVisible(!capes.isEmpty());
     const bool wearing = std::any_of(capes.cbegin(), capes.cend(), [](const CapeRow &cape) { return cape.active; });
     (wearing ? m_applyCapeButton : m_hideCapeButton)->setChecked(true);
+    updatePreviewCape(wearing);  // 新列表的 active 标记才是准的，预览跟着它重新贴一次
     updateCapeCaption();
     refreshButtonStates();
 }
@@ -770,8 +785,39 @@ void AccountSkinDialog::setCapeTexture(const QString &url, const QImage &texture
     if (url.isEmpty() || texture.isNull()) return;
     for (int i = 0; i < m_capeList->count(); ++i) {
         QListWidgetItem *item = m_capeList->item(i);
-        if (item->data(Qt::UserRole + 2).toString() == url) item->setData(Qt::UserRole + 3, texture);
+        if (item->data(Qt::UserRole + 2).toString() == url) {
+            item->setData(Qt::UserRole + 3, texture);
+            const bool active = item->data(Qt::UserRole + 1).toBool();
+            if (item == m_capeList->currentItem() ||
+                (m_capeList->currentItem() == nullptr && active)) {
+                updatePreviewCape(true);
+            }
+        }
     }
+}
+
+void AccountSkinDialog::updatePreviewCape(bool wearing) {
+    QImage cape;
+    if (wearing) {
+        const QListWidgetItem *item = m_capeList->currentItem();
+        if (item != nullptr) {
+            cape = item->data(Qt::UserRole + 3).value<QImage>();
+        } else {
+            for (int i = 0; i < m_capeList->count(); ++i) {
+                const QListWidgetItem *row = m_capeList->item(i);
+                if (row->data(Qt::UserRole + 1).toBool()) {
+                    cape = row->data(Qt::UserRole + 3).value<QImage>();
+                    break;
+                }
+            }
+        }
+    }
+    const bool slim = m_variantCombo != nullptr &&
+                      m_variantCombo->currentData().toString() == variantSlimValue();
+    m_viewer->setSkin(m_currentSkin.isNull() ? SkinModel::defaultSteveSkin() : m_currentSkin,
+                      cape, slim);
+    // 披风在背后：显示时转到背面 3/4，隐藏时回正面。
+    m_viewer->setBackView(wearing);
 }
 
 void AccountSkinDialog::updateCapeCaption() {

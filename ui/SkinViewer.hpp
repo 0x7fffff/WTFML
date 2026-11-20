@@ -66,6 +66,9 @@ public:
     /// 初始缩放。
     static double defaultZoom();
 
+    /// 账号页用：显示披风时转到背面 3/4，隐藏时回正面。
+    void setBackView(bool back) { setView(back ? 205.0 : 25.0, m_pitch, m_zoom); }
+
     static QString viewerName() { return QStringLiteral("skinViewer"); }
 
     QSize sizeHint() const override;
