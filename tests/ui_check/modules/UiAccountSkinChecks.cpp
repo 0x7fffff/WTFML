@@ -290,10 +290,11 @@ int UiAccountSkinChecks() {
                 }
                 check(capeList->count() == 3, "「无披风」+ 两件披风都摆出来了",
                       QString::number(capeList->count()));
-                check(capeList->item(1)->text() == QStringLiteral("Migrator"),
-                      "披风名后面不再挂「（当前）」", capeList->item(1)->text());
-                check(capeList->item(2)->text() == QStringLiteral("MineCon 2016"),
-                      "另一件也是纯名字", capeList->item(2)->text());
+                check(capeList->item(1)->text().isEmpty() &&
+                          capeList->item(1)->data(Qt::AccessibleTextRole).toString() == QStringLiteral("Migrator"),
+                      "披风格不显示披风名，只留无障碍名字", capeList->item(1)->text());
+                check(capeList->item(2)->text().isEmpty(),
+                      "另一件也不显示名字", capeList->item(2)->text());
                 check(dialog.selectedCapeId().isEmpty() && !applyCapeBtn->isEnabled(),
                       "还没选披风时「应用」灰着");
 
@@ -327,8 +328,8 @@ int UiAccountSkinChecks() {
                 // 列表第一项「无披风」：选中后点「应用」= 取消当前披风。
                 capeList->setCurrentRow(0);
                 QApplication::processEvents();
-                check(capeList->item(0)->text() == AccountSkinDialog::noCapeText(),
-                      "列表第一项是「无披风」", capeList->item(0)->text());
+                check(capeList->item(0)->text().isEmpty() && capeList->item(0)->data(Qt::UserRole + 4).toBool(),
+                      "列表第一项是「无披风」（只留斜杠格，不显示文字）");
                 check(applyCapeBtn->isEnabled(), "选中「无披风」后「应用」可点");
                 applyCapeBtn->click();
                 check(hideCount == 1, "应用「无披风」发的是取消披风信号");

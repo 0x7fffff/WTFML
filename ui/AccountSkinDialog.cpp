@@ -178,7 +178,7 @@ public:
         painter->setRenderHint(QPainter::Antialiasing, true);
         QColor fill = t.text;
         fill.setAlpha(hovered ? 26 : 16);
-        painter->setPen(selected ? QPen(t.ok, 2) : QPen(t.glassEdge, 1));
+        painter->setPen(selected ? QPen(t.primary, 2) : QPen(t.glassEdge, 1));
         painter->setBrush(fill);
         painter->drawRoundedRect(cell.adjusted(0.5, 0.5, -0.5, -0.5), 10, 10);
         const QImage texture = index.data(Qt::UserRole + 3).value<QImage>();
@@ -199,10 +199,6 @@ public:
             QColor swatch = SkinModel::avatarFallbackColor(index.data(Qt::UserRole).toString());
             painter->setBrush(swatch);
             painter->drawRoundedRect(QRectF(cell.center().x() - 8, cell.top() + 14, 16, 32), 3, 3);
-        }
-        if (index.data(Qt::UserRole + 1).toBool()) {  // 正披着的那件：右上角一个小圆点
-            painter->setBrush(t.ok);
-            painter->drawEllipse(QPointF(cell.right() - 8, cell.top() + 8), 3, 3);
         }
         painter->restore();
     }
@@ -520,8 +516,6 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     m_capeList->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     controls->addWidget(m_capeList);
     m_capeList->hide();  // 没有披风时不留一块空格子（setCapes() 按有没有再露出来）
-    m_capeCaption = makeCaption(QString(), this);
-    controls->addWidget(m_capeCaption);
 
     // ---------- 底：关闭 ----------
     // NOTE: 只有「关闭」，没有「确定」—— 这个窗里的每一件事（切换、上传、换披风）**当场
@@ -554,8 +548,6 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
             &AccountSkinDialog::placeRowActions);
     connect(m_capeList, &QListWidget::itemSelectionChanged, this,
             &AccountSkinDialog::refreshButtonStates);
-    connect(m_capeList, &QListWidget::itemSelectionChanged, this,
-            &AccountSkinDialog::updateCapeCaption);
     connect(m_switchButton, &QPushButton::clicked, this, [this] {
         const QString uuid = selectedUuid();
         if (!uuid.isEmpty()) {
@@ -585,7 +577,6 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
         emit capeSelectRequested(id);
     });
 
-    updateCapeCaption();
     refreshButtonStates();
 }
 
@@ -774,15 +765,13 @@ void AccountSkinDialog::setCapes(const QList<CapeRow> &capes) {
     const bool wearing = std::any_of(capes.cbegin(), capes.cend(), [](const CapeRow &cape) { return cape.active; });
     m_capeList->clear();
     QListWidgetItem *none = new QListWidgetItem(m_capeList);
-    none->setText(noCapeText());
-    none->setToolTip(noCapeText());
+    none->setData(Qt::AccessibleTextRole, noCapeText());
     none->setData(Qt::UserRole, QString());
     none->setData(Qt::UserRole + 1, !wearing);
     none->setData(Qt::UserRole + 4, true);
     for (const CapeRow &cape : capes) {
         QListWidgetItem *item = new QListWidgetItem(m_capeList);
-        item->setText(cape.alias);
-        item->setToolTip(cape.alias);
+        item->setData(Qt::AccessibleTextRole, cape.alias);
         item->setData(Qt::UserRole, cape.id);
         item->setData(Qt::UserRole + 1, cape.active);
         item->setData(Qt::UserRole + 2, cape.url);
@@ -797,7 +786,6 @@ void AccountSkinDialog::setCapes(const QList<CapeRow> &capes) {
     m_capeList->setCurrentRow(-1);  // 别让第一格自动变成「已选中」；预览跟当前披风走
     m_capeList->setVisible(true);
     updatePreviewCape(wearing);  // 新列表的 active 标记才是准的，预览跟着它重新贴一次
-    updateCapeCaption();
     refreshButtonStates();
 }
 
@@ -850,16 +838,6 @@ void AccountSkinDialog::updatePreviewCape(bool wearing, bool turnToBack) {
                       cape, slim);
     // 只有用户主动点「显示 / 隐藏」才转视角；打开页面时保持默认正面。
     if (turnToBack) m_viewer->setBackView(wearing);
-}
-
-void AccountSkinDialog::updateCapeCaption() {
-    // 格子里只有色块，名字写在格子下面（设计稿 .cape-name）：选中的那件，没选就写正披着的那件。
-    const QListWidgetItem *shown = m_capeList->currentItem();
-    for (int i = 0; shown == nullptr && i < m_capeList->count(); ++i) {
-        if (m_capeList->item(i)->data(Qt::UserRole + 1).toBool()) shown = m_capeList->item(i);
-    }
-    m_capeCaption->setText(shown != nullptr ? shown->text() : QString());
-    m_capeCaption->setVisible(shown != nullptr);
 }
 
 void AccountSkinDialog::setBusy(bool busy, const QString &what) {
@@ -954,6 +932,7 @@ void AccountSkinDialog::refreshButtonStates() {
     m_offlineSkinButton->setEnabled(idle && m_offlineSkin);
     m_offlineSkinResetButton->setEnabled(idle && m_offlineSkin && m_hasCustomSkin);
 }
+
 
 
 
