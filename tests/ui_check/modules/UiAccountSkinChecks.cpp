@@ -330,6 +330,13 @@ int UiAccountSkinChecks() {
                 check(viewer->cape().size() == QSize(64, 32) &&
                           viewer->cape().pixelColor(0, 0) == Qt::red,
                       "刷新列表后预览仍是刚才点「显示」的那件，不退回旧当前披风");
+                {
+                    QImage stale(64, 32, QImage::Format_ARGB32);
+                    stale.fill(Qt::blue);
+                    dialog.setLooks(QImage(), stale, false);
+                    check(viewer->cape().pixelColor(0, 0) == Qt::red,
+                          "换皮肤/资料刷新带回旧披风图时，不会把刚选的那件盖掉");
+                }
 
                 // 「不显示披风」**不看选中项**：它是一个独立的动作（取消），列表里选中
                 // 哪一件都跟它没关系。

@@ -744,14 +744,17 @@ void AccountSkinDialog::setStatusText(const QString &text) {
 void AccountSkinDialog::setLooks(const QImage &skin, const QImage &cape, bool slim) {
     // 资料接口不一定当场带回披风贴图；只要「显示」还勾着，就用披风列表里那件的缓存补上。
     QImage effectiveCape = cape;
-    if (effectiveCape.isNull() && m_applyCapeButton != nullptr && m_applyCapeButton->isChecked()) {
+    if (m_applyCapeButton != nullptr && m_applyCapeButton->isChecked()) {
+        // 换皮肤/刷新资料时接口可能带回旧的披风图（这里是 15 周年）；只要用户点过
+        // 「显示」某件，就以那件的缓存为准，别让旧资料把它盖回去。
         for (int i = 0; i < m_capeList->count(); ++i) {
             QListWidgetItem *row = m_capeList->item(i);
             const bool wanted = !m_previewCapeId.isEmpty()
                 ? row->data(Qt::UserRole).toString() == m_previewCapeId
                 : row->data(Qt::UserRole + 1).toBool();
             if (wanted) {
-                effectiveCape = row->data(Qt::UserRole + 3).value<QImage>();
+                const QImage cached = row->data(Qt::UserRole + 3).value<QImage>();
+                if (!cached.isNull()) effectiveCape = cached;
                 break;
             }
         }
@@ -768,6 +771,7 @@ void AccountSkinDialog::setLooks(const QImage &skin, const QImage &cape, bool sl
 }
 
 void AccountSkinDialog::setCapes(const QList<CapeRow> &capes) {
+    if (capes.isEmpty()) m_previewCapeId.clear();
     m_capeList->clear();
     for (const CapeRow &cape : capes) {
         QListWidgetItem *item = new QListWidgetItem(m_capeList);
@@ -943,3 +947,5 @@ void AccountSkinDialog::refreshButtonStates() {
     m_offlineSkinButton->setEnabled(idle && m_offlineSkin);
     m_offlineSkinResetButton->setEnabled(idle && m_offlineSkin && m_hasCustomSkin);
 }
+
+
