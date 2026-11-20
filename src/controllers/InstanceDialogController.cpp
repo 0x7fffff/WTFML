@@ -2381,7 +2381,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                         m_owner->m_ui->overlay(), MessageKind::Question, tr("改动存档文件"),
                         tr("将直接修改“%1”的存档名称、游戏模式、难度及规则。建议先备份存档信息。")
                             .arg(worldName),
-                        {tr("取消"), tr("先创建备份"), tr("继续改")},
+                        {tr("取消"), tr("先创建备份"), tr("继续修改")},
                         /*defaultIndex=*/1, /*destructiveIndex=*/2,
                         /*dismissOnOutsideClick=*/false,
                         tr("备份当前 level.dat，不修改存档。"));
@@ -2407,7 +2407,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                                 .arg(worldName,
                                      QDir::toNativeSeparators(m_owner->latestWorldBackup(m_owner->m_worldDir))));
                     }
-                    // 「继续改」/「先备份一份」（备成了）：框**保持开着**。
+                    // 「继续修改」/「先备份一份」（备成了）：框**保持开着**。
                     //
                     // NOTE: 这里显式摆一次而不是"什么都不做" —— 页面上那颗钮是在**信号发
                     // 出去之前**摆的样子，中间跑了两个嵌套事件循环（那一问、以及备份

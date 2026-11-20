@@ -1129,7 +1129,7 @@ void runCopyAndSavePageTests() {
                       "极限模式 / 难度这四格一个都不该一进来就摊着）");
                 QList<PromptAnswerer::Answered> boxAsks;
                 {
-                    // 一问：展开那一句备份警告（点第 3 颗「继续改」）。
+                    // 一问：展开那一句备份警告（点第 3 颗「继续修改」）。
                     PromptAnswerer answerer({2});
                     answerer.start();
                     if (world != nullptr) {
@@ -1145,13 +1145,13 @@ void runCopyAndSavePageTests() {
                       "★★ T27.7 展开弹的是那一句备份警告", askTitle(boxAsks, 0));
                 check(askButtons(boxAsks, 0) ==
                           QStringList({QStringLiteral("取消"), QStringLiteral("先创建备份"),
-                                       QStringLiteral("继续改")}),
-                      "★★ T27.7 那三颗是「取消 / 先创建备份 / 继续改」（用户要的那颗备份就在"
-                      "这一问里，写进存档的「继续改」排最后）",
+                                       QStringLiteral("继续修改")}),
+                      "★★ T27.7 那三颗是「取消 / 先创建备份 / 继续修改」（用户要的那颗备份就在"
+                      "这一问里，写进存档的「继续修改」排最后）",
                       askButtons(boxAsks, 0).join(QLatin1Char('/')));
                 check(world != nullptr && world->fileEditingOpen() &&
                           !world->fileBody()->isHidden(),
-                      "★★ T27.7 答「继续改」之后框**真的开着**（那四格露出来了）");
+                      "★★ T27.7 答「继续修改」之后框**真的开着**（那四格露出来了）");
                 {
                     // 收起来那一下**不该弹任何东西**（页面发的是 `fileEditingRequested(false)`，
                     // MainWindow 那一头直接返回）。

@@ -396,7 +396,7 @@ int UiWorldEditorChecks() {
                   "答应完之后弹的",
                   QStringLiteral("一共发了 %1 次").arg(editingCount));
             check(page.fileBody()->isVisible() && page.fileToggle()->isChecked(),
-                  "Z16a 主程序说「继续改」之后框真的开着");
+                  "Z16a 主程序说「继续修改」之后框真的开着");
             check(page.saveButton()->parentWidget() == page.fileBody() ||
                       page.fileBody()->isAncestorOf(page.saveButton()),
                   "★★ #74 「保存」在「修改存档文件」这一组里（框收着时不露面）");

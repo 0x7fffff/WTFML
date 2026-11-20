@@ -7162,7 +7162,7 @@ Backup location: %1</translation>
             <translation>The world save name, game mode, difficulty and rules of "%1" will be modified directly. It is recommended to back up the world save information first.</translation>
         </message>
         <message>
-            <source>继续改</source>
+            <source>继续修改</source>
             <translation>Continue to change</translation>
         </message>
         <message>

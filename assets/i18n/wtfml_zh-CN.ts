@@ -6993,7 +6993,7 @@ Minecraft %2 / %3 %4</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>继续改</source>
+        <source>继续修改</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
