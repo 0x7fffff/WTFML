@@ -557,10 +557,39 @@ int UiAccountSkinChecks() {
                           "选中那一行：「重新登录」在「复制 UUID」「删除」左边");
                     accountList->setCurrentRow(1);
                     QApplication::processEvents();
+                    // 选中的是 healthy（非当前）：有「切换到所选」；选中需要重新登录的 stale：没有，来源那句完整显示。
+                    check(switchBtn->isVisibleTo(&dialog), "选中正常的非当前账号：有「切换到所选」");
                     check(relogin->isVisibleTo(&dialog) &&
                               relogin->geometry().x() + relogin->width() + 10 == accountList->visualItemRect(accountList->item(0)).right(),
                           "不选中也显示，贴行尾",
                           QString::number(relogin->geometry().right()));
+                    // 选中需要重新登录的行（非当前）：行尾只剩「重新登录」「复制」「删除」，没有「切换到所选」。
+                    AccountSkinDialog::AccountRow staleOther = stale;
+                    staleOther.current = false;
+                    AccountSkinDialog::AccountRow currentHealthy = healthy;
+                    currentHealthy.current = true;
+                    dialog.setAccounts({staleOther, currentHealthy, offlineMarked});
+                    accountList->setCurrentRow(0);
+                    QApplication::processEvents();
+                    auto reloginNow = reloginButtons();
+                    check(reloginNow.size() == 1 && !switchBtn->isVisibleTo(&dialog) && removeBtn->isVisibleTo(&dialog) &&
+                              copyBtn->isVisibleTo(&dialog) && reloginNow.first()->isVisibleTo(&dialog),
+                          "选中需要重新登录的行：没有「切换到所选」，只剩「重新登录」「复制 UUID」「删除」");
+                    if (!reloginNow.isEmpty()) {
+                        // 来源那句放得下：字宽不超过「头像右 13 起、到「重新登录」按钮左 12」这一段（同 delegate 的取值）。
+                        QFont subFont = accountList->font();
+                        subFont.setPixelSize(Theme::textSize(Theme::TextRole::Caption));
+                        const QRect rowRect = accountList->visualItemRect(accountList->item(0));
+                        const int textLeft = rowRect.left() + 12 + 32 + 13;
+                        const int textRight = reloginNow.first()->geometry().left() - 12;
+                        check(QFontMetrics(subFont).horizontalAdvance(AccountSkinDialog::needsReloginText()) <= textRight - textLeft,
+                              "选中时「需要重新登录」那句来源文字放得下、不被省略",
+                              QString("%1 > %2").arg(QFontMetrics(subFont).horizontalAdvance(AccountSkinDialog::needsReloginText())).arg(textRight - textLeft));
+                    }
+                    dialog.setAccounts({stale, healthy, offlineMarked});
+                    accountList->setCurrentRow(1);
+                    QApplication::processEvents();
+                    relogin = reloginButtons().isEmpty() ? relogin : reloginButtons().first();
                     int logins = 0;
                     const auto link = QObject::connect(&dialog, &AccountSkinDialog::loginRequested, &dialog,
                                                        [&logins] { ++logins; });

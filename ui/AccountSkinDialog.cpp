@@ -125,9 +125,7 @@ public:
         const bool relogin = index.data(kReloginRole).toBool();
         const int reloginRoom =
             relogin ? option.widget->property("wtfmlReloginWidth").toInt() + (selected ? 4 : 8) : 0;
-        // 选中的行尾已压着一排按钮，需要重新登录时再多一颗，右边距收紧到 6 好让来源那句放得下。
-        const int rightGap = selected && relogin ? 6 : (current && !selected && !relogin ? 40 : 16);
-        const int textRight = int(r.right()) - rightGap - actions - reloginRoom;
+        const int textRight = int(r.right()) - (current && !selected && !relogin ? 40 : 16) - actions - reloginRoom;
         const QFont nameFont = pixelFont(option.font, 14, QFont::DemiBold);
         const QFont subFont = pixelFont(option.font, Theme::textSize(Theme::TextRole::Caption));
         const QFontMetrics nm(nameFont);
@@ -717,7 +715,8 @@ void AccountSkinDialog::placeRowActions() {
     }
     const QRect row = m_accountList->visualItemRect(item);
     // 「切换到所选」对正在用的那个账号是空操作：那一行只留「删除所选」。
-    m_switchButton->setVisible(!item->data(Qt::UserRole + 1).toBool());
+    // 需要重新登录的账号凭据已失效，切过去也启动不了，且「重新登录」成功后自然成为当前账号：同样不给切换。
+    m_switchButton->setVisible(!item->data(Qt::UserRole + 1).toBool() && !item->data(kReloginRole).toBool());
     m_rowActions->adjustSize();
     const QSize size = m_rowActions->sizeHint();
     m_rowActions->setGeometry(row.right() - size.width() - 10, row.center().y() - size.height() / 2,
