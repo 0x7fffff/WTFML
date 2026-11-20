@@ -3,6 +3,8 @@
 #include "Glass.hpp"
 #include "InlineMessage.hpp"
 #include "TitleBar.hpp"
+#include "ListRowDelegate.hpp"
+#include <QMouseEvent>
 #include <QToolButton>
 #include <QSpinBox>
 int UiThemeCheck(QApplication &app) {
@@ -242,6 +244,55 @@ int UiThemeCheck(QApplication &app) {
                 expect(segments.property("wtfmlKeyboardFocus").toBool() &&
                            segKeyboard.pixelColor(2, segKeyboard.height() / 2) != segMouse.pixelColor(2, segMouse.height() / 2),
                        "segmented tabs: keyboard arrival still draws the focus ring (F1)");
+            }
+            // ---- 键盘走到的那一行露出行尾按钮（#70 第二批 ①）：判据 = 悬停，或（当前行且列表带键盘焦点）----
+            {
+                QListWidget keyed;
+                keyed.setFrameShape(QFrame::NoFrame);
+                keyed.resize(520, 3 * ListRowDelegate::rowHeight() + 4);
+                ListRowDelegate::install(&keyed);
+                for (int i = 0; i < 3; ++i) {
+                    auto *item = new QListWidgetItem(QStringLiteral("实例 %1").arg(i), &keyed);
+                    item->setData(ListRowDelegate::SubtitleRole, QStringLiteral("Fabric 0.16.9 · 1.21.4"));
+                }
+                keyed.move(420, 260);  // 离开屏幕左上角：免得假光标停在第一行上、算成悬停
+                keyed.show();
+                keyed.activateWindow();
+                keyed.setFocus(Qt::OtherFocusReason);
+                app.processEvents();
+                keyed.setCurrentRow(1);
+                app.processEvents();
+                const QColor primary = Theme::tokens().primary;
+                const auto launchProbe = [&keyed](int row) {
+                    const QRect launch = ListRowDelegate::actionRect(keyed.visualItemRect(keyed.item(row)),
+                                                                     ListRowDelegate::Action::Launch);
+                    return QPoint(launch.left() + 4, launch.center().y());
+                };
+                const auto pillAt = [&keyed, &launchProbe](int row) {
+                    return keyed.viewport()->grab().toImage().pixelColor(launchProbe(row));
+                };
+                // 鼠标点进来：当前行不露按钮。
+                const QRect row1 = keyed.visualItemRect(keyed.item(1));
+                const QPoint edge(row1.left() + 2, row1.top() + 2);
+                QMouseEvent mouseDown(QEvent::MouseButtonPress, edge, keyed.viewport()->mapToGlobal(edge),
+                                      Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+                QApplication::sendEvent(keyed.viewport(), &mouseDown);
+                app.processEvents();
+                expect(keyed.hasFocus() && keyed.currentRow() == 1 && !keyed.property("wtfmlKeyboardFocus").toBool() &&
+                           pillAt(1) != primary,
+                       "★ LR-K1 鼠标点到的当前行不露行尾按钮（没有悬停、也不是键盘焦点）");
+                // 键盘到达：当前行露出主色启动胶囊，别的行不露。
+                QKeyEvent anyKey(QEvent::KeyPress, Qt::Key_F13, Qt::NoModifier);
+                QApplication::sendEvent(&keyed, &anyKey);
+                app.processEvents();
+                expect(keyed.property("wtfmlKeyboardFocus").toBool() && pillAt(1) == primary,
+                       "★ LR-K2 键盘走到的当前行露出行尾按钮（主色启动胶囊）");
+                expect(pillAt(0) != primary && pillAt(2) != primary, "LR-K3 键盘焦点只让当前行露行尾按钮，别的行不露");
+                // 再点一下鼠标：收回。
+                QApplication::sendEvent(keyed.viewport(), &mouseDown);
+                app.processEvents();
+                expect(!keyed.property("wtfmlKeyboardFocus").toBool() && pillAt(1) != primary,
+                       "★ LR-K4 鼠标一点，当前行的行尾按钮收回去");
             }
             ToggleSwitch toggle;
             toggle.resize(toggle.sizeHint());

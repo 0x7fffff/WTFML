@@ -425,11 +425,14 @@ private:
         button->update();
     }
     /// 自绘焦点环的控件（挂了 `wtfmlFocusRingOwner`，如设置页分段页签）：和按钮同一条判据。
+    /// 条目视图（列表 / 树）同样按这一条判据挂属性：行尾按钮和当前行标记都读它。
     static void setRingOwner(QWidget *widget, bool visible) {
-        if (widget == nullptr || !widget->property("wtfmlFocusRingOwner").toBool() ||
+        auto *view = qobject_cast<QAbstractItemView *>(widget);
+        if (widget == nullptr || (view == nullptr && !widget->property("wtfmlFocusRingOwner").toBool()) ||
             widget->property("wtfmlKeyboardFocus").toBool() == visible) return;
         widget->setProperty("wtfmlKeyboardFocus", visible);
         widget->update();
+        if (view != nullptr) view->viewport()->update();  // 行是画在视口上的
     }
     bool m_keyboard = false;
 };
@@ -1191,6 +1194,17 @@ QColor focusRingColor(const QPalette &palette) {
     // 别在这儿另立一条"看主题名"的规矩。
     return isDarkPalette(palette) ? accentShade(AccentShade::Hover)
                                   : accentShade(AccentShade::Ink);
+}
+
+bool itemViewKeyboardFocus(const QWidget *view) {
+    return view != nullptr && view->hasFocus() && view->property("wtfmlKeyboardFocus").toBool();
+}
+
+bool isKeyboardCurrentRow(const QStyleOptionViewItem &option, const QModelIndex &index) {
+    const auto *view = qobject_cast<const QAbstractItemView *>(option.widget);
+    if (view == nullptr || !index.isValid() || !itemViewKeyboardFocus(view)) return false;
+    const QModelIndex current = view->currentIndex();
+    return current.isValid() && current.siblingAtColumn(0) == index.siblingAtColumn(0);
 }
 
 QColor progressTrackColor(const QPalette &palette) {

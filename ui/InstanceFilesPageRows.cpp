@@ -286,7 +286,10 @@ public:
             QStyle *style = m_page->m_buttonProbe->style();
             style->drawComplexControl(QStyle::CC_ToolButton, &button, painter, m_page->m_buttonProbe);
         };
-        if (hovered) drawButton(g.detail, RowAction::Detail, VersionIcons::Action::Details);
+        // 键盘走到这一行时同样露出（鼠标悬停之外的另一条路）。
+        if (hovered || Theme::isKeyboardCurrentRow(option, index)) {
+            drawButton(g.detail, RowAction::Detail, VersionIcons::Action::Details);
+        }
         if (!g.toggle.isNull()) {
             ToggleSwitch::paintSwitch(painter, g.toggle, palette.color(QPalette::Accent),
                                       item->checkState() == Qt::Checked, hoveredAction(RowAction::Toggle),

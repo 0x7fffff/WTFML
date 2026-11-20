@@ -291,15 +291,16 @@ void InstanceGroupDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
     // 行尾那颗齿轮：画的是 gearGlyphRect()（比命中格小一圈、还要装进行高里），用次要那一档
     // 颜色 —— 它是行里的一个动作，不是正文。
     //
-    // 它和实例行那两颗一样**只在鼠标停在这一行时才画**（实例行那两颗——置顶 / 垃圾桶
-    // ——用的也是这条规矩，见上面 `&& hovered` 那两处）。
+    // 它和实例行那几颗一样**只在鼠标停在这一行、或键盘走到这一行时才画**
+    // （`Theme::isKeyboardCurrentRow`）。
     // · **宽度照扣**（上面 `textRight` 那一段没跟着改）：鼠标挪进来的时候正文不会左右
     // 跳一下 —— 和下载页那格刷新圈是同一条规矩（`hasRefresh` / `showRefresh` 拆开）。
     // · hovered 是**视图**填的 ⇒ 实例列表必须有 `setMouseTracking(true)`（MainWindowUI
     // 里那一句，少它的话这颗齿轮再也不出现，且不报错、断言也不一定先红）。
     // · 不可用的那几行（`setDisabled()` 那条路）不画：那一整行是半透明的，画上去像是
     // "点得动"。判据和上面那层悬停底色逐字一样。
-    if (hasGear && rowHovered && (index.flags() & Qt::ItemIsEnabled) != 0) {
+    if (hasGear && (index.flags() & Qt::ItemIsEnabled) != 0 &&
+        (rowHovered || Theme::isKeyboardCurrentRow(option, index))) {
         const QRect glyph = gearGlyphRect(row);
         painter->drawPixmap(glyph.topLeft(),
                             VersionIcons::gear(glyph.width(),

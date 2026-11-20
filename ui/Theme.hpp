@@ -76,6 +76,8 @@ class QPushButton;
 class QLabel;
 class QStyle;
 class QWidget;
+class QModelIndex;
+class QStyleOptionViewItem;
 
 namespace Theme {
 
@@ -472,6 +474,18 @@ QColor disabledFillColor();
  * `PE_FrameFocusRect`（见 .cpp 里那段 —— 那是全应用唯一一个"每个控件都会走"的点）。
  */
 QColor focusRingColor(const QPalette &palette);
+
+/**
+ * @brief 条目视图此刻带着**键盘焦点**（Tab / 方向键到达，不是鼠标点进来的）。
+ *
+ * 判据和按钮、输入框的焦点环是同一条：`ControlFocusVisibility` 按"最后一次输入是不是键盘"
+ * 给视图挂 `wtfmlKeyboardFocus`。**别按 `QFocusEvent::reason()` 判。**
+ */
+bool itemViewKeyboardFocus(const QWidget *view);
+
+/// 这一行是不是「键盘当前行」：视图带着键盘焦点，且 `index` 就是它的当前行。
+/// 行尾按钮的显示判据 = 鼠标悬停，**或者**这一条（键盘走到哪一行，那一行就露出按钮）。
+bool isKeyboardCurrentRow(const QStyleOptionViewItem &option, const QModelIndex &index);
 
 /**
  * @brief 自绘进度条（`ui/TaskProgressBar`）那一根**轨道**的底色。**唯一出处。**
