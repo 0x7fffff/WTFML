@@ -3,6 +3,7 @@
 #include "Glass.hpp"
 #include "InlineMessage.hpp"
 #include "TitleBar.hpp"
+#include "ItemViewContextMenu.hpp"
 #include "ListRowDelegate.hpp"
 #include <QMouseEvent>
 #include <QToolButton>
@@ -293,6 +294,36 @@ int UiThemeCheck(QApplication &app) {
                 app.processEvents();
                 expect(!keyed.property("wtfmlKeyboardFocus").toBool() && pillAt(1) != primary,
                        "★ LR-K4 鼠标一点，当前行的行尾按钮收回去");
+            }
+            // ---- 菜单键落点（#70 第二批 ②）：键盘来源的 ContextMenu 统一换算成「当前行附近」的视口坐标 ----
+            {
+                QListWidget menuList;
+                menuList.setFrameShape(QFrame::NoFrame);
+                menuList.resize(300, 200);
+                for (int i = 0; i < 40; ++i) new QListWidgetItem(QStringLiteral("条目 %1").arg(i), &menuList);
+                menuList.setContextMenuPolicy(Qt::CustomContextMenu);
+                ItemViewContextMenu::install(&menuList);
+                int requested = 0;
+                QPoint requestedAt(-1, -1);
+                QObject::connect(&menuList, &QListWidget::customContextMenuRequested, &menuList,
+                                 [&](const QPoint &pos) { ++requested; requestedAt = pos; });
+                menuList.show();
+                menuList.setFocus(Qt::OtherFocusReason);
+                app.processEvents();
+                menuList.setCurrentRow(30);  // 视口外：菜单键要先把它滚进来
+                app.processEvents();
+                QContextMenuEvent keyMenu(QContextMenuEvent::Keyboard, QPoint(0, 0), menuList.mapToGlobal(QPoint(0, 0)));
+                QApplication::sendEvent(&menuList, &keyMenu);
+                app.processEvents();
+                const QRect currentRow = menuList.visualItemRect(menuList.item(30));
+                expect(requested == 1 && currentRow.isValid() && currentRow.contains(requestedAt),
+                       "★ 菜单键：只发一次，落点在当前行里（视口坐标），视口外的当前行先滚进来");
+                menuList.setCurrentRow(-1);
+                menuList.setCurrentItem(nullptr);
+                requested = 0;
+                QApplication::sendEvent(&menuList, &keyMenu);
+                expect(requested == 1 && menuList.viewport()->rect().contains(requestedAt),
+                       "菜单键：没有当前行时也只发一次，落在视口里");
             }
             ToggleSwitch toggle;
             toggle.resize(toggle.sizeHint());

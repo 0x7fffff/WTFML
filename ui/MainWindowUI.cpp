@@ -16,6 +16,7 @@
 #include "Glass.hpp"
 #include "GlassPopover.hpp"
 #include "InstanceGroupDelegate.hpp"
+#include "ItemViewContextMenu.hpp"
 #include "ListRowDelegate.hpp"
 #include "MemorySlider.hpp"
 #include "OverlayHost.hpp"
@@ -2028,6 +2029,7 @@ QWidget *MainWindowUI::setupInstancePage() {
         serverList->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
         // 右键菜单与行尾「更多」是同一份（ServerMenuController）。
         serverList->setContextMenuPolicy(Qt::CustomContextMenu);
+        ItemViewContextMenu::install(serverList);  // 菜单键 / Shift+F10：弹在当前行
         serverList->setMouseTracking(true);
         serverLayout->addWidget(serverList, 1);
 

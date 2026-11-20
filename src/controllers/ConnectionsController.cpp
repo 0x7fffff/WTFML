@@ -29,6 +29,7 @@
 #include <QDesktopServices>
 #include <QMenu>
 #include <QUrl>
+#include "ItemViewContextMenu.hpp"
 #include "ListRowDelegate.hpp"
 #include "util/AppPaths.hpp"
 #include <QElapsedTimer>
@@ -368,6 +369,25 @@ void ConnectionsController::setup() {
                             [this, id] { m_owner->confirmDeleteInstance(id); });
             const QRect more = ListRowDelegate::actionRect(tree->visualRect(index), ListRowDelegate::Action::More);
             menu->popup(tree->viewport()->mapToGlobal(more.bottomLeft()));
+        });
+    }
+    // 菜单键 / Shift+F10（鼠标右键同走这里）：实例行弹「更多」那份菜单，组行弹齿轮那份菜单，
+    // 都落在当前行附近（落点见 ItemViewContextMenu）。
+    {
+        QTreeWidget *instanceTree = m_owner->m_ui->getInstanceList();
+        instanceTree->setContextMenuPolicy(Qt::CustomContextMenu);
+        ItemViewContextMenu::install(instanceTree);
+        connect(instanceTree, &QTreeWidget::customContextMenuRequested, m_owner,
+                [this, instanceTree](const QPoint &pos) {
+            QTreeWidgetItem *item = instanceTree->itemAt(pos);
+            if (item == nullptr) return;
+            if (item->data(0, MainWindowUI::rowGroupGearRole()).toBool()) {
+                m_owner->openGroupMenuFor(item);
+                return;
+            }
+            if (auto *rowDelegate = qobject_cast<ListRowDelegate *>(instanceTree->itemDelegate())) {
+                emit rowDelegate->actionTriggered(instanceTree->indexFromItem(item), ListRowDelegate::Action::More);
+            }
         });
     }
     // 组行行尾那颗齿轮里那几项点了做什么（界面只报"哪一组、第几项"）。

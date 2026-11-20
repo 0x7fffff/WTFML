@@ -1418,6 +1418,32 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                       pageTitle);
             }
 
+            // ---- ②c 菜单键 / Shift+F10（#70 第二批 ②）：键盘来源的 ContextMenu 弹出当前行的「⋯」菜单 ----
+            {
+                QTreeWidgetItem *target = rowOfInstanceId(tree, QStringLiteral("26.3"));
+                check(target != nullptr, "#70 ② 前提：树上有 26.3 那一行");
+                if (target != nullptr) {
+                    tree->setCurrentItem(target);
+                    tree->setFocus(Qt::OtherFocusReason);
+                    QApplication::processEvents();
+                    const QRect row = tree->visualItemRect(target);
+                    // Qt 对键盘来源的 ContextMenu 给的坐标不可靠（取输入法光标矩形的中心），故意给个错位置。
+                    QContextMenuEvent keyMenu(QContextMenuEvent::Keyboard, QPoint(0, 0), tree->mapToGlobal(QPoint(0, 0)));
+                    QApplication::sendEvent(tree, &keyMenu);
+                    QApplication::processEvents();
+                    QPointer<QMenu> menu = tree->findChild<QMenu *>(MainWindowUI::instanceRowMenuName());
+                    const QPoint at = menu.isNull() ? QPoint(-1, -1) : tree->viewport()->mapFromGlobal(menu->pos());
+                    check(!menu.isNull() && at.y() >= row.top() && at.y() <= row.bottom() + 2,
+                          "★ #70 ② 菜单键在当前实例行弹出「⋯」菜单，落在这一行附近（不是视口左上角）",
+                          QStringLiteral("菜单在 %1,%2，当前行 y %3..%4").arg(at.x()).arg(at.y()).arg(row.top()).arg(row.bottom()));
+                    if (!menu.isNull()) {
+                        menu->setObjectName(QString());
+                        menu->close();
+                    }
+                    QApplication::processEvents();
+                }
+            }
+
             // ---- ③ 上箭头 = 置顶：挪进置顶组 ----
             {
                 QTreeWidgetItem *target = rowOfInstanceId(tree, QStringLiteral("26.3"));

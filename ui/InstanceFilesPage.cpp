@@ -3,6 +3,7 @@
  * @brief InstanceFilesPage 的实现（见 .hpp 里那段"六页共用一个形状"）。
  */
 #include "InstanceFilesPage.hpp"
+#include "ItemViewContextMenu.hpp"
 #include "../ui/ShellOpenWith.hpp"
 #include <QFileInfo>
 #include <QMenu>
@@ -315,6 +316,7 @@ InstanceFilesPage::InstanceFilesPage(QWidget *parent) : QWidget(parent) {
     // 右键（空白处；行上右键是"开详情页"，见 eventFilter）：对选中的单个文件给出
     // 「打开方式…」和「在资源管理器中显示」。打开方式只调系统对话框，不自己执行。
     m_list->setContextMenuPolicy(Qt::CustomContextMenu);
+    ItemViewContextMenu::install(m_list);  // 菜单键 / Shift+F10：弹在当前行
     connect(m_list, &QListWidget::customContextMenuRequested, this, [this](const QPoint &pos) {
         QString path;
         if (const QListWidgetItem *item = m_list->itemAt(pos)) {
