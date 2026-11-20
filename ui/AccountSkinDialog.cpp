@@ -493,7 +493,19 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     m_offlineSkinResetButton->hide();
 
     controls->addSpacing(10);
-    controls->addWidget(makeSectionTitle(capeSectionTitle(), this));
+    {
+        auto *capeHeader = new QHBoxLayout();
+        capeHeader->setContentsMargins(0, 0, 0, 0);
+        capeHeader->setSpacing(8);
+        capeHeader->addWidget(makeSectionTitle(capeSectionTitle(), this));
+        capeHeader->addStretch(1);
+        m_applyCapeButton = new QPushButton(tr("应用"), this);
+        m_applyCapeButton->setObjectName(applyCapeButtonName());
+        m_applyCapeButton->setToolTip(applyCapeButtonText());
+        Theme::markButton(m_applyCapeButton, Theme::ButtonKind::Neutral);
+        capeHeader->addWidget(m_applyCapeButton);
+        controls->addLayout(capeHeader);
+    }
 
     m_capeList = new QListWidget(this);
     m_capeList->setObjectName(capeListName());
@@ -505,24 +517,11 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     m_capeList->setMovement(QListView::Static);
     m_capeList->setSpacing(0);
     m_capeList->setItemDelegate(new CapeCellDelegate(m_capeList));
-    // 至少露出两排：披风多的时候不用先滚一下才知道下面还有。
-    m_capeList->setFixedHeight(2 * (kCapeCellHeight + kCapeGap) + 4);
     m_capeList->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     controls->addWidget(m_capeList);
     m_capeList->hide();  // 没有披风时不留一块空格子（setCapes() 按有没有再露出来）
     m_capeCaption = makeCaption(QString(), this);
     controls->addWidget(m_capeCaption);
-
-    // 应用所选：列表第一项是「无披风」，选中它就是取消当前披风。
-    QHBoxLayout *capeButtons = new QHBoxLayout();
-    capeButtons->setSpacing(8);
-    controls->addLayout(capeButtons);
-    m_applyCapeButton = new QPushButton(tr("应用"), this);
-    m_applyCapeButton->setObjectName(applyCapeButtonName());
-    m_applyCapeButton->setToolTip(applyCapeButtonText());
-    Theme::markButton(m_applyCapeButton, Theme::ButtonKind::Neutral);
-    capeButtons->addWidget(m_applyCapeButton);
-    capeButtons->addStretch(1);
 
     // ---------- 底：关闭 ----------
     // NOTE: 只有「关闭」，没有「确定」—— 这个窗里的每一件事（切换、上传、换披风）**当场
@@ -792,6 +791,10 @@ void AccountSkinDialog::setCapes(const QList<CapeRow> &capes) {
             item->setData(Qt::UserRole + 3, m_capeTextures.value(cape.url));
         }
     }
+    // 高度按实际件数算，不再固定两排：有几排就露几排，超长时由外层滚动。
+    const int columns = qMax(1, (kControlsWidth - 8) / (kCapeCell + kCapeGap));
+    const int rows = qMax(1, (m_capeList->count() + columns - 1) / columns);
+    m_capeList->setFixedHeight(rows * (kCapeCellHeight + kCapeGap) + 4);
     m_capeList->setCurrentRow(-1);  // 别让第一格自动变成「已选中」；预览跟当前披风走
     m_capeList->setVisible(true);
     updatePreviewCape(wearing);  // 新列表的 active 标记才是准的，预览跟着它重新贴一次
