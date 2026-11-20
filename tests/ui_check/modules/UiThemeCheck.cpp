@@ -325,6 +325,64 @@ int UiThemeCheck(QApplication &app) {
                 expect(requested == 1 && menuList.viewport()->rect().contains(requestedAt),
                        "菜单键：没有当前行时也只发一次，落在视口里");
             }
+            // ---- 列表的键盘焦点标记（#70 第二批 ③）：键盘焦点时当前行一圈焦点环色，鼠标时不画 ----
+            {
+                QListWidget marked;  // 默认代理：条目的画法不管标记
+                marked.setFrameShape(QFrame::NoFrame);
+                marked.resize(260, 200);
+                for (int i = 0; i < 5; ++i) {
+                    auto *item = new QListWidgetItem(QStringLiteral("条目 %1").arg(i), &marked);
+                    item->setSizeHint(QSize(0, 44));  // 够高：圆角之间才有一段直边可量
+                }
+                marked.move(420, 260);
+                marked.show();
+                marked.activateWindow();
+                marked.setFocus(Qt::OtherFocusReason);
+                app.processEvents();
+                marked.setCurrentRow(2);
+                const auto settle = [&app] { for (int i = 0; i < 4; ++i) app.processEvents(); };
+                settle();
+                const auto markerOf = [&marked]() {
+                    return marked.viewport()->findChild<QWidget *>(QStringLiteral("wtfmlItemViewFocusMarker"));
+                };
+                const QRect row = marked.visualItemRect(marked.item(2));
+                // 焦点环色带透明度：量「左缘那一列和没有标记时不同」，不量等于令牌原值。
+                QImage plain;
+                const auto ringHits = [&marked, row, &plain]() {
+                    const QImage shot = marked.viewport()->grab().toImage();
+                    int hits = 0;
+                    for (int y = row.top() + 10; y < row.bottom() - 10; ++y) {
+                        if (plain.isNull() || shot.pixelColor(row.left() + 2, y) != plain.pixelColor(row.left() + 2, y)) ++hits;
+                    }
+                    return hits;
+                };
+                // 鼠标点进来：没有标记。
+                const QPoint edge(row.left() + 2, row.top() + 2);
+                QMouseEvent press(QEvent::MouseButtonPress, edge, marked.viewport()->mapToGlobal(edge), Qt::LeftButton,
+                                  Qt::LeftButton, Qt::NoModifier);
+                QApplication::sendEvent(marked.viewport(), &press);
+                settle();
+                plain = marked.viewport()->grab().toImage();
+                expect(marked.currentRow() == 2 && (markerOf() == nullptr || !markerOf()->isVisible()) && ringHits() == 0,
+                       "★ 列表标记：鼠标点到的当前行没有键盘焦点标记");
+                // 键盘到达：当前行左缘一整段是焦点环色。
+                QKeyEvent anyKey(QEvent::KeyPress, Qt::Key_F13, Qt::NoModifier);
+                QApplication::sendEvent(&marked, &anyKey);
+                settle();
+                expect(markerOf() != nullptr && markerOf()->isVisible() && row.contains(markerOf()->geometry()) &&
+                           ringHits() >= (row.height() - 20) * 8 / 10,
+                       "★ 列表标记：键盘焦点时当前行有一圈焦点环色的标记");
+                // 换当前行：标记跟着走。
+                marked.setCurrentRow(3);
+                settle();
+                expect(markerOf() != nullptr && markerOf()->isVisible() &&
+                           marked.visualItemRect(marked.item(3)).contains(markerOf()->geometry()),
+                       "列表标记：当前行换了，标记跟着挪过去");
+                // 鼠标一点：收回。
+                QApplication::sendEvent(marked.viewport(), &press);
+                settle();
+                expect(markerOf() == nullptr || !markerOf()->isVisible(), "★ 列表标记：鼠标一点就收回");
+            }
             ToggleSwitch toggle;
             toggle.resize(toggle.sizeHint());
             toggle.setChecked(true);
