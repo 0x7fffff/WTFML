@@ -6,6 +6,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QLocale>
 
 /// 「每日一言」判据层的脱网单测：语种、限长、按日期选题、两种 JSON 的解析、缓存与句子池、
 /// 36 条兜底。一个网络请求都不发 —— 喂的全是写死的字节。
@@ -55,6 +56,18 @@ void runDailyQuoteTests() {
     check(englishDay(day("2027-01-01")), "DQ23 2027-01-01 是英文日（59）");
     // 同一天算两次必须一样（界面上重启不能换语种）。
     check(englishDay(day("2026-11-13")) == englishDay(day("2026-11-13")), "DQ24 同一天两次算出来一致");
+    // 与界面语言/区域设置无关：切 QLocale 后同一天仍是同一语种。
+    {
+        const QLocale original = QLocale();
+        const bool before = englishDay(day("2026-11-13"));
+        QLocale::setDefault(QLocale(QLocale::English, QLocale::UnitedStates));
+        const bool english = englishDay(day("2026-11-13"));
+        QLocale::setDefault(QLocale(QLocale::Chinese, QLocale::China));
+        const bool chinese = englishDay(day("2026-11-13"));
+        QLocale::setDefault(original);
+        check(before == english && before == chinese,
+              "DQ25 按日期定语种与 QLocale/界面语言无关");
+    }
 
     section(QStringLiteral("DQ 两种响应：一言 / ZenQuotes"));
 
