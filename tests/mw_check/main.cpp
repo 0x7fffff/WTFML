@@ -3597,9 +3597,9 @@ int main(int argc, char *argv[]) {
     runFileDragIntentTests();
 
     // 紧跟 T29 的三处理由完全一样：要造 MainWindow、要换数据根目录（节尾逐字还原）、要往
-    // 主题规格和 `Theme/…` / `Look/Animations` 那几个键里写东西（节尾一样还原）。它也是
+    // 主题规格和 `Theme/…` 那几个键里写东西（节尾一样还原）。它也是
     // **一个原生框都不点**：三块色板底下是覆盖层、导出/导入底下是 QFileDialog。
-    header("T39. 设置页「主题」那一节：配色 / 主题色 / 语义色 / 文字不透明度 / 动效开关（离线）");
+    header("T39. 设置页「主题」那一节：配色 / 主题色 / 语义色 / 文字不透明度（离线）");
     runThemeControlsTests();
 
     // 同样排在**最后**：也要造 MainWindow、也要换数据根目录（节尾逐字还原）。这一节

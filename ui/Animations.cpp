@@ -26,7 +26,6 @@
 #include <QProgressBar>
 #include <QPropertyAnimation>
 #include <QScrollBar>
-#include <QSettings>
 #include <QSharedPointer>
 #include <QTabWidget>
 #include <QTimer>
@@ -55,11 +54,8 @@ constexpr const char kStepperName[] = "wtfmlAnimStepper";
 /// 记在**进度条自己身上**：这一层没有实例、也不该为进度条另立一张表（那张表还得管生灭）。
 constexpr const char kProgressMaxMark[] = "wtfmlAnimProgressMax";
 
-/// 动效总开关。默认开。**只看这一位**：不跟随系统「动画效果」（理由见 `enabled()`）。
+/// 动效开关。默认开（产品里始终开；`setEnabled(false)` 只给测试和验收截图跳终态用）。
 bool g_enabled = true;
-
-/// 用户那把开关存哪儿。**不在 `Theme/` 底下**（`Theme::save()` 会整组抹掉那个前缀）。
-const char *const kEnabledKey = "Look/Animations";
 
 /**
  * 动效用的那一个 `QGraphicsEffect`：把控件**渲染好的那一张图**贴回来，贴上之前可以
@@ -701,27 +697,16 @@ private:
 namespace Anim {
 
 bool enabled() {
-    // **只认本程序自己的开关**（设置页「界面动画」那个勾，默认开）。下面那些函数全是
-    // "不 enabled 就原地返回"。
+    // 产品里始终开（11-20 定：启动器强制动效，不提供关闭）；`setEnabled(false)` 只给测试和
+    // 验收截图跳到终态用。下面那些函数全是 "不 enabled 就原地返回"。
     //
     // 不读 Windows 的「动画效果」（`SPI_GETCLIENTAREAANIMATION`）：用户关掉系统动画时，
-    // 整套动效会被静默关掉，界面上就是"动效一个都没有"。要减少动效在本程序设置里关。
+    // 整套动效会被静默关掉，界面上就是"动效一个都没有"。
     return g_enabled;
 }
 
 void setEnabled(bool on) {
     g_enabled = on;
-}
-
-void load() {
-    QSettings settings;
-    g_enabled = settings.value(QLatin1String(kEnabledKey), true).toBool();
-}
-
-void save() {
-    QSettings settings;
-    settings.setValue(QLatin1String(kEnabledKey), g_enabled);
-    settings.sync();
 }
 
 bool installPressAnimation(QApplication &app) {

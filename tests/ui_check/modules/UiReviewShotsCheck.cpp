@@ -206,7 +206,6 @@ void fillSettingsSamples(MainWindowUI &ui) {
     if (ui.getJavaWarnMismatchCheck() != nullptr) ui.getJavaWarnMismatchCheck()->setChecked(true);
     if (ui.getWarnMissingDependenciesCheck() != nullptr) ui.getWarnMissingDependenciesCheck()->setChecked(true);
     if (ui.getDownloadAutoIntoInstanceCheck() != nullptr) ui.getDownloadAutoIntoInstanceCheck()->setChecked(true);
-    if (ui.getAnimationsCheck() != nullptr) ui.getAnimationsCheck()->setChecked(true);
     if (ui.getHomeFavoriteCountSpin() != nullptr) ui.getHomeFavoriteCountSpin()->setValue(3);
     if (ui.getHomeRecentCountSpin() != nullptr) ui.getHomeRecentCountSpin()->setValue(3);
 }

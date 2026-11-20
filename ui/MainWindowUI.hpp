@@ -3159,8 +3159,6 @@ public:
     static QString themeResetAllButtonName() { return QStringLiteral("themeResetAllButton"); }
     static QString themeExportButtonName() { return QStringLiteral("themeExportButton"); }
     static QString themeImportButtonName() { return QStringLiteral("themeImportButton"); }
-    /// 「动效」那个勾（总开关继续保留 + 尊重系统的"减少动态效果"）。
-    static QString animationsCheckName() { return QStringLiteral("animationsCheck"); }
 
     /// 语义色一共几个（危险 / 警告 / 正常 / 报错）。三个地方共用这一个数：这一节搭控件、
     /// `MainWindow` 灌色、验证工程数按钮。
@@ -3180,7 +3178,6 @@ public:
     static QString themeImportText() { return QCoreApplication::translate("MainWindowUI", "导入主题…"); }
     static QString themeAccentResetText() { return QCoreApplication::translate("MainWindowUI", "恢复默认"); }
     static QString themeSemanticResetText() { return QCoreApplication::translate("MainWindowUI", "跟随预设"); }
-    static QString animationsCheckText() { return QCoreApplication::translate("MainWindowUI", "界面动画"); }
     /// 文字不透明度那个百分数（和背景图那一行同一套写法）。
     static QString themePercentText(int opacity) { return QStringLiteral("%1%").arg(opacity); }
     /// 色块那颗按钮多大（宽 × 高）。**和输入框那一档 24 一样高**（并排摆着才齐），宽取 64 ——
@@ -3731,8 +3728,6 @@ public:
     QPushButton *getThemeResetAllButton() const { return themeResetAllButton; }
     QPushButton *getThemeExportButton() const { return themeExportButton; }
     QPushButton *getThemeImportButton() const { return themeImportButton; }
-    /// 「动效」那个勾。
-    QCheckBox *getAnimationsCheck() const { return animationsCheck; }
 
     // 主页右栏那个可拖动旋转的 3D 皮肤预览；说明标签只留作状态/无障碍数据，不显示。
     // 这个控件是**自己画的**（QWidget 子类 + paintEvent，不是标准控件），
@@ -4091,8 +4086,6 @@ private:
     QPushButton *themeResetAllButton = nullptr;
     QPushButton *themeExportButton = nullptr;
     QPushButton *themeImportButton = nullptr;
-    /// 「动效」那个勾（还是「个性化」栏，摆在「主题」之后）。
-    QCheckBox *animationsCheck = nullptr;
     SkinViewer *skinViewer = nullptr;
     QLabel *skinHintLabel = nullptr;
     QPushButton *accountSkinButton = nullptr;

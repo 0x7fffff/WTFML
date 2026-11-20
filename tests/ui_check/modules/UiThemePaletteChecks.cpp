@@ -2004,45 +2004,20 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                       .arg(InlineMessage::colorSwatchCount())
                       .arg(swatchNames.size()));
 
-            // ⑥ 动效总开关：**只认本程序自己的开关**，不跟随 Windows 的「动画效果」。
-            //
-            // 背景（用户 11-12 反馈）：他关掉了 Windows 动画，于是整套动效被静默关掉，
-            // 界面上就是"动效一个都没有"。所以这里量的是反过来的那一面 —— 开就是开，
-            // 除了这一位没有第二把闸（源码里也不许再出现 SystemParametersInfo，见
-            // `UiAnimationsChecks` ⑬ 那一条扫描）。
+            // ⑥ 动效开关：产品里始终开，不跟随 Windows 的「动画效果」；测试 / 验收截图可通过
+            // `Anim::setEnabled(false)` 跳到终态（没有第二把闸，源码里也不许再出现
+            // SystemParametersInfo，见 `UiAnimationsChecks` ⑬ 那一条扫描）。
             const bool userWas = Anim::enabled();
-            // 存盘那一趟要**换一个窝**（和 W7 落盘往返同一招）：这个进程平时那对
-            // 组织/应用名是空的，`QSettings` 写下去会静默失败 —— 那样量到的"读回来"
-            // 其实是"出厂那一份"，看着像 `load()` 坏了。绝不能碰产品那一份
-            // （`WTFML/WTFML` 底下是用户真在用的设置）。
-            const QString animOrg = QCoreApplication::organizationName();
-            const QString animAppName = QCoreApplication::applicationName();
-            QCoreApplication::setOrganizationName(QStringLiteral("WTFML-verify"));
-            QCoreApplication::setApplicationName(QStringLiteral("ui_check"));
-            QSettings().clear();
-
             Anim::setEnabled(true);
             const bool onWhenSwitchedOn = Anim::enabled();
             Anim::setEnabled(false);
             const bool offWhenSwitchedOff = !Anim::enabled();
-            // 用户那一档存盘（键 `Look/Animations`，**不在 `Theme/` 底下** —— 那下面
-            // 会被 `Theme::save()` 整组抹掉）。
-            Anim::save();
-            Anim::setEnabled(true);
-            Anim::load();
-            const bool loadedBack = !Anim::enabled();
-
-            QSettings().clear();
-            QCoreApplication::setOrganizationName(animOrg);
-            QCoreApplication::setApplicationName(animAppName);
             Anim::setEnabled(userWas);
-            check(onWhenSwitchedOn && offWhenSwitchedOff && loadedBack,
-                  "★★ W14 动效只看本程序那一个开关（开着就是开、关掉就是关，没有第二把闸）；"
-                  "这一档**存得下也读得回来**",
-                  QStringLiteral("开着 %1 / 关掉 %2 / 存读往返 %3")
+            check(onWhenSwitchedOn && offWhenSwitchedOff,
+                  "★★ W14 动效默认开、不看系统开关；测试可通过 `Anim::setEnabled()` 切到终态",
+                  QStringLiteral("开着 %1 / 关掉 %2")
                       .arg(onWhenSwitchedOn ? QStringLiteral("对") : QStringLiteral("**不对**"))
-                      .arg(offWhenSwitchedOff ? QStringLiteral("对") : QStringLiteral("**不对**"))
-                      .arg(loadedBack ? QStringLiteral("对") : QStringLiteral("**不对**")));
+                      .arg(offWhenSwitchedOff ? QStringLiteral("对") : QStringLiteral("**不对**")));
 
             // ⑦ 设置页「个性化」那一栏里，这一节该有的控件**都在、都挂对了名字**。
             //
@@ -2177,14 +2152,6 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                       .arg(swatchesShaped)
                       .arg(swatchesFocusable)
                       .arg(swatchSizes.join(QStringLiteral(" "))));
-
-            auto *animationsCheck =
-                qobject_cast<QCheckBox *>(byName(MainWindowUI::animationsCheckName()));
-            check(animationsCheck != nullptr &&
-                      animationsCheck->text() == MainWindowUI::animationsCheckText(),
-                  "★ W14 「动效」那一节里那个总开关在设置页上（明说要继续保留）",
-                  animationsCheck != nullptr ? animationsCheck->text()
-                                             : QStringLiteral("<没找到>"));
 
             // ⑧ 那一句「合理 Tab 顺序」：这一节从上到下、从左到右走一遍。
             //

@@ -14,25 +14,15 @@ void runThemeControlsTests() {
     QSettings sandbox;
     const QVariant foldersBefore = sandbox.value(QStringLiteral("Launcher/Folders"));
     const QVariant currentBefore = sandbox.value(QStringLiteral("Launcher/CurrentFolder"));
-    const QVariant animationsBefore = sandbox.value(QStringLiteral("Look/Animations"));
-    const bool animationsEnabledBefore = Anim::enabled();
     const auto restore = [&] {
         sandbox.setValue(QStringLiteral("Launcher/Folders"), foldersBefore);
         sandbox.setValue(QStringLiteral("Launcher/CurrentFolder"), currentBefore);
-        // 动效那一把开关是这一节自己拨过的（沙盒 INI 每一跑都是新删过的，"整组删掉" =
-        // 逐字还原）。
-        if (animationsBefore.isValid()) {
-            sandbox.setValue(QStringLiteral("Look/Animations"), animationsBefore);
-        } else {
-            sandbox.remove(QStringLiteral("Look/Animations"));
-        }
         sandbox.remove(QStringLiteral("Theme"));
         sandbox.sync();
         // 主题要**连调色板一起**铺回去：这一节把预设拨到过深色，光 `setSpec()` 是收不回
         // 来的（深色那一份还挂在应用上，后面每一节量的都会是深底）。
         Theme::setSpec(themeBefore);
         Theme::apply(*qApp);
-        Anim::setEnabled(animationsEnabledBefore);
         AppPaths::setMinecraftDir(originalDir);
     };
     sandbox.setValue(QStringLiteral("Launcher/Folders"), QStringList({root.path()}));
@@ -58,7 +48,6 @@ void runThemeControlsTests() {
             byObjectName<QSlider>(&w, MainWindowUI::themeTextOpacitySliderName());
         auto *opacityPercent =
             byObjectName<QLabel>(&w, MainWindowUI::themeTextOpacityPercentName());
-        auto *animationsCheck = byObjectName<QCheckBox>(&w, MainWindowUI::animationsCheckName());
         QVector<QPushButton *> semanticSwatches;
         for (int i = 0; i < MainWindowUI::themeSemanticCount(); ++i) {
             semanticSwatches.append(
@@ -71,14 +60,13 @@ void runThemeControlsTests() {
             }
         }
         check(presetCombo != nullptr && accentSwatch != nullptr && opacitySlider != nullptr &&
-                  opacityPercent != nullptr && animationsCheck != nullptr &&
+                  opacityPercent != nullptr &&
                   foundSwatches == MainWindowUI::themeSemanticCount(),
               "T39.1 这一节那几颗控件都按 objectName 找得回来",
               QStringLiteral("语义色块 %1/%2")
                   .arg(foundSwatches)
                   .arg(MainWindowUI::themeSemanticCount()));
-        if (presetCombo == nullptr || accentSwatch == nullptr || opacitySlider == nullptr ||
-            animationsCheck == nullptr) {
+        if (presetCombo == nullptr || accentSwatch == nullptr || opacitySlider == nullptr) {
             restore();
             return;
         }
@@ -286,33 +274,6 @@ void runThemeControlsTests() {
                            (afterReset.warning.isValid() ? 1 : 0) +
                            (afterReset.ok.isValid() ? 1 : 0) +
                            (afterReset.errorText.isValid() ? 1 : 0)));
-        }
-
-        // ---------- ⑤ 动效那个总开关（明说要继续保留） ----------
-        const bool wasChecked = animationsCheck->isChecked();
-        const bool wasUserEnabled = Anim::enabled();
-        check(wasChecked == wasUserEnabled,
-              "T39.7 那个勾建出来的时候就是照着 `Anim::enabled()` 勾的",
-              QStringLiteral("勾着 %1 / 那一位 %2")
-                  .arg(wasChecked ? 1 : 0)
-                  .arg(wasUserEnabled ? 1 : 0));
-        animationsCheck->setChecked(!wasChecked);
-        QApplication::processEvents();
-        {
-            QSettings written;
-            const bool flipped =
-                Anim::enabled() == !wasChecked &&
-                written.value(QStringLiteral("Look/Animations"), wasChecked).toBool() ==
-                    !wasChecked;
-            animationsCheck->setChecked(wasChecked);
-            QApplication::processEvents();
-            const bool backOk = Anim::enabled() == wasUserEnabled;
-            check(flipped && backOk,
-                  "★★ T39.7 动效那个勾：拨到另一档就落到那一位上、也落了盘（下次启动还是"
-                  "用户选的那一档）；拨回来照样",
-                  QStringLiteral("拨过去 %1 / 拨回来 %2")
-                      .arg(flipped ? QStringLiteral("对") : QStringLiteral("**不对**"))
-                      .arg(backOk ? QStringLiteral("对") : QStringLiteral("**不对**")));
         }
 
         auto *advanced = ui->getThemeAdvancedEditor();

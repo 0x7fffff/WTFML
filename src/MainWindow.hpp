@@ -1289,10 +1289,8 @@ private slots:
     void onThemeImportClicked();
     /// 「文字不透明度」那根条。**拖一下就生效、也落盘**（和背景图那根不透明度条一个路数）。
     void onThemeTextOpacityChanged(int value);
-    /// 「动效」那个勾：总开关（`Anim::setEnabled()` + 落盘）。
-    void onAnimationsToggled(bool enabled);
-    /// 把 `Theme::current()` 的样子画到这一节的控件上（配色下拉框 / 四块色 / 那根条 /
-    /// 动效那个勾）。**灌值那一段和每次改完都要调它一次**（挡着信号，理由同上面那一条）。
+    /// 把 `Theme::current()` 的样子画到这一节的控件上（配色下拉框 / 四块色 / 那根条）。
+    /// **灌值那一段和每次改完都要调它一次**（挡着信号，理由同上面那一条）。
     void refreshThemeControls();
 
     /// 改主题规格的**唯一那三步**：收拾干净 → 落盘 → 立刻铺开，再把这一栏的控件重画一遍。

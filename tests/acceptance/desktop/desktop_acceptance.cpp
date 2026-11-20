@@ -126,7 +126,6 @@ int main(int argc, char **argv) {
     QApplication::setStyle(Theme::createStyle());
     Theme::setSpec(Theme::defaultSpec());
     Theme::apply(app);
-    Anim::load();
     Anim::installPressAnimation(app);
     Anim::installScrollBarAnimation(app);
     MainWindow window;
