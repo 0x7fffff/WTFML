@@ -232,11 +232,8 @@ void SkinViewer::paintEvent(QPaintEvent *event) {
     const qreal groundW = qMin<qreal>(240.0, width());
     const qreal groundH = groundW / 6.0;
     const qreal below = glass ? groundH * 0.45 : 0.0;
-    if (!glass) {
-        painter.fillRect(rect(), palette().color(QPalette::Base));
-        painter.setPen(palette().color(QPalette::Mid));
-        painter.drawRect(rect().adjusted(0, 0, -1, -1));
-    }
+    // 立绘始终直接站在父容器的背景/卡片上；不在控件自己的矩形里补一层底色。
+    // 纯色材质下 Glass::enabled() 是 false，以前这条路会画出一块可见的底框。
     const QRectF target = QRectF(rect()).adjusted(kPadding, kPadding, -kPadding, -kPadding - below);
     if (glass) {
         // 脚底取立正那一帧的投影下沿：走动时人不跟着影子上下跳。
