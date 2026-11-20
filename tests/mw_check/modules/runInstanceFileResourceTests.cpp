@@ -1,5 +1,7 @@
 #include "Support.hpp"
 #include "ui_check/modules/UiInstanceFilesTestHelpers.hpp"
+
+#include <QPointer>
 void runInstanceFileResourceTests() {
     const QString originalDir = AppPaths::minecraftDir();
     QTemporaryDir root;
@@ -239,6 +241,14 @@ void runInstanceFileResourceTests() {
                   "—— 拿一个压根没认出来的文件去量「名字点得动」是量不出规矩的",
                   modProject);
             page->showPage(QStringLiteral("mod"));
+            // flushInstanceFileIcons() 有 6 ms 时间片，可能先把包那一页推完再切下一轮推模组；
+            // 等模组这一行也刷上身份后再读。
+            pumpUntil(
+                [&] {
+                    const auto detail = detailForPath(mods, modJar);
+                    return detail != nullptr && detail->isEnabled();
+                },
+                5000);
             const auto modDetail = detailForPath(mods, modJar);
             modRowFound = modDetail != nullptr;
             modTip = modDetail != nullptr ? modDetail->toolTip() : QString();
@@ -526,6 +536,12 @@ void runInstanceFileResourceTests() {
 
         // 那一发要等产品排到下一轮的那一下跑完才落得下来（见 inspectReturn 那段）。
         pumpUntil([&returned] { return returned.ran; }, 5000);
+        // inspectReturn() 里按返回收掉的实例设置对话框走 `deleteLater()`，且留在覆盖层的
+        // 内容容器里直到 DeferredDelete 派发；pumpUntil 在 returned.ran 变真那轮返回时
+        // DeferredDelete 未必已经跑完。若不先冲掉，T24.7 再开新页后
+        // `findChild<InstanceSettingsDialog *>()` 会先摸到这一份正待析构的旧页，并在随后
+        // 的 pumpUntil 中因旧页被析构而触发悬空指针崩溃或断言全红。
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
 
         // ---------- ⑥ 按返回之后**退回到实例设置**（用户 那句）----------
         //
@@ -588,11 +604,14 @@ void runInstanceFileResourceTests() {
                     return;
                 }
                 page->showPage(QStringLiteral("mod"));
-                InstanceFilesPage *mods2 = page->filesPage(QStringLiteral("mod"));
+                QPointer<InstanceFilesPage> mods2 = page->filesPage(QStringLiteral("mod"));
                 if (mods2 == nullptr || mods2->list() == nullptr) {
                     return;
                 }
                 const auto modDetailAt = [&]() -> UiRowCellPtr {
+                    if (mods2 == nullptr || mods2->list() == nullptr) {
+                        return nullptr;
+                    }
                     for (int row = 0; row < mods2->list()->count(); ++row) {
                         QListWidgetItem *item = mods2->list()->item(row);
                         if (item != nullptr &&
@@ -747,6 +766,7 @@ void runInstanceFileResourceTests() {
               "★★ T24.7 这一档上裸 Alt 那一下**什么都不拨**（那一格上压根没有勾选框可拨 ——"
               "拨一个看不见的勾，用户只会得出「这软件没反应」的结论）");
         pumpUntil([&modReturned] { return modReturned.ran; }, 5000);
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
         check(modReturned.ran && modReturned.opened && modReturned.hasSettings &&
                   modReturned.instanceName == idV,
               "★★ T24.7 点击模组设置进入同一实例的设置，不误开其他实例",
