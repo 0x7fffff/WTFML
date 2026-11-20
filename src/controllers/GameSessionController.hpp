@@ -10,6 +10,8 @@
 #include <QStringList>
 #include <functional>
 
+class QTimer;
+
 #include "tasks/TaskManager.hpp"
 
 class GameLogWindow;
@@ -163,6 +165,8 @@ public:
     /// 这一号会话在**真的起来之前**就被收回（`LauncherManager::sessionDiscarded`）——
     /// 把刚才那条报错顺手替它建出来的东西收干净（见实现里那段）。
     void onSessionDiscarded(int sessionId);
+    /// 游戏第一次出窗口之前最多等多久（毫秒）；过了就按首条输出那一刻算成功。
+    static int gameWindowWaitMs() { return 120000; }
 
     // ---------- 日志窗 ----------
 
@@ -213,6 +217,13 @@ private:
     QSet<int> m_launchingSessions;
     /// 会话号 → 那一次启动的任务号（和 m_launchingSessions / m_sessionDisplayNames 同寿）。
     QHash<int, Tasks::TaskId> m_launchTaskIds;
+    /// 已经出话、还在等游戏窗口的那几份：会话号 → 开始等的时刻（毫秒）。启动任务在
+    /// 窗口出来那一刻才算成（主页启动卡片的「等待游戏窗口」）；见 launchOutputSeen()。
+    QHash<int, qint64> m_awaitingWindow;
+    QTimer *m_windowPoll = nullptr;
+    void launchOutputSeen(int sessionId);
+    void pollGameWindows();
+    void finishLaunchSucceeded(int sessionId);
     /// 会话号 → 那一份的实例显示名。**启动那一刻记一次**，退出时用掉、删掉。
     ///
     /// 唯一用途是 onGameFinished() 里那行日志的 `[实例名] ` 前缀 —— 那时会话已经从

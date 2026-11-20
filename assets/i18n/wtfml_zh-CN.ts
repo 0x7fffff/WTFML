@@ -286,10 +286,6 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>游戏进程启动后可取消此任务。</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>导出正在生成压缩包。为避免留下不完整的文件，压缩阶段无法取消。</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5407,6 +5403,10 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>游戏窗口出现前进程就结束了，退出码 %1。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>游戏进程没等到能打日志就结束了，退出码 %1。</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5524,6 +5524,10 @@
     </message>
     <message>
         <source>找不到也下载不到 Java %1。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>已取消准备 Java 运行时。</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -10682,7 +10686,7 @@ Minecraft %2 / %3 %4</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>正在校验登录状态…</source>
+        <source>游戏进程没有启动</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -10700,6 +10704,10 @@ Minecraft %2 / %3 %4</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>登录状态失效，请重新登录</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>离线账号，无需联网登录</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10713,11 +10721,11 @@ Minecraft %2 / %3 %4</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>版本不完整</source>
+        <source>找不到版本信息</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>正在准备游戏文件…</source>
+        <source>版本不完整</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -10731,9 +10739,21 @@ Minecraft %2 / %3 %4</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>准备 natives 失败</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>准备路径别名失败</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>启动前检查没通过，游戏起不来：
 
 %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>启动前检查未通过：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -10744,10 +10764,6 @@ Minecraft %2 / %3 %4</source>
         <source>此实例需要 %1 MB 堆内存，运行中的实例共分配 %3 MB。系统可用物理内存约 %2 MB。
 
 继续启动可能导致卡顿。可关闭其他程序或调低内存分配。确认启动？</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>正在准备 Java 运行时…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -10764,12 +10780,20 @@ Minecraft %2 / %3 %4</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>找不到可用的 Java %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>账号被切换了</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <source>准备 Java 时，当前账号由「%1」切换为「%2」。
 为避免账号信息与凭据不匹配，已取消启动。请重新启动游戏。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>准备 Java 时账号被切换</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -13304,6 +13328,34 @@ Minecraft %2 / %3 %4</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>离线登录</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>微软账号登录</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>校验登录</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>补全文件与资源</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>检查文件</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>准备 Java</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>等待游戏窗口</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>已请求取消备份或还原；已取消的任务不会留下不完整的文件。</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13696,6 +13748,34 @@ Minecraft %2 / %3 %4</source>
 </context>
 <context>
     <name>MainWindowUI</name>
+    <message>
+        <source>查看详情</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>停在「%1」</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>游戏窗口已打开</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>启动失败</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>游戏已启动</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>正在启动游戏</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1 %2：%3</source>
+        <translation type="unfinished"></translation>
+    </message>
     <message>
         <source>启动游戏</source>
         <translation type="unfinished"></translation>

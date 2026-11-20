@@ -298,10 +298,6 @@ Select “Log out” to try again.</translation>
             <translation>This step cannot be stopped safely. Wait for it to finish before canceling.</translation>
         </message>
         <message>
-            <source>游戏进程启动后可取消此任务。</source>
-            <translation>You can cancel once the game process starts.</translation>
-        </message>
-        <message>
             <source>导出正在生成压缩包。为避免留下不完整的文件，压缩阶段无法取消。</source>
             <translation>The export is creating an archive. Canceling is disabled during compression to avoid leaving an incomplete file.</translation>
         </message>
@@ -5502,6 +5498,10 @@ The part that has been moved is in the Recycle Bin and can be restored.</transla
             <translation>[The game has exited, exit code: %1]</translation>
         </message>
         <message>
+            <source>游戏窗口出现前进程就结束了，退出码 %1。</source>
+            <translation>The process ended before the game window appeared, exit code %1.</translation>
+        </message>
+        <message>
             <source>游戏进程没等到能打日志就结束了，退出码 %1。</source>
             <translation>The game process ended before logging could be logged. The exit code was %1.</translation>
         </message>
@@ -5628,6 +5628,10 @@ First install a Java %1, or go to "Settings" and point the path there.</translat
         <message>
             <source>找不到也下载不到 Java %1。</source>
             <translation>Java %1 cannot be found or downloaded.</translation>
+        </message>
+        <message>
+            <source>已取消准备 Java 运行时。</source>
+            <translation>Preparing the Java runtime was canceled.</translation>
         </message>
     </context>
     <context>
@@ -10964,8 +10968,8 @@ Import the same modpack under the same name to resume using the files already do
             <translation>Done</translation>
         </message>
         <message>
-            <source>正在校验登录状态…</source>
-            <translation>Verifying sign-in…</translation>
+            <source>游戏进程没有启动</source>
+            <translation>The game process does not start</translation>
         </message>
         <message>
             <source>登录缺失</source>
@@ -10984,6 +10988,10 @@ Import the same modpack under the same name to resume using the files already do
 Sign in to your Microsoft account again or add an offline account under Accounts &amp; appearance.</translation>
         </message>
         <message>
+            <source>登录状态失效，请重新登录</source>
+            <translation>Login status is invalid, please log in again</translation>
+        </message>
+        <message>
             <source>离线账号，无需联网登录</source>
             <translation>Offline account: online sign-in is not required</translation>
         </message>
@@ -10998,12 +11006,12 @@ Sign in to your Microsoft account again or add an offline account under Accounts
 Select the version and click Download to get its version information again.</translation>
         </message>
         <message>
-            <source>版本不完整</source>
-            <translation>Incomplete version</translation>
+            <source>找不到版本信息</source>
+            <translation>Version information not found</translation>
         </message>
         <message>
-            <source>正在准备游戏文件…</source>
-            <translation>Preparing game files…</translation>
+            <source>版本不完整</source>
+            <translation>Incomplete version</translation>
         </message>
         <message>
             <source>无法启动</source>
@@ -11018,12 +11026,24 @@ Select the version and click Download to get its version information again.</tra
 %1</translation>
         </message>
         <message>
+            <source>准备 natives 失败</source>
+            <translation>Preparing natives failed</translation>
+        </message>
+        <message>
+            <source>准备路径别名失败</source>
+            <translation>Failed to prepare path alias</translation>
+        </message>
+        <message>
             <source>启动前检查没通过，游戏起不来：
 
 %1</source>
             <translation>Pre-launch checks failed:
 
 %1</translation>
+        </message>
+        <message>
+            <source>启动前检查未通过：%1</source>
+            <translation>Pre-start check failed: %1</translation>
         </message>
         <message>
             <source>可用内存不足</source>
@@ -11036,10 +11056,6 @@ Select the version and click Download to get its version information again.</tra
             <translation>This instance requests %1 MB of heap memory. Running instances already use a combined allocation of %3 MB, and about %2 MB of physical memory is available.
 
 Launching with low available memory can cause slowdowns. Close unused apps or lower the memory allocation in Settings. Launch anyway?</translation>
-        </message>
-        <message>
-            <source>正在准备 Java 运行时…</source>
-            <translation>Preparing Java runtime…</translation>
         </message>
         <message>
             <source>Java 运行时缺失</source>
@@ -11056,6 +11072,10 @@ Choose a different Java path in Instance Settings, or use the global Java settin
             <translation>Could not find or download Java %1. Select a Java path manually.</translation>
         </message>
         <message>
+            <source>找不到可用的 Java %1</source>
+            <translation>No available Java found %1</translation>
+        </message>
+        <message>
             <source>账号被切换了</source>
             <translation>Account changed</translation>
         </message>
@@ -11066,6 +11086,10 @@ Choose a different Java path in Instance Settings, or use the global Java settin
 The game was not launched because its sign-in token no longer matches the selected account. Multiplayer servers would reject the connection.
 
 Click Launch again.</translation>
+        </message>
+        <message>
+            <source>准备 Java 时账号被切换</source>
+            <translation>Account was switched while preparing Java</translation>
         </message>
         <message>
             <source>实例设置写入失败</source>
@@ -13723,6 +13747,34 @@ Are you sure to delete?</translation>
             <translation>Step %1 / %2 · %3</translation>
         </message>
         <message>
+            <source>离线登录</source>
+            <translation>Offline login</translation>
+        </message>
+        <message>
+            <source>微软账号登录</source>
+            <translation>Microsoft account login</translation>
+        </message>
+        <message>
+            <source>校验登录</source>
+            <translation>Verify login</translation>
+        </message>
+        <message>
+            <source>补全文件与资源</source>
+            <translation>Complete files and resources</translation>
+        </message>
+        <message>
+            <source>检查文件</source>
+            <translation>Check files</translation>
+        </message>
+        <message>
+            <source>准备 Java</source>
+            <translation>Prepare for Java</translation>
+        </message>
+        <message>
+            <source>等待游戏窗口</source>
+            <translation>Waiting game window</translation>
+        </message>
+        <message>
             <source>已请求取消备份或还原；已取消的任务不会留下不完整的文件。</source>
             <translation>Cancellation of the backup or restore has been requested; a canceled task does not leave incomplete files.</translation>
         </message>
@@ -14119,6 +14171,34 @@ Are you sure to delete?</translation>
     </context>
     <context>
         <name>MainWindowUI</name>
+        <message>
+            <source>查看详情</source>
+            <translation>Check the details</translation>
+        </message>
+        <message>
+            <source>停在「%1」</source>
+            <translation>Stop at "%1"</translation>
+        </message>
+        <message>
+            <source>游戏窗口已打开</source>
+            <translation>Game window is open</translation>
+        </message>
+        <message>
+            <source>启动失败</source>
+            <translation>Startup failed</translation>
+        </message>
+        <message>
+            <source>游戏已启动</source>
+            <translation>Game has started</translation>
+        </message>
+        <message>
+            <source>正在启动游戏</source>
+            <translation>Starting game</translation>
+        </message>
+        <message>
+            <source>%1 %2：%3</source>
+            <translation>%1 %2: %3</translation>
+        </message>
         <message>
             <source>启动游戏</source>
             <translation>Play</translation>

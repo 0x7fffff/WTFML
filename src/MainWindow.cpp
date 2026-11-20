@@ -896,6 +896,17 @@ MainWindow::MainWindow(QWidget *parent)
                                [this]() { m_activityCenter->clearFinished(); });
     // 点任务中心里的**一行** = 开任务详情页（点击任务进入内嵌 TaskDetailPage）。
     m_ui->setTaskCenterRowActivatedHandler([this](const QString &key) { openTaskDetailPage(key); });
+    // 主页启动卡片（#65）：数据只有任务中心那一份（阶段 / 进度 / 失败原因），卡片和任务中心说的是同一件事。
+    connect(m_activityCenter->tasks(), &Tasks::TaskManager::taskChanged, this,
+            [this](Tasks::TaskId id) { syncLaunchCard(id); });
+    m_ui->setLaunchCardActionHandler([this](quint64 id, MainWindowUI::LaunchCardAction action) {
+        if (action == MainWindowUI::LaunchCardAction::Details) {
+            openTaskDetailPage(QString::number(id));
+            return;
+        }
+        // 卡片上唯一一处取消：走 #61 的统一入口（进程起来前停启动流程，起来后停会话），任务记「已取消」。
+        cancelLaunch(m_activityCenter->tasks()->snapshot(id));
+    });
     // 行尾那颗「取消」：走的是和详情页里那一颗**完全同一条路**（`onTaskDetailAction`）——
     // 两处各写一遍的话，"取消"的语义迟早会分家（一处删文件、一处不删）。
     m_ui->setTaskCenterRowActionHandler(

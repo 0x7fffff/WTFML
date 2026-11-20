@@ -278,6 +278,19 @@ public:
         m_gameSessionController->markUserStoppedForTest(sessionId);
     }
 
+    /// 取消**一件启动任务**（任务中心那颗「取消」与主页启动卡片（#65）的同一个入口）：
+    /// 进程已经在跑就停那一份会话，还没起来就让启动流程在下一个检查点停下。
+    /// 返回"真的做了点什么"（`cancelWouldWork()` 为假时什么都不做）。
+    bool cancelLaunch(const Tasks::TaskSnapshot &task);
+
+    /// 测试用：任务中心那一颗「取消」此刻会不会做点什么（产品里由详情页按它画按钮，
+    /// 判据就是 `cancelWouldWork()`）。
+    ///
+    /// NOTE: 产品代码里**不要**调它。
+    bool taskCancelWouldWorkForTest(const Tasks::TaskSnapshot &task) const {
+        return cancelWouldWork(task);
+    }
+
     /**
      * @brief **给验证工程摆现场用**：把"刚刚成功启动了一次"这件事直接记进「上一次启动」
      * 那本账。
@@ -1215,6 +1228,9 @@ private slots:
     /// 拖到**主窗口**上的（没有哪一页开着）：装到哪个实例里要问用户。
 public:
     void handleWindowDrop(const QStringList &paths);
+    /// 主页启动卡片（#65）的数据：把任务中心里那一项启动任务翻成卡片那几样（阶段名、件数、
+    /// 失败原因）。阶段名照 card-spec §3 的定稿字；失败但没有原因的（用户自己取消）回 Idle。
+    static MainWindowUI::LaunchCard launchCardFor(const Tasks::TaskSnapshot &task, bool offline);
     /// 关联/命令行带进来的文件：原理图类打开摘要，其余按拖入处理。
     void openExternalFile(const QString &path);
 private slots:
@@ -2078,6 +2094,9 @@ private:
     /// 这里**：服务端安装那一趟和版本/资源下载那一批不是同一份状态，怎么分派的判据和
     /// `cancelWouldWork()` 必须逐字对齐（见 .cpp 里那段 ★）。
     void cancelTaskFromDetail(const QString &key);
+    /// 任务中心那一项启动任务变了 ⇒ 主页启动卡片跟着换。只跟最近那一次启动（多开时卡片只说最新的）。
+    void syncLaunchCard(Tasks::TaskId id);
+    Tasks::TaskId m_launchCardTask = Tasks::invalidTaskId();
     /// 「重试」那一下，同上（判据本体是 `retryWouldWork()`，和取消左右对称）。
     void retryTaskFromDetail(const QString &key);
 

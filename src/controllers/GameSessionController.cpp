@@ -27,10 +27,48 @@
 #include <QSaveFile>
 #include <QScreen>
 #include <QStandardPaths>
+#include <QTimer>
 #include <QUrl>
 #include <QtConcurrent>
 
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
+
 namespace {
+#ifdef Q_OS_WIN
+struct WindowProbe {
+    DWORD pid = 0;
+    bool found = false;
+};
+
+BOOL CALLBACK probeGameWindow(HWND hwnd, LPARAM param) {
+    auto *probe = reinterpret_cast<WindowProbe *>(param);
+    DWORD owner = 0;
+    GetWindowThreadProcessId(hwnd, &owner);
+    if (owner != probe->pid || !IsWindowVisible(hwnd) || GetWindow(hwnd, GW_OWNER) != nullptr) return TRUE;
+    RECT r{};
+    if (!GetWindowRect(hwnd, &r) || r.right - r.left < 64 || r.bottom - r.top < 64) return TRUE;
+    probe->found = true;
+    return FALSE;
+}
+#endif
+
+/// 进程 @p pid 有没有一扇看得见的顶层窗口（= 游戏窗口出来了）。
+/// shortcut: 只认进程自己的窗口（游戏 JVM 是启动器直接拉起的），不追子进程；套壳启动的整合包出现了再补。
+/// 非 Windows 不探，直接当已出现（首条输出即算成功，同改之前）。
+bool gameWindowShown(qint64 pid) {
+#ifdef Q_OS_WIN
+    WindowProbe probe;
+    probe.pid = static_cast<DWORD>(pid);
+    EnumWindows(probeGameWindow, reinterpret_cast<LPARAM>(&probe));
+    return probe.found;
+#else
+    Q_UNUSED(pid);
+    return true;
+#endif
+}
+
 QString sessionLogTag(const LauncherManager::GameSession &game) {
     if (game.sessionId == 0 || game.displayName.isEmpty()) return {};
     return QStringLiteral("[%1] ").arg(game.displayName);
@@ -151,15 +189,7 @@ void GameSessionController::onProcessOutput(int sessionId, const QString &rawTex
     //
     // NOTE: 按会话号摘，不按"有没有在启动" —— 同时启动两三个实例时，用布尔量的话第一个
     // 出话就会把后面那几个的启动进度一起收掉。
-    if (m_launchingSessions.remove(sessionId)) {
-        // 这一份出话了 ⇒ 账本上那件「启动 X」**成了**。收在这一刻、而不是"游戏退出"那一
-        // 刻：一次启动在进程起来的那一刻就办完了，之后几个小时是"游戏在运行"（那件事由
-        // 左下角那格说，见 runningGames()），把它记成"启动中"几个小时没有任何意义。
-        const Tasks::TaskId launchTask = m_launchTaskIds.take(sessionId);
-        m_host.launchTaskStepDone(launchTask);
-        m_host.finishLaunchTask(launchTask, true, QString());
-        m_host.updateBottomBar();
-    }
+    launchOutputSeen(sessionId);
 }
 
 void GameSessionController::onProcessError(int sessionId, const QString &rawText) {
@@ -171,13 +201,48 @@ void GameSessionController::onProcessError(int sessionId, const QString &rawText
     // 游戏往 stderr 写的不全是错误（很多模组把 INFO 也写 stderr），在窗里加前缀反而误导。
     showGameLogLine(sessionId, text);
     // stderr 出东西也算"起来了"：有些版本把日志全写 stderr，等 stdout 会一直等下去。
-    if (m_launchingSessions.remove(sessionId)) {
-        // 和 onProcessOutput() 那一段逐字一样（同一件事的另一个入口）。
-        const Tasks::TaskId launchTask = m_launchTaskIds.take(sessionId);
-        m_host.launchTaskStepDone(launchTask);
-        m_host.finishLaunchTask(launchTask, true, QString());
-        m_host.updateBottomBar();
+    launchOutputSeen(sessionId);
+}
+
+void GameSessionController::launchOutputSeen(int sessionId) {
+    if (!m_launchingSessions.remove(sessionId)) return;
+    // 这一份出话了：底栏那格「正在启动」到此为止。账本上那件「启动 X」要等**游戏窗口**出来才算成
+    // （主页启动卡片停在「等待游戏窗口」）；探不到窗口的平台、或者窗口已经在了，就在这一刻收。
+    // 收在启动这一刻、而不是"游戏退出"那一刻：之后几个小时是"游戏在运行"，不是"启动中"。
+    m_host.updateBottomBar();
+    const qint64 pid = m_launcherManager->session(sessionId).processId;
+    if (pid <= 0 || gameWindowShown(pid)) {
+        finishLaunchSucceeded(sessionId);
+        return;
     }
+    m_awaitingWindow.insert(sessionId, QDateTime::currentMSecsSinceEpoch());
+    if (m_windowPoll == nullptr) {
+        m_windowPoll = new QTimer(this);
+        m_windowPoll->setInterval(500);
+        connect(m_windowPoll, &QTimer::timeout, this, &GameSessionController::pollGameWindows);
+    }
+    m_windowPoll->start();
+}
+
+void GameSessionController::pollGameWindows() {
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    QList<int> done;
+    for (auto it = m_awaitingWindow.cbegin(); it != m_awaitingWindow.cend(); ++it) {
+        const qint64 pid = m_launcherManager->session(it.key()).processId;
+        // 等满 gameWindowWaitMs() 还没窗口（无窗口的服务端式启动、窗口探不到）：按已出话算成，别让卡片一直挂着。
+        if (pid <= 0 || gameWindowShown(pid) || now - it.value() >= gameWindowWaitMs()) done.append(it.key());
+    }
+    for (const int id : done) {
+        m_awaitingWindow.remove(id);
+        finishLaunchSucceeded(id);
+    }
+    if (m_awaitingWindow.isEmpty() && m_windowPoll != nullptr) m_windowPoll->stop();
+}
+
+void GameSessionController::finishLaunchSucceeded(int sessionId) {
+    const Tasks::TaskId launchTask = m_launchTaskIds.take(sessionId);
+    m_host.launchTaskStepDone(launchTask);
+    m_host.finishLaunchTask(launchTask, true, QString());
 }
 
 void GameSessionController::onSessionDiscarded(int sessionId) {
@@ -462,6 +527,7 @@ void GameSessionController::onGameFinished(int sessionId, int exitCode, QProcess
     // NOTE: 对已经成功收过尾的那一件，这里什么都不做（终态只落一次，见 TaskManager::finish），
     // 所以"游戏跑了三小时后正常退出"不会把那次成功改写成失败。
     const auto finishingLaunchTask = m_launchTaskIds.take(sessionId);
+    const bool outputSeen = m_awaitingWindow.remove(sessionId) > 0;  // 出过话、窗口还没出来就退了
     const bool launchSucceeded = exitCode == 0 && exitStatus != QProcess::CrashExit;
     // 用户自己按的「停止游戏」不是失败。`kill()` 在 Windows 上报的是
     // CrashExit / 非零退出码，不看 `userStopped` 的话，一次**主动取消**会以
@@ -473,7 +539,8 @@ void GameSessionController::onGameFinished(int sessionId, int exitCode, QProcess
     } else {
         if (launchSucceeded) m_host.launchTaskStepDone(finishingLaunchTask);
         m_host.finishLaunchTask(finishingLaunchTask, launchSucceeded,
-                                tr("游戏进程没等到能打日志就结束了，退出码 %1。").arg(exitCode));
+                                outputSeen ? tr("游戏窗口出现前进程就结束了，退出码 %1。").arg(exitCode)
+                                           : tr("游戏进程没等到能打日志就结束了，退出码 %1。").arg(exitCode));
     }
 
     // ---------- 异常退出 → 账本上补一项「游戏异常退出」 ----------

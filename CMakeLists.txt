@@ -805,6 +805,7 @@ set(SOURCE_FILES
     ui/InstanceGroupDelegate.cpp
     ui/SkinViewer.cpp
     ui/TitleBar.cpp
+    ui/BrandMark.cpp
     ui/DesignDefaults.cpp
     ui/Theme.cpp
     ui/ThemeAdvancedEditor.cpp

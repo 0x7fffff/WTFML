@@ -219,15 +219,6 @@ QLabel *makeSectionTitle(const QString &text, QWidget *parent) {
     return label;
 }
 
-QLabel *makeCaption(const QString &text, QWidget *parent) {
-    auto *label = new QLabel(text, parent);
-    label->setWordWrap(true);
-    label->setFont(Theme::textFont(label->font(), Theme::TextRole::Caption));
-    QPalette palette = label->palette();
-    palette.setColor(QPalette::WindowText, palette.color(QPalette::PlaceholderText));
-    label->setPalette(palette);
-    return label;
-}
 }  // namespace
 
 AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {

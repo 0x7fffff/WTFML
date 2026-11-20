@@ -137,7 +137,7 @@ void MainWindow::closeEvent(QCloseEvent *event) {
             event->ignore();
             return;
         }
-        m_launchController->abortStart();
+        m_launchController->abortStart(LaunchController::StartCancelSource::LauncherClosing);
     }
 
     if (games.isEmpty() && serverIds.isEmpty()) {
