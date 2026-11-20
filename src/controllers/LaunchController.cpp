@@ -893,4 +893,3 @@ void LaunchController::appendLaunchRecord(const QString &versionId, const QuickP
 }
 
 
-// MARKER-TEST
