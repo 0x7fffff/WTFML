@@ -2144,159 +2144,6 @@ int main(int argc, char *argv[]) {
         return 0;
     }
 
-    // ---------- random-skin-live：**真网络**跑一次"给离线账号挑一张随机皮肤" ----------
-    // mw_check.exe random-skin-live
-    //
-    // 存在的理由：离线账号那张随机皮肤是**从外面要来的**（`api.mineskin.org/v2/skins`），
-    // 而"那个端点今天还在不在、回的还认不认得"没有任何一行能靠断言钉住 —— 归这条探针。
-    // 它要量的四件事：
-    // ① 那一页多大、多久回来（默认要满 128 条）；
-    // ② 解出来几条**能用的**贴图哈希（列表里没有 texture 的、形态不对的都要被丢掉）；
-    // ③ 挑出来的那个地址，官方那个白名单认不认（`textureRequestUrl()`）—— 这是整个
-    // 设计成立的前提：挑它的是别人、**装它的是我们**，所以地址必须落在我们认的那个
-    // host 上（NameMC 那条路走不通的理由写在 RandomSkinStore.hpp）；
-    // ④ **真的下下来一张**（走产品那条 PlayerSkinStore 路），报字节数和解出来的尺寸 ——
-    // 光"地址拼对了"证明不了那张图是张能用的皮肤。
-    //
-    // **不断言网络的好坏**（通和不通都是要看的结果），所以只报数：
-    // 0 = 量完了；2 = 列表那一步就没回来（那连"量"都量不了）。
-    //
-    // 沙盒：`<exe 目录>/random-skin-live/.minecraft` —— 那张图落在它自己的缓存里，
-    // 不碰用户的真目录，也不碰默认那一跑那份沙盒。
-    if (argc >= 2 && QString::fromLocal8Bit(argv[1]) == QLatin1String("random-skin-live")) {
-        const QString liveRoot = root.filePath(QStringLiteral("random-skin-live/.minecraft"));
-        QDir().mkpath(liveRoot);
-        AppPaths::setMinecraftDir(liveRoot);
-        std::printf("沙盒：%s\n", qPrintable(QDir::toNativeSeparators(liveRoot)));
-        std::printf("列表端点：%s\n",
-                    qPrintable(RandomSkinStore::listRequestUrl(
-                                   RandomSkinStore::defaultListSize()).toString()));
-
-        // ---- ①② 列表本身：要满一页，量时长与条数 ----
-        // NOTE: 这里**不**直接调 RandomSkinStore::fetchRandomSkin() —— 它只把挑中的那一条
-        // 发回来，看不到"一共几条、丢了几条"。所以列表这一发是按它的同一个地址、
-        // 同一个解析函数自己发的（同一个出处：listRequestUrl / parseTextureHashes）。
-        QNetworkAccessManager net;
-        QStringList hashes;
-        {
-            QNetworkRequest request(
-                RandomSkinStore::listRequestUrl(RandomSkinStore::defaultListSize()));
-            request.setTransferTimeout(10000);
-            QNetworkReply *reply = net.get(request);
-            bool done = false;
-            QObject::connect(reply, &QNetworkReply::finished, reply,
-                             [&done]() { done = true; });
-            QElapsedTimer clock;
-            clock.start();
-            const bool answered = pumpUntil([&done]() { return done; }, 30000);
-            const qint64 ms = clock.elapsed();
-            const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-            const QByteArray body = reply->readAll();
-            const QString netError = reply->error() == QNetworkReply::NoError
-                                         ? QString()
-                                         : reply->errorString();
-            reply->deleteLater();
-            if (!answered) {
-                std::printf("!! 列表这一发就没回来（网络这一关没过，量不了）\n");
-                return 2;
-            }
-            QString parseError;
-            hashes = RandomSkinStore::parseTextureHashes(body, &parseError);
-            std::printf("列表：状态 %d，正文 %d 字节，%lld ms%s\n", status, int(body.size()), ms,
-                        netError.isEmpty() ? "" : qPrintable(QStringLiteral("，") + netError));
-            std::printf("      解出 %d 条能用的贴图哈希%s\n", int(hashes.size()),
-                        parseError.isEmpty()
-                            ? ""
-                            : qPrintable(QStringLiteral("（解析说：") + parseError +
-                                         QStringLiteral("）")));
-        }
-        if (hashes.isEmpty()) {
-            std::printf("!! 一条能用的都没有 —— 这个端点要么挂了，要么改了形状"
-                        "（RandomSkinStore::parseTextureHashes 那三条判据哪一条都不该凭空全灭）\n");
-            return 2;
-        }
-
-        // ---- ③ 挑出来的地址，官方那个白名单认不认 ----
-        // "骰子真的在动"这件事在这里也顺手量一下：连挑十六次，看是不是不止一个结果。
-        {
-            const QString picked = RandomSkinStore::pickIndex(
-                hashes, QRandomGenerator::global()->bounded(hashes.size()));
-            const QString url = PlayerSkinStore::textureUrlForHash(picked);
-            std::printf("挑中的第一条：%s\n", qPrintable(url));
-            std::printf("     白名单认不认：%s\n",
-                        PlayerSkinStore::textureRequestUrl(url).isValid() ? "认" : "**不认**");
-            QStringList rolls;
-            for (int i = 0; i < 16; ++i) {
-                const QString one = RandomSkinStore::pickIndex(
-                    hashes, QRandomGenerator::global()->bounded(hashes.size()));
-                if (!rolls.contains(one)) {
-                    rolls.append(one);
-                }
-            }
-            std::printf("     16 次挑出来 %d 个不同的（骰子在动就是大于 1）\n", int(rolls.size()));
-        }
-
-        // ---- ④ 真下下来一张（产品那条路）----
-        // 用 RandomSkinStore::fetchRandomSkin() 走一次真路（挑一条发回来），再交给
-        // PlayerSkinStore 那张图下下来 —— 这就是"离线账号开窗"那一下真正会跑的东西。
-        {
-            RandomSkinStore store;
-            QString pickedUrl;
-            QString failure;
-            QObject::connect(&store, &RandomSkinStore::skinReady, &store,
-                             [&pickedUrl](const QString &url) { pickedUrl = url; });
-            QObject::connect(&store, &RandomSkinStore::failed, &store,
-                             [&failure](const QString &message) { failure = message; });
-            store.fetchRandomSkin();
-            const bool back = pumpUntil(
-                [&pickedUrl, &failure]() { return !pickedUrl.isEmpty() || !failure.isEmpty(); },
-                30000);
-            if (!back) {
-                std::printf("!! 产品那条路（fetchRandomSkin）没回来\n");
-                return 2;
-            }
-            if (!failure.isEmpty()) {
-                std::printf("产品那条路说：%s\n", qPrintable(failure));
-                return 0;
-            }
-            std::printf("产品那条路挑出来的：%s\n", qPrintable(pickedUrl));
-
-            PlayerSkinStore skins;
-            QString readyUrl;
-            QString readyPath;
-            QString skinFailure;
-            QObject::connect(&skins, &PlayerSkinStore::textureReady, &skins,
-                             [&readyUrl, &readyPath](const QString &url, const QString &path) {
-                                 readyUrl = url;
-                                 readyPath = path;
-                             });
-            QObject::connect(&skins, &PlayerSkinStore::failed, &skins,
-                             [&skinFailure](const QString &message) { skinFailure = message; });
-            skins.fetchTexture(pickedUrl);
-            const bool gotIt = pumpUntil(
-                [&readyPath, &skinFailure]() {
-                    return !readyPath.isEmpty() || !skinFailure.isEmpty();
-                },
-                30000);
-            if (!gotIt || !skinFailure.isEmpty()) {
-                std::printf("!! 那张图没下下来：%s\n",
-                            skinFailure.isEmpty() ? qPrintable(QStringLiteral("等超时了"))
-                                                  : qPrintable(skinFailure));
-                return 0;
-            }
-            const QImage image(readyPath);
-            std::printf("下下来了：%lld 字节，%s，解出来 %d×%d\n",
-                        QFileInfo(readyPath).size(),
-                        qPrintable(QDir::toNativeSeparators(readyPath)), image.width(),
-                        image.height());
-            std::printf("     缓存路径：%s\n",
-                        qPrintable(QDir::toNativeSeparators(
-                            PlayerSkinStore::cachePathForUrl(pickedUrl))));
-        }
-        std::printf("再跑一次：盘上已经记过那条的话，整条路是同步的、一个请求都不发。\n");
-        return 0;
-    }
-
     const QDir versionsDir(root.filePath(QStringLiteral(".minecraft/versions")));
     // 沙盒里那一棵 versions/ 必须从"干净装一次"开始。`makeInstalledVersion()` 只补不删
     // （缺 jar 就写一个），于是上一趟改过的东西会原样活到这一趟 —— S2b 就栽在这一格上：
@@ -3441,9 +3288,6 @@ int main(int argc, char *argv[]) {
     header("AE. 设置页「启动选项」三项：接线 + 改一下立刻落盘 + 日志窗那条路");
     if (const int result = MwGameLogLifecycleChecks(settingsWired, window, showLogCheck, priorityCombo, windowWidthSpin, windowHeightSpin, windowModeCombo, windowSizeTimes); result != 0) return result;
 
-    header("AF. 离线账号那张随机皮肤：录在盘上的那一行真的变成了屏幕上那张脸");
-    if (const int result = MwRandomSkinChecks(); result != 0) return result;
-
     header("O. 恢复现场");
     {
         QMetaObject::invokeMethod(&window, "onVersionsFetched", Qt::DirectConnection,
@@ -3461,7 +3305,7 @@ int main(int argc, char *argv[]) {
               "沙盒已清理");
     }
 
-    header("ZG. 离线账号那张脸：算得出来就用官方默认皮肤，算不出来才退回随机那张");
+    header("ZG. 离线账号那张脸：算得出来就用官方默认皮肤，算不出来退回内置 Steve");
     runOfflineDefaultSkinTests();
 
     header("ZB8. 图标「核对那一发」的三种出路（本地假服务器，不碰外网）");

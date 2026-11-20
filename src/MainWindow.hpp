@@ -142,9 +142,6 @@ class TaskDetailController;
 class GameLogWindow;
 // 换皮肤披风那几条要令牌的接口（src/auth/SkinApi.hpp）。同上，只按指针持有。
 class SkinApi;
-// 给**离线账号**挑随机皮肤那一层（src/manage/RandomSkinStore.hpp）。同上，只按指针持有 ——
-// 它挑出来的还是官方 CDN 上的地址，下不下来、画不画得出来都交给 PlayerSkinStore 那条路。
-class RandomSkinStore;
 // 玩家外观那一整套（挑哪一张 / 取回来 / 认领 / 记账 / 退回默认外观）——
 // src/controllers/PlayerSkinController.hpp。同上，只按指针持有（它是 this 的子对象）。
 // NOTE: 它的 `hintFacts()` 返回一个嵌套的聚合类型，而这里只**传 const 引用**（见
@@ -367,7 +364,7 @@ private slots:
     // ---------- 「账号与外观」这个模块（主页右栏那个入口 → AccountSkinDialog） ----------
     // 入口按钮：第一次点会把这个窗建出来（懒建，没点过就不占内存），然后刷新一遍再显示。
     void onAccountSkinButtonClicked();
-    // 用户在这个窗里点了「登录新账号…」。走的是和设置页那个登录按钮**同一条路**
+    // 用户在这个窗里选了「添加账号」→「微软账号」。走的是和设置页那个登录按钮**同一条路**
     // （AuthManager::loginMicrosoft()），只是入口在另一个窗上。
     void onAccountLoginRequested();
     // 用户在那个窗里填了个离线名字。合法性（空 / 有空白 / 太长）由
@@ -381,7 +378,7 @@ private slots:
     // 离线账号自己挑的那张（「账号与外观」→「换一张…」）：只存本机、不联网、不要令牌。
     // 尺寸仍走 SkinApi::isAcceptableSkinSize()，失败弹窗。
     void onOfflineSkinPickRequested(const QString &path, const QString &variant);
-    // 撤掉自己挑的那张，回到算出来的 / 随机挑的那一档。
+    // 撤掉自己挑的那张，回到算出来的 / 内置 Steve 那一档。
     void onOfflineSkinResetRequested();
     void onCapeSelectRequested(const QString &capeId);
     void onCapeHideRequested();
@@ -403,8 +400,6 @@ private slots:
     void onSkinProfileReady(const QString &uuid, const PlayerSkinProfile &profile);
     /// 一张贴图在本地就绪了（转 `PlayerSkinController::onTextureReady`）。
     void onSkinTextureReady(const QString &url, const QString &path);
-    /// 离线账号的随机皮肤挑好了（转 `PlayerSkinController::onRandomSkinReady`）。
-    void onRandomSkinReady(const QString &skinUrl);
 
     /// 外观那条路说"现在该画这一套了"（`PlayerSkinController::skinChanged`）。
     ///
@@ -424,28 +419,30 @@ private slots:
     void applyPlayerSkin(const QString &skinPath, const QString &capePath, bool slim);
 
     /**
-     * @brief 底栏账号面板里某一行的行首头像（24×24，就是 `bottomBarPanelIconSize()`）。
+     * @brief 账号的头像：底栏账号面板里某一行的行首头像（24×24，就是 `bottomBarPanelIconSize()`），
+     * 账号页每一行也用它（传大一点的 `pixelSize`）。
      * @param account 那一行是谁（用 `uuid` 认人 —— 名字可以重复）。
+     * @param pixelSize 边长；0 = 面板那一档。
      * @return 一张一定有东西的图；实在什么都没有时是**自己画的首字母方块**。
      *
      * 选择 / 登录过的账号磁盘上一定有缓存，所以这条路**只认缓存**，
      * 联网 / 换令牌 / 读客户端 JAR 一个都不做，取不到就自己画（那不算出错）。
      *
-     * 五个来源，按优先级：
+     * 四个来源，按优先级：
      * ① 当前账号 —— 底栏那颗头像现成的（`m_avatarPixmap`），缩一下；
      * ② 正版账号 —— 缓存里那份档案的 `skinUrl` 对应的贴图（PlayerSkinStore 的两级缓存）；
-     * ③ 离线账号 —— `RandomSkinStore` 记着他挑中的那张；
-     * ④ 离线账号 —— `DefaultSkin` **算出来的**那张官方默认皮肤的缓存图（**只拼路径探测，
+     * ③ 离线账号 —— 他自己挑的本地皮肤（`OfflineSkin`），其次是 `DefaultSkin`
+     * **算出来的**那张官方默认皮肤的缓存图（**只拼路径探测，
      * 绝不走 resolve()**：那一条要起 PowerShell 读 JAR，几百毫秒，不能挂在开面板上）；
-     * ⑤ 都没有 —— `SkinModel::letterAvatar()` 画的首字母方块。
+     * ④ 都没有 —— `SkinModel::letterAvatar()` 画的首字母方块。
      *
      * NOTE: 每次开面板都要给**全部**账号各算一张（面板里只显示三个，但哪三个是那个
      * 函数按 `saved_at` 排出来的，不在这里再排一遍）。代价是几次本地文件探测，
      * 可以接受；**换来的好处**是这条路永远不会"卡在网络上"。
      */
-    QPixmap accountFacePixmap(const SavedAccount &account) const;
+    QPixmap accountFacePixmap(const SavedAccount &account, int pixelSize = 0) const;
 
-    /// 猜"某个离线账号当初是按哪个实例算的官方默认皮肤"（见 accountFacePixmap() ④）。
+    /// 猜"某个离线账号当初是按哪个实例算的官方默认皮肤"（见 accountFacePixmap() ③）。
     /// 这一位在 `PlayerSkinController` 那边（它要读"上一轮真的算过哪个实例"）；
     /// 这里只剩上面那个 ④ 在向它要几个候选版本号。
     void onAddFolderClicked();
@@ -2982,8 +2979,6 @@ private:
     GroupDialog *m_groupDialog = nullptr;
     // 玩家外观的数据层（免鉴权问官方 + 内容寻址的本地缓存）。
     PlayerSkinStore *m_skinStore;
-    // 给离线账号挑一张随机皮肤（挑的是一个地址，图还是上面那个 Store 去下）。
-    RandomSkinStore *m_randomSkinStore;
     // 改外观那一层（**要令牌**：换皮肤、换披风）。和上面那个是两条路，见 SkinApi.hpp
     // 文件头那句分工。
     SkinApi *m_skinApi;

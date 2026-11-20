@@ -4,15 +4,7 @@
 <context>
     <name>AccountSkinDialog</name>
     <message>
-        <source>正版</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>M 月 d 日</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>离线</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -33,10 +25,6 @@
     </message>
     <message>
         <source>披风</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>登录新账号…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -65,10 +53,6 @@
     </message>
     <message>
         <source>选一张 PNG（64×64 或 64×32）作为这个离线账号在启动器里的外观。只影响启动器预览，游戏内皮肤由游戏自己决定。</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>移除手动设置的皮肤，恢复此账号的默认或随机皮肤。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -145,6 +129,38 @@
     </message>
     <message>
         <source>PNG 图片 (*.png)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>添加账号</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>微软账号</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>离线账号</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>复制 UUID</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>重试</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>本地皮肤只在启动器内显示，游戏内按名字分配默认皮肤。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>游戏内按名字分配默认皮肤。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>移除手动设置的皮肤，恢复此账号的默认皮肤。</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -16456,15 +16472,7 @@ Minecraft %2 / %3 %4</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>记下随机皮肤失败：%1</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>取玩家皮肤失败：%1</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>取随机皮肤失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -22132,45 +22140,6 @@ Minecraft %2 / %3
     </message>
     <message>
         <source>搜索预设</source>
-        <translation type="unfinished"></translation>
-    </message>
-</context>
-<context>
-    <name>RandomSkinStore</name>
-    <message>
-        <source>解不出皮肤列表（不是一份 JSON 对象：%1）</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>皮肤列表里没有 %1 这一项（接口形状变了？）</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>皮肤列表里一条能用的贴图都没有（共 %1 项）</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>无法识别账号的 UUID，未保存随机皮肤。</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>无法创建目录 %1。</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>随机皮肤存不下来：%1</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>取随机皮肤列表失败：%1</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>取随机皮肤列表失败（HTTP %1）：%2</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>挑中的贴图哈希拼不出地址：%1</source>
         <translation type="unfinished"></translation>
     </message>
 </context>

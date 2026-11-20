@@ -91,7 +91,6 @@ void runHomeRecentCardTests() {
     TokenStore::clear(TokenStore::accountsKey());
     TokenStore::clear(TokenStore::currentUuidKey());
     const QString accountName = QStringLiteral("T36User");
-    seedOfflineRandomSkin(accountName, kSeededSkinUrl, QColor(0x40, 0x80, 0xC0));
     QString offlineError;
     check(AccountStore::addOffline(accountName, &offlineError),
           "T36.0 建一个离线账号并设成当前身份", offlineError);

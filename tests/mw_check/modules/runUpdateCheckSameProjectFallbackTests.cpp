@@ -139,7 +139,6 @@ void runUpdateCheckSameProjectFallbackTests() {
     TokenStore::clear(TokenStore::accountsKey());
     TokenStore::clear(TokenStore::currentUuidKey());
     const QString accountName = QStringLiteral("T32bUser");
-    seedOfflineRandomSkin(accountName, kSeededSkinUrl, QColor(0x40, 0x70, 0x60));
     QString offlineError;
     check(AccountStore::addOffline(accountName, &offlineError),
           "T32b.0 建一个离线账号并设成当前身份（这一节一个外网请求都不发）", offlineError);

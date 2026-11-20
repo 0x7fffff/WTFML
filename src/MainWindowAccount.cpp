@@ -84,10 +84,8 @@ void MainWindow::onAccountSkinButtonClicked() {
         // 露的是正版才有的「上传皮肤…」（离线账号按下去只会失败）。
         m_accountSkinDialog->setOfflineSkinState(offlineIdentity(),
                                                  OfflineSkin::hasSkin(AccountStore::activeUuid()));
-        // 页签落在哪：当前是离线账号，或者这一版正版登录用不了 → 「离线」；否则「正版」。
-        const QString onlineUnavailable = AuthManager::loginConfigurationError();
-        m_accountSkinDialog->setOnlineLoginUnavailable(onlineUnavailable);
-        m_accountSkinDialog->showAccountKind(offlineIdentity() || !onlineUnavailable.isEmpty());
+        // 这一版微软登录用不了（没配应用 ID）时，「添加账号」菜单里「微软账号」置灰并带上原因。
+        m_accountSkinDialog->setOnlineLoginUnavailable(AuthManager::loginConfigurationError());
         if (!overlay->showPage(m_accountSkinDialog, AccountSkinDialog::windowTitle())) {
             appendLog(tr("无法打开账号与外观页：界面已被另一页占用。"));
         }
@@ -170,6 +168,8 @@ void MainWindow::refreshAccountSkin() {
         row.savedAt = account.savedAt;
         row.current = account.isCurrent;
         row.offline = account.offline;
+        // 每个账号自己的头像：只读本地缓存（和主页右上账号面板同一个函数），没有才是首字母。
+        row.face = accountFacePixmap(account, 64).toImage();
         rows.append(row);
     }
     m_accountSkinDialog->setAccounts(rows);
@@ -178,6 +178,7 @@ void MainWindow::refreshAccountSkin() {
     // 同步请求已经回来了（下面第 4 步会再离开这个方法去联网）。
     m_accountSkinDialog->setBusy(false);
     m_accountSkinDialog->setStatusText(accountSkinStatusText());
+    m_accountSkinDialog->setStatusError(QString());
     // 「皮肤」那一行露哪一档（正版：上传；离线：换一张 / 恢复默认）。判据和下面那句
     // `if (offlineIdentity())` 同一个出处，只是这里要的是"有没有自己挑过"那一格。
     {
@@ -189,19 +190,18 @@ void MainWindow::refreshAccountSkin() {
     // 3) 3D 预览走**和主页同一条路**（同一份缓存、同一次后台刷新）：applyPlayerSkin()
     // 会把同一份贴图同时喂给主页那个小人和这个窗里的预览。
     //
-    // NOTE: 这一句**不保证不联网**：离线账号第一次进来时它要 MineSkin 那一页随机皮肤
-    // （见 startPlayerSkinLoad() 里 offlineIdentity() 那一档）。挑过一次之后就只在盘上
-    // 读那一行。
+    // NOTE: 离线账号那一档不联网：手选的本地皮肤 → 本地算出来的默认皮肤 → 内置 Steve。
     // 这也正是这个窗**只在离线账号那一档开**的原因（见 onAccountSkinButtonClicked()
     // 里那段）：正版那一档开窗会顺带拉披风，那才是真联网的那一下。
     startPlayerSkinLoad();
 
     // 4) 披风列表要令牌，是这一整块里唯一会真的去联网的地方（过期令牌也是在这里顺带刷新的）。
     // 一个账号都没有时也跳过：没有令牌可换，硬走下去只会把「还没有登录过…」那句原因写进副题，
-    // 和「未登录」、正版页签的说明说成三遍。
+    // 和「未登录」、「微软账号」置灰的说明说成三遍。
     if (offlineIdentity() || accounts.isEmpty()) {
         // 当前是离线账号 = "别联网"，而拉披风列表正是联网。跳过。
         m_accountSkinDialog->setCapes({});
+        m_accountSkinDialog->setCapesOwner(QString());
         return;
     }
     // 为什么非得另立一条判据：上面那句 `m_accountSkinDialog == nullptr` 分不出"关掉了" ——
@@ -231,16 +231,24 @@ void MainWindow::refreshAccountSkin() {
     m_accountSkinDialog->setBusy(true, tr("正在获取披风列表…"));
     QApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
 
+    // 失败时的收尾：「已登录为…」那一句保持不变，原因另起一行（后面跟「重试」）；披风列表留着上次
+    // 取到的内容，只有它属于另一个账号时才清掉（不能让用户在 B 账号下看到 A 的披风）。
+    const QString activeUuid = AccountStore::activeUuid();
+    const auto failRefresh = [this, &activeUuid](const QString &reason) {
+        if (m_accountSkinDialog->capesOwner() != activeUuid) {
+            m_accountSkinDialog->setCapes({});
+            m_accountSkinDialog->setCapesOwner(QString());
+        }
+        m_accountSkinDialog->setBusy(false);
+        m_accountSkinDialog->setStatusText(accountSkinStatusText());
+        m_accountSkinDialog->setStatusError(reason);
+    };
+
     QString error;
     const QString token = m_authManager->loadSavedToken(&error);
     if (token.isEmpty()) {
-        // 没登录（或者令牌换不出来）。原因写进状态行 —— 它比"当前身份"那句更要紧，
-        // 而"当前是哪个账号"在列表里那个（当前）标记上照样看得到。
-        m_accountSkinDialog->setCapes({});
-        if (!error.isEmpty()) {
-            m_accountSkinDialog->setStatusText(error);
-        }
-        m_accountSkinDialog->setBusy(false);
+        // 没登录（或者令牌换不出来）。
+        failRefresh(error);
         return;
     }
 
@@ -250,9 +258,7 @@ void MainWindow::refreshAccountSkin() {
         // 都已经正常出来了，弹一个窗拦在中间会让用户以为整个模块坏了。正文写在状态行里，
         // 日志留一行备查。
         appendLog(tr("拉取披风列表失败：%1").arg(error));
-        m_accountSkinDialog->setCapes({});
-        m_accountSkinDialog->setStatusText(error);
-        m_accountSkinDialog->setBusy(false);
+        failRefresh(error);
         return;
     }
 
@@ -267,6 +273,7 @@ void MainWindow::refreshAccountSkin() {
         capeRows.append(row);
     }
     m_accountSkinDialog->setCapes(capeRows);
+    m_accountSkinDialog->setCapesOwner(activeUuid);
     for (const AccountSkinDialog::CapeRow &row : capeRows) m_skinStore->fetchTexture(row.url);
     // 到这里那一趟联网才算走完（这一条是上面那个忙态唯一的"成功"出口）。
     m_accountSkinDialog->setBusy(false);
@@ -307,10 +314,6 @@ void MainWindow::onOfflineAccountRequested(const QString &name) {
     appendLog(tr("已添加离线账号「%1」并切换到它。").arg(trimmed));
     // 列表、状态行、预览、披风这一整套刷新 —— 和切换账号之后做的事情一样。
     //
-    // NOTE: 离线账号那一档**不是"整条路都不联网"**：披风确实不拉
-    // （离线账号没有披风可拉），但这个账号**还没挑过**
-    // 随机皮肤时，startPlayerSkinLoad() 会去 MineSkin 要一页列表（见 RandomSkinStore）。
-    // 挑过一次之后就只在盘上读那一行 —— 本地命中，一个包都不发。
     refreshAccountSkin();
 }
 
@@ -743,7 +746,7 @@ void MainWindow::onLoginSucceeded(const QString &playerName) {
 
 void MainWindow::onLoginFailed(const QString &errorMessage) {
     if (m_accountSkinDialog != nullptr) {
-        // 那个窗上也可能有一个人在等（它是从「登录新账号…」起的流程）。忙态必须在这里
+        // 那个窗上也可能有一个人在等（它是从「添加账号」→「微软账号」起的流程）。忙态必须在这里
         // 松开，否则弹窗关掉之后它那几个按钮一直灰着，看着像卡死了。
         m_accountSkinDialog->setBusy(false);
         m_accountSkinDialog->setStatusText(accountSkinStatusText());

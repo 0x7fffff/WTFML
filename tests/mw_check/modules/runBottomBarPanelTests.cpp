@@ -119,7 +119,6 @@ void runBottomBarPanelTests() {
 
     // 先让 Alex 成为**当前账号**（产品那条路：addOffline 加完顺手切过去）。此刻列表里
     // 只有 Bob 和 Alex，而 Alex 没有凭据 —— 底栏第二行该写「离线登录」。
-    seedOfflineRandomSkin(alexName, kSeededSkinUrl, QColor(0x30, 0x90, 0xD0));
     QString offlineError;
     check(AccountStore::addOffline(alexName, &offlineError) &&
               AccountStore::activeUuid() == alexUuid,
@@ -1268,9 +1267,15 @@ void runBottomBarPanelTests() {
         const QString lenaName = QStringLiteral("Lena");
         const QString lenaUuid = AccountStore::offlineUuidFor(lenaName);
         const QColor lenaTint(0x40, 0xA0, 0x60);
-        // 外观**先**预置好（理由见 seedOfflineRandomSkin 那段）：下面那一下会走到
-        // "离线账号要随机皮肤"那条路，不预置就真去问 MineSkin 了。
-        seedOfflineRandomSkin(lenaName, kSeededSkinUrl, lenaTint);
+        // 给 Lena 存一张手选的本地皮肤（纯色）：离线账号没有别的皮肤来源时画的是内置 Steve，
+        // 和下面「未登录」的占位图一样，看不出"脸换了"。
+        {
+            QImage tinted(64, 64, QImage::Format_ARGB32_Premultiplied);
+            tinted.fill(lenaTint);
+            QString pickError;
+            check(OfflineSkin::save(lenaUuid, tinted, QStringLiteral("classic"), &pickError),
+                  "AH12b 前提：给 Lena 存一张手选的本地皮肤", pickError);
+        }
         // 名字进 AuthManager 由产品那条路自己做（onOfflineAccountRequested 里那句
         // setOfflinePlayer），所以这儿只按产品那条路把它加出来。
         QMetaObject::invokeMethod(&w, "onOfflineAccountRequested", Qt::DirectConnection,
@@ -1285,7 +1290,7 @@ void runBottomBarPanelTests() {
         // 这一条现在就该绿 —— 它同时也是"加账号那一路的换脸"（和下面切账号那一路是同一
         // 句 return 挡的）。**兜底那张是内置默认皮肤**，和 Lena 那张纯色差得远。
         check(viewer != nullptr && viewer->skin().pixelColor(0, 0) == lenaTint,
-              "AH12b 加完它就画上了那张预置的随机皮肤（不是兜底占位图）",
+              "AH12b 加完它就画上了她手选的本地皮肤（不是兜底占位图）",
               viewer != nullptr ? viewer->skin().pixelColor(0, 0).name()
                                 : QStringLiteral("<没找到>"));
 
@@ -1323,12 +1328,12 @@ void runBottomBarPanelTests() {
                       "AH12b 切到 Lena 了", AccountStore::activeUuid());
                 // **这一条就是用户报的那件事**：屏幕上那张脸必须真的换掉。
                 check(viewer->skin().pixelColor(0, 0) == lenaTint && viewer->skin() != placeholder,
-                      "AH12b **主页那张脸跟着换了**（从兜底占位图换成她那句话那张随机皮肤）",
+                      "AH12b **主页那张脸跟着换了**（从兜底占位图换成她手选的本地皮肤）",
                       QStringLiteral("%1 → %2")
                           .arg(placeholder.pixelColor(0, 0).name())
                           .arg(viewer->skin().pixelColor(0, 0).name()));
-                check(hint->text() == MainWindowUI::skinHintOfflineLoadedText(lenaName),
-                      "AH12b 那句话也跟着换成离线那一档", hint->text());
+                check(hint->text() == MainWindowUI::skinHintOfflineCustomSkinText(lenaName),
+                      "AH12b 那句话也跟着换成离线自定义皮肤那一档", hint->text());
             }
         }
     }

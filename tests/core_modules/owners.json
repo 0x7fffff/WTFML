@@ -46,7 +46,6 @@
   "JavaReleaseParseTests.cpp": "java",
   "AsciiAliasTests.cpp": "java",
   "PlayerSkinTests.cpp": "accounts",
-  "RandomSkinTests.cpp": "accounts",
   "OfflineSkinTests.cpp": "accounts",
   "DefaultSkinTests.cpp": "accounts",
   "AccountSkinTests.cpp": "accounts",

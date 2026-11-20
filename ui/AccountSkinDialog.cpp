@@ -4,6 +4,7 @@
  */
 
 #include "AccountSkinDialog.hpp"
+#include "ElidedLabel.hpp"
 #include "InputSizing.hpp"
 
 // WheelGuard 住在 MainWindowUI.hpp 里（和 InstanceSettingsDialog.cpp 一样，直接引那一份，
@@ -15,10 +16,13 @@
 #include "SkinViewer.hpp"
 #include "OverlayHost.hpp"
 #include "VersionIcons.hpp"
+#include <QHideEvent>
 #include <QShowEvent>
 #include <algorithm>
 #include <QResizeEvent>
 
+#include <QAction>
+#include <QClipboard>
 #include <QComboBox>
 #include <QDateTime>
 #include <QDialogButtonBox>
@@ -31,11 +35,14 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QMenu>
 #include <QPainter>
 #include <QPalette>
+#include <QGuiApplication>
 #include <QPushButton>
 #include <QScrollBar>
 #include <QStyledItemDelegate>
+#include <QTimer>
 #include <QVBoxLayout>
 
 namespace {
@@ -47,13 +54,17 @@ constexpr int kControlsWidth = 280;
 constexpr int kCapeCell = 44;            // 设计稿 .cape：44 × 60
 constexpr int kCapeCellHeight = 60;
 constexpr int kCapeGap = 8;
+constexpr int kPreviewNoteMaxWidth = 420;  // 预览说明一行的宽度上限
 
 // 行里显示用的拆开那几样（条目 text() 仍是「名字（离线）（当前）」那一整句，测试和无障碍读它）。
 constexpr int kNameRole = Qt::UserRole + 2;
 constexpr int kOfflineRole = Qt::UserRole + 3;
 constexpr int kSavedRole = Qt::UserRole + 4;
+constexpr int kFaceRole = Qt::UserRole + 5;
+// 来源那一行小字（「微软账号 · 登录取自 …」/「离线账号」）放在无障碍描述里：测试和读屏读它，行里画的也是它。
+constexpr int kSourceRole = Qt::AccessibleDescriptionRole;
 
-/// 去掉「（当前）」「（离线）」两头的括号，拿来做徽标和副标题（同一份文案，不另起一句）。
+/// 去掉「（当前）」两头的括号，拿来做徽标（同一份文案，不另起一句）。
 QString bare(const QString &mark) {
     const QString trimmed = mark.trimmed();
     return trimmed.mid(1, trimmed.size() - 2);
@@ -65,7 +76,7 @@ QFont pixelFont(QFont font, int px, QFont::Weight weight = QFont::Normal) {
     return font;
 }
 
-/// 账号行（设计稿 .acct-row）：头像 32 圆角 8、名字 14 + 「当前」小标、下面一行登录方式。
+/// 账号行（设计稿 .acct-row）：头像 32 圆角 8、名字 14 + 「当前」小标、下面一行账号来源。
 class AccountRowDelegate : public QStyledItemDelegate {
 public:
     AccountRowDelegate(QObject *parent, const QImage *currentSkin)
@@ -85,7 +96,6 @@ public:
         const Theme::Tokens t = Theme::tokens();
         const QString name = index.data(kNameRole).toString();
         const bool current = index.data(Qt::UserRole + 1).toBool();
-        const bool offline = index.data(kOfflineRole).toBool();
         const bool selected = option.state & QStyle::State_Selected;
         const bool hovered = option.state & QStyle::State_MouseOver;
         const QRectF r = QRectF(option.rect).adjusted(0, 1, 0, -1);
@@ -99,9 +109,11 @@ public:
         }
 
         const QRect avatar(int(r.left()) + 12, int(r.center().y()) - 16, 32, 32);
-        const QImage face = current && !m_currentSkin->isNull()
-                                ? SkinModel::headAvatar(*m_currentSkin, 64)
-                                : SkinModel::letterAvatar(name, 64);
+        // 当前账号跟着 3D 预览的皮肤走（贴图晚到时头像跟着变）；其余账号用调用方给的头像，没有才画首字母。
+        const QImage rowFace = index.data(kFaceRole).value<QImage>();
+        const QImage face = current && !m_currentSkin->isNull() ? SkinModel::headAvatar(*m_currentSkin, 64)
+                            : !rowFace.isNull()                 ? rowFace
+                                                                : SkinModel::letterAvatar(name, 64);
         // 圆头像：和主页右上那颗、账号下拉面板里那几行同一种形状。
         RoundAvatar::paint(*painter, QRectF(avatar), face);
 
@@ -135,13 +147,7 @@ public:
             painter->drawText(pill, Qt::AlignCenter, badge);
         }
 
-        QString sub = offline ? bare(AccountSkinDialog::offlineMark())
-                              : AccountSkinDialog::tr("正版");
-        const QDateTime savedAt = QDateTime::fromString(index.data(kSavedRole).toString(), Qt::ISODate);
-        if (!offline && savedAt.isValid()) {
-            const QString date = savedAt.toLocalTime().toString(AccountSkinDialog::tr("M 月 d 日"));
-            sub += QStringLiteral(" · ") + AccountSkinDialog::tr("登录取自 %1").arg(date);
-        }
+        const QString sub = index.data(kSourceRole).toString();
         painter->setFont(subFont);
         painter->setPen(t.secondary);
         painter->drawText(QRect(textLeft, blockTop + nm.height() + 2, textRight - textLeft, sm.height()),
@@ -204,6 +210,20 @@ public:
     }
 };
 
+/// 预览下面那行说明：理想宽度 = 文字一行放下的宽度（封顶 kPreviewNoteMaxWidth，可以比 3D 预览宽），
+/// 放不下才自然折行；最小宽度很小，窄窗口里布局能把它压到预览那么宽。
+class PreviewNoteLabel : public QLabel {
+public:
+    using QLabel::QLabel;
+
+    QSize sizeHint() const override {
+        const int line = fontMetrics().horizontalAdvance(text()) + 2;
+        const int width = qMin(line, kPreviewNoteMaxWidth);
+        return QSize(width, heightForWidth(width));
+    }
+    QSize minimumSizeHint() const override { return QSize(120, QLabel::minimumSizeHint().height()); }
+};
+
 /// 侧栏式列表：无框、透明底，行自己画底色。
 void makeListTransparent(QListWidget *list) {
     list->setFrameShape(QFrame::NoFrame);
@@ -257,6 +277,33 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     Theme::follow(m_statusLabel, tintStatus);
     titleColumn->addWidget(title);
     titleColumn->addWidget(m_statusLabel);
+    // 请求失败的原因另起一行（身份那一句不动）：次要文字色，后面跟「重试」。
+    m_statusErrorRow = new QWidget(m_headerBar);
+    m_statusErrorRow->setObjectName(QStringLiteral("accountStatusErrorRow"));
+    auto *errorLayout = new QHBoxLayout(m_statusErrorRow);
+    errorLayout->setContentsMargins(0, 0, 0, 0);
+    errorLayout->setSpacing(6);
+    m_statusErrorLabel = new ElidedLabel(m_statusErrorRow);
+    m_statusErrorLabel->setObjectName(statusErrorLabelName());
+    m_statusErrorLabel->setMinimumWidth(1);
+    m_statusErrorLabel->setFont(Theme::textFont(m_statusErrorLabel->font(), Theme::TextRole::Caption));
+    const auto tintError = [label = m_statusErrorLabel] {
+        QPalette palette = label->palette();
+        palette.setColor(QPalette::WindowText, Theme::tokens().secondary);
+        label->setPalette(palette);
+    };
+    tintError();
+    Theme::follow(m_statusErrorLabel, tintError);
+    m_retryButton = new QPushButton(retryButtonText(), m_statusErrorRow);
+    m_retryButton->setObjectName(retryButtonName());
+    m_retryButton->setCursor(Qt::PointingHandCursor);
+    Theme::markButton(m_retryButton, Theme::ButtonKind::Ghost);
+    errorLayout->addWidget(m_statusErrorLabel, 0);
+    errorLayout->addWidget(m_retryButton, 0);
+    errorLayout->addStretch(1);
+    m_statusErrorLabel->setMaximumWidth(400);
+    m_statusErrorRow->hide();
+    titleColumn->addWidget(m_statusErrorRow);
     statusRow->addLayout(titleColumn, 1);
     root->addWidget(m_headerBar);
 
@@ -270,7 +317,7 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     root->addWidget(body);
 
     // ---------- 左：账号（设计稿 .acct-col）----------
-    // 标题（带「正版 / 离线」页签）→ 账号列表 → 所选那一种的入口（正版：「登录新账号…」；离线：名字 +「添加」）。
+    // 标题 → 账号列表 → 「添加账号」（菜单选微软账号 / 离线账号；离线：名字 +「添加」就地展开）。
     m_accountsPanel = new QWidget(this);
     m_accountsPanel->setObjectName(QStringLiteral("accountManagementPane"));
     m_accountsPanel->setMaximumWidth(kAccountsWidth);
@@ -278,37 +325,14 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     m_accountsPanel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     QVBoxLayout *left = new QVBoxLayout(m_accountsPanel);
     left->setContentsMargins(0, 0, 0, 0);
-    left->setSpacing(8);  // 控件间距（全站三档里的 8）：页签 → 账号列表 → 入口
+    left->setSpacing(8);  // 控件间距（全站三档里的 8）：标题 → 账号列表 → 入口
     left->setAlignment(Qt::AlignTop);
     // 伸缩权重 100 对立绘两边那两段 stretch（各 1）：余宽先给账号栏长到 kAccountsWidth，
     // 两段留白只分零头。原来 8:1:1 时 1280 窗下账号栏只分到约 280，正版说明再被行尾 stretch
     // 对半分，只剩 160 上下、折成四行。不用最小宽度：那会把整窗最小宽顶过窄窗阈值、再也叠不成上下。
     main->addWidget(m_accountsPanel, 100);
 
-    {
-        // 「账号」后面是「正版 / 离线」页签：只管下面那一块「加账号」的入口，列表照旧两种都列。
-        auto *titleRow = new QHBoxLayout;
-        titleRow->setSpacing(6);
-        titleRow->addWidget(makeSectionTitle(accountSectionTitle(), this), 0, Qt::AlignVCenter);
-        titleRow->addSpacing(4);
-        auto *kindSegment = new QWidget(this);
-        kindSegment->setObjectName(QStringLiteral("accountKindSegment"));
-        auto *kindLayout = new QHBoxLayout(kindSegment);
-        kindLayout->setContentsMargins(3, 3, 3, 3);
-        kindLayout->setSpacing(2);
-        m_onlineKindButton = new QPushButton(tr("正版"), kindSegment);
-        m_onlineKindButton->setObjectName(onlineKindButtonName());
-        m_offlineKindButton = new QPushButton(tr("离线"), kindSegment);
-        m_offlineKindButton->setObjectName(offlineKindButtonName());
-        kindLayout->addWidget(m_onlineKindButton);
-        kindLayout->addWidget(m_offlineKindButton);
-        Theme::markSegmented(kindSegment, {m_onlineKindButton, m_offlineKindButton});
-        connect(m_onlineKindButton, &QPushButton::clicked, this, [this] { showAccountKind(false); });
-        connect(m_offlineKindButton, &QPushButton::clicked, this, [this] { showAccountKind(true); });
-        titleRow->addWidget(kindSegment, 0, Qt::AlignVCenter);
-        titleRow->addStretch(1);
-        left->addLayout(titleRow);
-    }
+    left->addWidget(makeSectionTitle(accountSectionTitle(), this));
 
     m_accountList = new QListWidget(this);
     m_accountList->setObjectName(accountListName());
@@ -316,7 +340,7 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     m_accountList->setItemDelegate(new AccountRowDelegate(m_accountList, &m_currentSkin));
     m_accountList->viewport()->installEventFilter(this);
     left->addWidget(m_accountList);
-    m_accountList->hide();  // 没有账号时不占位：页签下面直接接入口（见 setAccounts()）
+    m_accountList->hide();  // 没有账号时不占位：标题下面直接接入口（见 setAccounts()）
 
     // 「切换到所选」「删除所选」：不再占一整排，跟着选中那一行摆在行尾（placeRowActions()）。
     m_rowActions = new QWidget(m_accountList->viewport());
@@ -345,37 +369,52 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
         tint();
         Theme::follow(m_removeButton, tint);
     }
+    // 「复制 UUID」：行尾第二颗图标钮（切换和删除之间），样式同删除钮。
+    m_copyUuidButton = new QPushButton(m_rowActions);
+    m_copyUuidButton->setObjectName(copyUuidButtonName());
+    m_copyUuidButton->setToolTip(copyUuidText());
+    m_copyUuidButton->setAccessibleName(copyUuidText());
+    Theme::markButton(m_copyUuidButton, Theme::ButtonKind::Ghost);
+    Theme::markIconButton(m_copyUuidButton);
+    m_copyUuidButton->setFixedSize(30, 30);
+    m_copyUuidButton->setIconSize(QSize(16, 16));
+    {
+        const auto tint = [b = m_copyUuidButton] {
+            b->setIcon(VersionIcons::line(QStringLiteral("copy"), 16, Theme::tokens().text));
+        };
+        tint();
+        Theme::follow(m_copyUuidButton, tint);
+    }
     rowActionsLayout->addWidget(m_switchButton);
+    rowActionsLayout->addWidget(m_copyUuidButton);
     rowActionsLayout->addWidget(m_removeButton);
     connect(m_accountList->verticalScrollBar(), &QScrollBar::valueChanged, this,
             &AccountSkinDialog::placeRowActions);
 
-    m_loginButton = new QPushButton(loginButtonText(), this);
-    m_loginButton->setObjectName(loginButtonName());
-    m_loginButton->setToolTip(loginHintNote());
-    Theme::markButton(m_loginButton, Theme::ButtonKind::Primary);
-    m_loginButton->setProperty("wtfmlDialogActions", true);
-    // 这一版正版登录用不了（没配微软应用 ID）时，「正版」页签摆这一句代替按钮：不给点了再报错的机会。
-    m_onlineUnavailableLabel = new QLabel(this);
-    m_onlineUnavailableLabel->setObjectName(onlineUnavailableLabelName());
-    m_onlineUnavailableLabel->setWordWrap(true);
-    m_onlineUnavailableLabel->setForegroundRole(QPalette::PlaceholderText);
-    m_onlineUnavailableLabel->hide();
-    m_onlineRow = new QWidget(this);
-    m_onlineRow->setObjectName(QStringLiteral("accountOnlineRow"));
+    // 「添加账号」：点开弹出菜单选「微软账号」或「离线账号」（菜单走全局的玻璃菜单样式）。
+    m_addAccountButton = new QPushButton(addAccountButtonText(), this);
+    m_addAccountButton->setObjectName(addAccountButtonName());
+    m_addAccountButton->setToolTip(loginHintNote());
+    Theme::markButton(m_addAccountButton, Theme::ButtonKind::Primary);
+    m_addAccountButton->setProperty("wtfmlDialogActions", true);
+    m_addAccountMenu = new QMenu(m_addAccountButton);
+    m_addAccountMenu->setObjectName(addAccountMenuName());
+    m_addAccountMenu->setToolTipsVisible(true);
+    m_addMicrosoftAction = m_addAccountMenu->addAction(microsoftAccountText());
+    m_addMicrosoftAction->setObjectName(addMicrosoftActionName());
+    m_addOfflineAction = m_addAccountMenu->addAction(offlineAccountText());
+    m_addOfflineAction->setObjectName(addOfflineActionName());
     {
-        auto *loginRow = new QHBoxLayout(m_onlineRow);
-        loginRow->setContentsMargins(0, 0, 0, 0);
-        loginRow->setSpacing(8);
-        // 按钮靠左、不跟说明抢宽：行尾若再挂一段 stretch，说明只分到半行。
-        loginRow->addWidget(m_loginButton, 0, Qt::AlignLeft);
-        loginRow->addWidget(m_onlineUnavailableLabel, 1);
-        left->addWidget(m_onlineRow);
+        auto *addRow = new QHBoxLayout;
+        addRow->setContentsMargins(0, 0, 0, 0);
+        addRow->addWidget(m_addAccountButton, 0, Qt::AlignLeft);
+        addRow->addStretch(1);
+        left->addLayout(addRow);
     }
 
-    // 离线账号那一路：「离线」页签下的入口，名字 +「添加」。
+    // 离线账号那一路：「添加账号」里选了「离线账号」才展开，名字 +「添加」。
     m_offlineRow = new QWidget(this);
-    m_offlineRow->setObjectName(QStringLiteral("accountOfflineRow"));
+    m_offlineRow->setObjectName(offlineRowName());
     QHBoxLayout *offlineRow = new QHBoxLayout(m_offlineRow);
     offlineRow->setContentsMargins(0, 0, 0, 0);
     offlineRow->setSpacing(8);
@@ -395,7 +434,7 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     offlineRow->addWidget(m_offlineNameEdit, 100);  // 拉伸比 100:1，框先长到上限，余宽才落到行尾
     offlineRow->addWidget(m_addOfflineButton);
     offlineRow->addStretch(1);
-    showAccountKind(false);
+    m_offlineRow->hide();
 
     m_refreshButton = new QPushButton(refreshButtonText(), this);
     m_refreshButton->setObjectName(refreshButtonName());
@@ -413,11 +452,34 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     m_viewer = new SkinViewer(this);
     m_viewer->setObjectName(viewerName());
     m_viewer->setFixedSize(288, 432);
-    m_viewer->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
+    m_viewer->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     // 一进来就有东西可看：没登录、还没取到、取不到，看到的都是这套默认外观。
     m_viewer->setSkin(SkinModel::defaultSteveSkin(), QImage(), false);
+    // 预览下面留一行说明（离线账号的皮肤和游戏里不一致时才有字，见 setPreviewNote()）。
+    auto *stage = new QWidget(this);
+    stage->setObjectName(QStringLiteral("accountStage"));
+    auto *stageLayout = new QVBoxLayout(stage);
+    stageLayout->setContentsMargins(0, 0, 0, 0);
+    stageLayout->setSpacing(8);
+    stageLayout->addWidget(m_viewer, 0, Qt::AlignHCenter);
+    m_previewNote = new PreviewNoteLabel(stage);
+    m_previewNote->setWordWrap(true);
+    m_previewNote->setFont(Theme::textFont(m_previewNote->font(), Theme::TextRole::Caption));
+    {
+        const auto tint = [label = m_previewNote] {
+            QPalette palette = label->palette();
+            palette.setColor(QPalette::WindowText, Theme::tokens().secondary);
+            label->setPalette(palette);
+        };
+        tint();
+        Theme::follow(m_previewNote, tint);
+    }
+    m_previewNote->setObjectName(previewNoteName());
+    m_previewNote->setAlignment(Qt::AlignHCenter | Qt::AlignTop);
+    m_previewNote->hide();
+    stageLayout->addWidget(m_previewNote);
     main->addStretch(1);
-    main->addWidget(m_viewer, 0, Qt::AlignTop);
+    main->addWidget(stage, 0, Qt::AlignTop);
     main->addStretch(1);
 
     // ---------- 右：皮肤 / 披风（设计稿 .looks）----------
@@ -521,7 +583,22 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
 
     // ---------- 接线 ----------
     connect(m_closeButton, &QPushButton::clicked, this, &QDialog::close);
-    connect(m_loginButton, &QPushButton::clicked, this, &AccountSkinDialog::loginRequested);
+    connect(m_addAccountButton, &QPushButton::clicked, this, [this] {
+        m_addAccountMenu->popup(m_addAccountButton->mapToGlobal(QPoint(0, m_addAccountButton->height() + 4)));
+    });
+    connect(m_addMicrosoftAction, &QAction::triggered, this, &AccountSkinDialog::loginRequested);
+    connect(m_addOfflineAction, &QAction::triggered, this, &AccountSkinDialog::showOfflineAddRow);
+    connect(m_retryButton, &QPushButton::clicked, this, &AccountSkinDialog::refreshRequested);
+    connect(m_copyUuidButton, &QPushButton::clicked, this, [this] {
+        const QString uuid = selectedUuid();
+        if (uuid.isEmpty()) return;
+        QGuiApplication::clipboard()->setText(uuid);
+        // 没有别的反馈：图标换成对勾停一会儿，告诉用户复制上了。
+        m_copyUuidButton->setIcon(VersionIcons::line(QStringLiteral("check"), 16, Theme::tokens().ok));
+        QTimer::singleShot(1200, m_copyUuidButton, [b = m_copyUuidButton] {
+            b->setIcon(VersionIcons::line(QStringLiteral("copy"), 16, Theme::tokens().text));
+        });
+    });
     connect(m_addOfflineButton, &QPushButton::clicked, this,
             &AccountSkinDialog::submitOfflineName);
     // 在框里直接回车 = 点那个按钮。
@@ -582,6 +659,12 @@ void AccountSkinDialog::showEvent(QShowEvent *event) {
     placeRowActions();
 }
 
+void AccountSkinDialog::hideEvent(QHideEvent *event) {
+    QDialog::hideEvent(event);
+    // 离开这一页（或页面被收起）后再回来，离线名字框是收起、清空的。
+    if (!event->spontaneous() && !m_offlineRow->isHidden()) clearOfflineNameDraft();
+}
+
 void AccountSkinDialog::resizeEvent(QResizeEvent *event) {
     QDialog::resizeEvent(event);
     // 三档：宽（≥860）账号 | 立绘 | 皮肤披风 三栏；中宽（最小窗 900 逻辑宽就落在这一档）两栏，
@@ -612,7 +695,8 @@ void AccountSkinDialog::resizeEvent(QResizeEvent *event) {
 
 bool AccountSkinDialog::eventFilter(QObject *watched, QEvent *event) {
     if (watched == m_accountList->viewport() && event->type() == QEvent::Resize) {
-        placeRowActions();
+        // 行矩形要等列表重新布局之后才是新宽度，排到下一轮再摆（窗口拉窄时行尾按钮不会留在旧位置）。
+        QMetaObject::invokeMethod(this, &AccountSkinDialog::placeRowActions, Qt::QueuedConnection);
     }
     return QDialog::eventFilter(watched, event);
 }
@@ -681,6 +765,14 @@ void AccountSkinDialog::addAccountRow(const AccountRow &row) {
     item->setData(kNameRole, row.name);
     item->setData(kOfflineRole, row.offline);
     item->setData(kSavedRole, row.savedAt);
+    item->setData(kFaceRole, row.face);
+    // 名字下面那行小字：账号来源；微软账号后面照旧带「登录取自 …」。
+    QString source = row.offline ? offlineAccountText() : microsoftAccountText();
+    const QDateTime saved = QDateTime::fromString(row.savedAt, Qt::ISODate);
+    if (!row.offline && saved.isValid()) {
+        source += QStringLiteral(" · ") + tr("登录取自 %1").arg(saved.toLocalTime().toString(tr("M 月 d 日")));
+    }
+    item->setData(kSourceRole, source);
     if (row.offline) {
         // 离线账号没有"登录取自什么时候"这回事 —— 摆一个空的 tooltip 还不如说清它是哪一种。
         item->setToolTip(offlineRowTooltip());
@@ -695,27 +787,36 @@ void AccountSkinDialog::addAccountRow(const AccountRow &row) {
 
 void AccountSkinDialog::clearOfflineNameDraft() {
     m_offlineNameEdit->clear();
+    m_offlineRow->hide();  // 添加成功了：输入行收回去，下次要加再从「添加账号」里选
 }
 
-void AccountSkinDialog::showAccountKind(bool offline) {
-    m_onlineKindButton->setChecked(!offline);
-    m_offlineKindButton->setChecked(offline);
-    m_onlineRow->setVisible(!offline);
-    m_offlineRow->setVisible(offline);
-    if (offline && isVisible()) m_offlineNameEdit->setFocus();
+void AccountSkinDialog::showOfflineAddRow() {
+    m_offlineRow->show();
+    if (isVisible()) m_offlineNameEdit->setFocus();
 }
 
-bool AccountSkinDialog::offlineKindShown() const { return m_offlineKindButton->isChecked(); }
+bool AccountSkinDialog::offlineAddRowShown() const { return !m_offlineRow->isHidden(); }
 
 void AccountSkinDialog::setOnlineLoginUnavailable(const QString &reason) {
-    m_onlineUnavailableLabel->setText(reason);
-    m_onlineUnavailableLabel->setVisible(!reason.isEmpty());
-    m_loginButton->setVisible(reason.isEmpty());
+    m_addMicrosoftAction->setEnabled(reason.isEmpty());
+    m_addMicrosoftAction->setToolTip(reason);
 }
 
 void AccountSkinDialog::setStatusText(const QString &text) {
     m_statusLabel->setText(text);
     m_statusLabel->setToolTip(text);
+}
+
+void AccountSkinDialog::setStatusError(const QString &reason) {
+    m_statusErrorLabel->setText(reason);
+    m_statusErrorLabel->setToolTip(reason);
+    m_statusErrorRow->setVisible(!reason.isEmpty());
+}
+
+void AccountSkinDialog::setPreviewNote(const QString &text) {
+    m_previewNote->setText(text);
+    m_previewNote->updateGeometry();
+    m_previewNote->setVisible(!text.isEmpty());
 }
 
 void AccountSkinDialog::setLooks(const QImage &skin, const QImage &cape, bool slim) {
@@ -832,7 +933,7 @@ void AccountSkinDialog::updatePreviewCape(bool wearing, bool turnToBack) {
 
 void AccountSkinDialog::setBusy(bool busy, const QString &what) {
     m_busy = busy;
-    m_loginButton->setEnabled(!busy);
+    m_addAccountButton->setEnabled(!busy);
     m_refreshButton->setEnabled(!busy);
     m_uploadButton->setEnabled(!busy);
     // 离线那一档的两颗一起灰（忙的时候下面 refreshButtonStates() 也会按 idle 重算一遍）。

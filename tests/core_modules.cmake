@@ -102,7 +102,6 @@ wtfml_add_test(NAME wtfml.core-java COMMAND verify_java)
 set_tests_properties(wtfml.core-java PROPERTIES LABELS "core;core-java;ci-core" TIMEOUT 900 RUN_SERIAL TRUE)
 add_library(core_cases_accounts OBJECT
  core_modules/PlayerSkinTests.cpp
- core_modules/RandomSkinTests.cpp
  core_modules/OfflineSkinTests.cpp
  core_modules/DefaultSkinTests.cpp
  core_modules/AccountSkinTests.cpp

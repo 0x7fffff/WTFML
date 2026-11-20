@@ -61,10 +61,6 @@ int MwAccountAppearanceChecks() {
                 check(accountType->text() == MainWindowUI::accountTypeNotLoggedInText(),
                       "Z1 盘上没有账户 → 「未登录」", accountType->text());
                 // 加一个离线账号（用户在「账号与外观…」里填名字点「添加离线账号」落到这里）
-                // 外观先预置好：见 seedOfflineRandomSkin 那段（这一句之后 w9 就是离线身份，
-                // 它已经开着了，下一次刷新外观就会走到"离线账号要随机皮肤"那条路）。
-                seedOfflineRandomSkin(QStringLiteral("Zed"), kSeededSkinUrl,
-                                      QColor(0x30, 0x90, 0xD0));
                 QMetaObject::invokeMethod(&w9, "onOfflineAccountRequested",
                                           Qt::DirectConnection,
                                           Q_ARG(QString, QStringLiteral("Zed")));
@@ -192,11 +188,9 @@ int MwAccountAppearanceChecks() {
                         }
                         check(status != nullptr, "Z2 那一页顶上的状态行按 objectName 找得到");
                         if (status != nullptr) {
-                            // 这里**不能**断言它等于 notLoggedInNote()：那一页一开出来
-                            // refreshAccountSkin() 就先写一句身份、再被"拿不到令牌的原因"
-                            // 覆盖掉（见 MainWindow::refreshAccountSkin() 第 2 步和最后那个
-                            // token.isEmpty() 分支）—— 具体原因比身份那句更要紧，那是有意的。
-                            // 真正的不变式是：**没登录的时候不许说已登录**。
+                            // 没登录的时候身份那一句是「未登录」，失败原因在它下面另起一行
+                            // （见 MainWindow::refreshAccountSkin() 的 failRefresh）。
+                            // 不变式：**没登录的时候不许说已登录**。
                             check(!status->text().isEmpty() &&
                                       !status->text().contains(QStringLiteral("已登录为")),
                                   "Z2 没登录时状态行说的是没登录，不是一句已登录的身份",
@@ -241,8 +235,10 @@ int MwAccountAppearanceChecks() {
                                   QString("%1 -> %2")
                                       .arg(before.name())
                                       .arg(dialogViewer->skin().pixelColor(0, 0).name()));
+                            // 披风：账号页预览的披风只认披风列表里应用过的那件（c46dd959），
+                            // 资料接口带回来的披风图（常是旧图）不直接进预览；这里没有披风列表，所以是空的。
                             check(dialogViewer->cape().isNull(),
-                                  "Z3 披风不再由资料缓存直接覆盖（由披风列表负责）");
+                                  "Z3 资料里的披风不直接进账号页预览（只认披风列表里应用的那件）");
                         }
                         QFile::remove(skinPath);
                         QFile::remove(capePath);
@@ -399,10 +395,6 @@ int MwAccountAppearanceChecks() {
                 {
                     const QString offlineUuid =
                         AccountStore::offlineUuidFor(QStringLiteral("Steve"));
-                    // 外观预置：Z7 之后（一直到这个窗析构）都是离线身份，而这一段还要
-                    // 开「账号与外观…」窗（Z9）—— 那个窗会刷新外观。见 seedOfflineRandomSkin。
-                    seedOfflineRandomSkin(QStringLiteral("Steve"), kSeededSkinUrl,
-                                          QColor(0x30, 0x90, 0xD0));
                     QMetaObject::invokeMethod(&w11, "onOfflineAccountRequested",
                                               Qt::DirectConnection,
                                               Q_ARG(QString, QStringLiteral("Steve")));
@@ -451,6 +443,16 @@ int MwAccountAppearanceChecks() {
                     // 那个窗一开，refreshAccountSkin() 第 4 步会去拉披风列表（同步请求）。
                     // 只有"当前是离线账号"这一档是全程不联网的，所以这里先把身份切回
                     // 离线账号 Steve，再点那个入口按钮。
+                    // 先备一个**不是当前账号**、手选过本地皮肤的离线账号 Zoe：账号页每一行
+                    // 画自己的头像（issue #66），不只是当前账号。
+                    const QString zoeUuid = AccountStore::offlineUuidFor(QStringLiteral("Zoe"));
+                    QString zoeError;
+                    check(AccountStore::addOffline(QStringLiteral("Zoe"), &zoeError),
+                          "Z9 前提：备好离线账号 Zoe", zoeError);
+                    QImage zoeSkin(64, 64, QImage::Format_ARGB32_Premultiplied);
+                    zoeSkin.fill(QColor(0x20, 0xA0, 0x60));
+                    check(OfflineSkin::save(zoeUuid, zoeSkin, QStringLiteral("classic")),
+                          "Z9 前提：给 Zoe 存一张手选的本地皮肤");
                     QMetaObject::invokeMethod(&w11, "onAccountSwitchRequested",
                                               Qt::DirectConnection,
                                               Q_ARG(QString, offlineUuid));
@@ -518,6 +520,41 @@ int MwAccountAppearanceChecks() {
                                           "Z9 开页时顶上那句说的是「离线登录为 Steve」"
                                           "（这一档也说明没去拉披风）",
                                           status->text());
+                                }
+
+                                // ---- Z9b 账号行（issue #66）：每行有来源，非当前账号画自己的头像 ----
+                                QListWidget *accountList = dialog->findChild<QListWidget *>(
+                                    AccountSkinDialog::accountListName());
+                                check(accountList != nullptr, "Z9b 账号列表找得到");
+                                if (accountList != nullptr) {
+                                    const auto rowOf = [accountList](const QString &name) {
+                                        for (int i = 0; i < accountList->count(); ++i) {
+                                            if (accountList->item(i)->text().startsWith(name)) return i;
+                                        }
+                                        return -1;
+                                    };
+                                    const auto sourceOf = [&](const QString &name) {
+                                        const int row = rowOf(name);
+                                        return row < 0 ? QString()
+                                                       : accountList->item(row)->data(Qt::AccessibleDescriptionRole).toString();
+                                    };
+                                    check(sourceOf(QStringLiteral("Alice")).startsWith(AccountSkinDialog::microsoftAccountText()) &&
+                                              sourceOf(QStringLiteral("Bob")).startsWith(AccountSkinDialog::microsoftAccountText()) &&
+                                              sourceOf(QStringLiteral("Steve")) == AccountSkinDialog::offlineAccountText() &&
+                                              sourceOf(QStringLiteral("Zoe")) == AccountSkinDialog::offlineAccountText(),
+                                          "Z9b 每一行名字下面写着来源：微软账号 / 离线账号",
+                                          sourceOf(QStringLiteral("Alice")) + " | " + sourceOf(QStringLiteral("Zoe")));
+                                    const int zoeRow = rowOf(QStringLiteral("Zoe"));
+                                    if (zoeRow >= 0) {
+                                        const QRect rect = accountList->visualItemRect(accountList->item(zoeRow));
+                                        const QColor face = accountList->viewport()->grab().toImage().pixelColor(
+                                            rect.left() + 12 + 16, rect.center().y());
+                                        check(face.rgb() == QColor(0x20, 0xA0, 0x60).rgb(),
+                                              "Z9b 不是当前账号的 Zoe 也画自己的皮肤头像（不是首字母）",
+                                              face.name());
+                                    } else {
+                                        check(false, "Z9b 列表里有 Zoe 那一行");
+                                    }
                                 }
 
                                 // ---- Z10 名字不合法：弹窗，而且底栏一个像素都不许变 ----

@@ -9,13 +9,13 @@
  * 它不碰启动、实例树、下载 —— 从 `MainWindow.cpp` 分出来，"外观为什么没刷新"时不必在
  * 整扇窗里翻。
  *
- * 【四条薄壳必须留在类上】
+ * 【三条薄壳必须留在类上】
  *
- * `onSkinProfileReady()` / `onSkinTextureReady()` / `onRandomSkinReady()` /
+ * `onSkinProfileReady()` / `onSkinTextureReady()` /
  * `applyPlayerSkin()` 是**验证工程按名字 `QMetaObject::invokeMethod` 打的**（mw_check 的
- * X 节与 AF5/AF6/AF7）：那是全程不联网验完整条外观路径的唯一办法。所以名字必须留在
+ * X 节）：那是全程不联网验完整条外观路径的唯一办法。所以名字必须留在
  * `MainWindow` 上，逻辑一行都不能留在这里（全在 `PlayerSkinController`）。换翻译单元不
- * 影响按名字调用；改这四条的名字会。
+ * 影响按名字调用；改这三条的名字会。
  *
  * 【两个唯一出处】
  *
@@ -35,7 +35,6 @@
 #include "manage/DefaultSkin.hpp"
 #include "manage/OfflineSkin.hpp"
 #include "manage/PlayerSkinStore.hpp"
-#include "manage/RandomSkinStore.hpp"
 #include "settings/LauncherSettings.hpp"
 
 #include <QFile>
@@ -67,12 +66,6 @@ void MainWindow::onSkinTextureReady(const QString &url, const QString &path) {
     m_playerSkin->onTextureReady(url, path);
 }
 
-void MainWindow::onRandomSkinReady(const QString &skinUrl) {
-    // 整份判断在 `PlayerSkinController::onRandomSkinReady()`："发请求时那位 == 现在这位"那道
-    // 闸、以及"过期就按当下这位再问一次"都在那边（见那段长注释）。
-    m_playerSkin->onRandomSkinReady(skinUrl);
-}
-
 void MainWindow::applyPlayerSkin(const QString &skinPath, const QString &capePath, bool slim) {
     // 整份判断在 `PlayerSkinController::applyPlayerSkin()`：那里管"载不进来就退回默认外观"
     // （那张图没有地址、离线账号也没有披风），载成功才把那两格路径记下来。
@@ -101,12 +94,12 @@ void MainWindow::onPlayerSkinChanged(const QImage &skin, const QImage &cape, boo
     updateBottomBar();
 }
 
-QPixmap MainWindow::accountFacePixmap(const SavedAccount &account) const {
+QPixmap MainWindow::accountFacePixmap(const SavedAccount &account, int pixelSize) const {
     // 这条路**只读本地已经躺着的东西**：不联网、不换令牌、不读客户端 JAR。
     // 面板是"点一下就弹出来"的，要求的前提也是「（因为选择/登录过，所以肯定会有缓存，
     // 应该不会遇到丢失的情况）」—— 所以这里按"缓存里有就用、没有就自己画一个"来收尾，
     // 而不是去把缺的那张拉下来（拉皮肤要网络、要令牌，还要为每一行各等一次）。
-    const int size = MainWindowUI::bottomBarPanelIconSize();
+    const int size = pixelSize > 0 ? pixelSize : MainWindowUI::bottomBarPanelIconSize();
     // 缓存图 → 头像。图上取不到（文件不在 / 不是一张皮肤）就是一张空图，让调用方接着退。
     const auto faceFromTexture = [size](const QString &path) -> QPixmap {
         if (path.isEmpty() || !QFile::exists(path)) {
@@ -125,7 +118,7 @@ QPixmap MainWindow::accountFacePixmap(const SavedAccount &account) const {
     // 缩一下就是这一行的图。
     //
     // 这一条必须排在最前面。它是"面板上这一行"和"底栏那颗"是同一张脸的**唯一保证** ——
-    // 走下面那几条缓存路的话，当前账号正在"随机皮肤还没下回来"那一档时，面板会给出一张
+    // 走下面那几条缓存路的话，当前账号的皮肤还没画上那一档时，面板会给出一张
     // 缓存里的旧图（或者干脆一个首字母方块），同一个窗口里同一个人两种脸。
     // NOTE: 缩放的插值方式跟着 headAvatar() 那套走（最近邻）—— 那张图本来就是 8×8
     // 放大出来的像素画，平滑插值只会把脸糊掉。
@@ -153,19 +146,7 @@ QPixmap MainWindow::accountFacePixmap(const SavedAccount &account) const {
         if (!manualFace.isNull()) {
             return manualFace;
         }
-        // ④ 其次是**随机挑的那张**（RandomSkinStore 记在盘上的地址）。挑过就有地址，图和
-        // 正版走同一个缓存 —— 同一个账号在底栏、面板、主页看到的是同一张脸。
-        // NOTE: 认人用 account.uuid（离线账号的 uuid 是 md5("OfflinePlayer:"+名字)，
-        // 和 startPlayerSkinLoad() 里读的是同一个值），不是 m_authManager 那个
-        // —— 后者对离线账号是空串。
-        const QString chosen = RandomSkinStore::loadChosenSkinUrl(account.uuid);
-        if (!chosen.isEmpty()) {
-            const QPixmap face = faceFromTexture(PlayerSkinStore::cachePathForUrl(chosen));
-            if (!face.isNull()) {
-                return face;
-            }
-        }
-        // ⑤ 再退一步：**算出来的**那张官方默认皮肤的缓存图（见 DefaultSkin）。
+        // ④ 其次是**算出来的**那张官方默认皮肤的缓存图（见 DefaultSkin）。
         //
         // 它的缓存名带三段（账号 / 版本 / 条目），所以这里得先猜"当初是按哪个实例算的"。
         // 猜错只是 QFile::exists 落空，**绝不会触发读 JAR** —— 那一条路要起一次
@@ -192,7 +173,7 @@ QPixmap MainWindow::accountFacePixmap(const SavedAccount &account) const {
         }
     }
 
-    // ⑤ 一张图都没有 —— 自己画一个首字母方块。**这是常态，不是出错**：从没登录过的正版
+    // ⑤ 一张图都没有（离线账号取不到默认皮肤也是这样，预览那边显示内置 Steve，这里画首字母）—— 自己画一个首字母方块。**这是常态，不是出错**：从没登录过的正版
     // 账号（列表里那条只是个凭据副本）、刚加进来还没挑过皮肤的离线账号，本来就没有图。
     // 面板不能因为某一项没图就空着那一格（三行的行首一高一低比一个方块更难认）。
     return QPixmap::fromImage(SkinModel::letterAvatar(account.name, size));
@@ -213,10 +194,10 @@ void MainWindow::updateSkinHint() {
             hint->setText(MainWindowUI::skinHintLoadedText(name, facts.hasCape));
         } else if (facts.offlineCustomSkin) {
             // 用户自己挑的那张（「账号与外观」→「换一张…」）：这是明确的选择，既不是
-            // "随机挑的"也不是"某个实例算出来的"，所以有它自己那一句。
+            // "某个实例算出来的"，所以有它自己那一句。
             hint->setText(MainWindowUI::skinHintOfflineCustomSkinText(name));
         } else if (!facts.offlineDefaultSkinVersionId.isEmpty()) {
-            // 算出来的那张官方默认皮肤（见 DefaultSkin）：说得比"随机挑的"准一点 —— 这是
+            // 算出来的那张官方默认皮肤（见 DefaultSkin）：说得比"本地预览"准一点 —— 这是
             // 那个版本的客户端本来就会给他分配的那一张。版本号**不是废话**：换版本这张脸
             // 真的会变（两套规矩算出来的不是同一张），那句话要能解释这件事。
             // NOTE: 这一格存的是目录名，显示名是这一层翻的（`instanceDisplayName()`）——
@@ -227,15 +208,23 @@ void MainWindow::updateSkinHint() {
             hint->setText(MainWindowUI::skinHintOfflineLoadedText(name));
         }
     } else if (facts.offline) {
-        // 那张随机外观还没画上：不是"还在要"就是"没要到"。这两句都不弹窗（理由同
-        // PlayerSkinStore.hpp 文件头：外观是装饰，取不到也照样能启动游戏）。
-        hint->setText(facts.fetching ? MainWindowUI::skinHintLoadingText(name)
-                                     : MainWindowUI::skinHintFailedText(name));
+        // 取不到默认皮肤，显示的是内置 Steve（没有请求在路上）。
+        hint->setText(MainWindowUI::skinHintOfflineLoadedText(name));
     } else if (!facts.loggedIn) {
         hint->setText(MainWindowUI::skinHintNotLoggedInText());
     } else if (facts.fetching) {
         hint->setText(MainWindowUI::skinHintLoadingText(name));
     } else {
         hint->setText(MainWindowUI::skinHintFailedText(name));
+    }
+    // 账号页预览下面的说明：离线账号的预览和游戏里不一致时才有字（本地皮肤 / 内置 Steve）。
+    if (m_accountSkinDialog != nullptr) {
+        QString note;
+        if (facts.offline && facts.offlineCustomSkin) {
+            note = AccountSkinDialog::previewNoteLocalSkin();
+        } else if (facts.offline && facts.offlineDefaultSkinVersionId.isEmpty()) {
+            note = AccountSkinDialog::previewNoteSteve();
+        }
+        m_accountSkinDialog->setPreviewNote(note);
     }
 }

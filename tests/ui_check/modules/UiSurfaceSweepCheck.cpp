@@ -594,10 +594,10 @@ int UiSurfaceSweepCheck(QApplication &app) {
                       QStringLiteral("主窗口 → 主页左下账号 → 「账号与外观」"),
                       QStringLiteral("ui/AccountSkinDialog.cpp"), QStringLiteral("input-widths / ui-review-shots"),
                       &page, AccountSkinDialog::windowTitle());
-        overlayDialog(QStringLiteral("account-offline"), QStringLiteral("账号与外观·离线页签"),
-                      QStringLiteral("账号与外观 → 「离线」页签"), QStringLiteral("ui/AccountSkinDialog.cpp"),
+        overlayDialog(QStringLiteral("account-offline"), QStringLiteral("账号与外观·添加离线账号"),
+                      QStringLiteral("账号与外观 → 添加账号 → 离线账号"), QStringLiteral("ui/AccountSkinDialog.cpp"),
                       QString(), &page, AccountSkinDialog::windowTitle(),
-                      [&page] { page.showAccountKind(true); });
+                      [&page] { page.showOfflineAddRow(); });
     }
     {
         QList<GroupDialog::Group> groups;

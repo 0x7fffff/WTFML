@@ -415,7 +415,7 @@ int UiWindowChromeCheck(QApplication &) {
                 auto *account = new AccountSkinDialog(&window);
                 const auto keyRects = [account] {
                     QList<QRect> rects;
-                    for (const QString &name : {QStringLiteral("accountKindSegment"), AccountSkinDialog::offlineNameEditName(),
+                    for (const QString &name : {AccountSkinDialog::addAccountButtonName(), AccountSkinDialog::offlineNameEditName(),
                                                 AccountSkinDialog::viewerName(), AccountSkinDialog::variantComboName()}) {
                         const auto *w = account->findChild<QWidget *>(name);
                         rects << (w != nullptr ? QRect(w->mapTo(account, QPoint()), w->size()) : QRect());
@@ -427,7 +427,7 @@ int UiWindowChromeCheck(QApplication &) {
                         account->setAccounts({{QStringLiteral("offline-steve"), QStringLiteral("Steve"), {}, true, true},
                                               {QStringLiteral("offline-alex"), QStringLiteral("Alex"), {}, false, true}});
                     }
-                    account->showAccountKind(true);
+                    account->showOfflineAddRow();
                     overlay->showPage(account, AccountSkinDialog::windowTitle());
                     const bool curtained = curtainShown(pageFrame);
                     const QList<QRect> atOpen = keyRects();

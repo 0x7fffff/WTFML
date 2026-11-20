@@ -212,7 +212,6 @@
 // 离线账号自己挑的那张皮肤（「账号与外观」→「换一张…」）。
 #include "manage/OfflineSkin.hpp"
 #include "manage/PlayerSkinStore.hpp"
-#include "manage/RandomSkinStore.hpp"
 #include "manage/VersionDisplay.hpp"
 #include "manage/VersionManager.hpp"
 #include "manage/WorldFiles.hpp"
@@ -316,10 +315,8 @@ MainWindow::MainWindow(QWidget *parent)
       m_javaRuntimeController(new JavaRuntimeController(this)),
       m_groupStore(new InstanceGroupStore(this)),
       m_skinStore(new PlayerSkinStore(this)),
-      m_randomSkinStore(new RandomSkinStore(this)),
       m_skinApi(new SkinApi(this)),
-      m_playerSkin(
-          new PlayerSkinController(m_authManager, m_skinStore, m_randomSkinStore, this)) {
+      m_playerSkin(new PlayerSkinController(m_authManager, m_skinStore, this)) {
     // 安装页那一层（要装哪个原版、选中哪条加载器、名称框里那份"用户改过没有"）。
     // NOTE: 它的构造里**特意不碰那棵树的界面** —— 第一次重画是进安装页的 `openPage()`；
     // 构造只把「选中」这一位初始化成 `MainWindowUI::modLoaderNoneIndex()`。

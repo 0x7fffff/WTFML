@@ -9,12 +9,10 @@
  * 决策 ——
  *
  * · **哪一张**：离线账号先看**用户自己挑的那张**（`OfflineSkin`：「换一张…」），没有才按
- * 游戏自己的规矩算官方默认皮肤（`DefaultSkin`，图在客户端 JAR 里），再算不出来才去
- * MineSkin 随机挑一张；正版账号先用盘上那份档案画出来，再后台刷一次。
+ * 游戏自己的规矩算官方默认皮肤（`DefaultSkin`，图在客户端 JAR 里），再算不出来就显示内置
+ * Steve（预览不联网、不随机）；正版账号先用盘上那份档案画出来，再后台刷一次。
  * · **认领**：贴图是按 URL 分开回来的（皮肤一张、披风一张），回来时得认得出"这一张是
  * 谁的、是皮肤还是披风"，中间用户可能已经切了账号 —— 过期的整份丢掉。
- * · **记账的时机**：随机挑的那一张**等字节真落在盘上**才写 `skins/random-<uuid>.txt`
- * （那条记录永不失效，提前写等于把这个账号钉死在一个可能永远下不来的地址上）。
  * · **降级**：外观是装饰 —— 取不到就静默退回默认外观，只留一行日志（全仓唯一一处
  * 不弹窗的错误，理由见 `PlayerSkinStore.hpp` 文件头）。
  *
@@ -42,7 +40,6 @@
 #include <QStringList>
 
 class AuthManager;
-class RandomSkinStore;
 
 class PlayerSkinController final : public QObject {
     Q_OBJECT
@@ -66,15 +63,14 @@ public:
         /// 有请求在路上（那句话是"正在获取"还是"取不到"就看它）。
         bool fetching = false;
         /// 手上这张是"照游戏规矩算出来的官方默认皮肤"时，是**按哪个实例**算的（版本 id）。
-        /// 空 = 手上那张不是算出来的那一张（是手动挑的、随机挑的、或者正版档案里那张）。
+        /// 空 = 手上那张不是算出来的那一张（是手动挑的、或者正版档案里那张）。
         QString offlineDefaultSkinVersionId;
         /// 手上这张是**用户自己挑的**（「账号与外观」里那颗「换一张…」，见 `OfflineSkin`）。
         /// 和上面那格互斥：手动挑的那张不按实例算，换实例也不会变。
         bool offlineCustomSkin = false;
     };
 
-    PlayerSkinController(AuthManager *auth, PlayerSkinStore *store, RandomSkinStore *randomStore,
-                         QObject *parent = nullptr);
+    PlayerSkinController(AuthManager *auth, PlayerSkinStore *store, QObject *parent = nullptr);
 
     /// 这一趟走的是不是**离线身份**（当前账号本身是不是一个离线账号）。
     ///
@@ -102,9 +98,9 @@ public:
      */
     void reload(const QString &versionId);
 
-    // ---------- 下面四个是"外部把一条消息喂进来"的入口 ----------
+    // ---------- 下面几个是"外部把一条消息喂进来"的入口 ----------
     //
-    // 它们平时由这个类**自己接的公用的信号**叫（PlayerSkinStore / RandomSkinStore 那五个），
+    // 它们平时由这个类**自己接的公用的信号**叫（PlayerSkinStore 那三个），
     // 之所以公开，是因为两条路都要用：
     // · 主窗口那几个同名的**薄壳槽**（`MainWindow::onSkinProfileReady` 等）转手到这里 ——
     // 验证工程就是按那几个名字打的（`QMetaObject::invokeMethod`），那是全程不联网演
@@ -116,7 +112,6 @@ public:
     void applyPlayerSkin(const QString &skinPath, const QString &capePath, bool slim);
     void onProfileReady(const QString &uuid, const PlayerSkinProfile &profile);
     void onTextureReady(const QString &url, const QString &path);
-    void onRandomSkinReady(const QString &skinUrl);
 
 signals:
     /// 现在该画这一套外观了。**全仓唯一一处**决定"哪一套"的地方就是它。
@@ -144,21 +139,9 @@ private:
 
     /// 档案/贴图那条路上的失败（`PlayerSkinStore::failed`）。
     void onStoreFailed(const QString &message);
-    /// 「挑一张」那条路上的失败（`RandomSkinStore::failed`）。**和上面那个分开**：
-    /// 那句话的前缀是"取玩家皮肤失败"，而这一条失败的是"挑一张"这件事，跟某个人无关。
-    void onRandomStoreFailed(const QString &message);
-
     AuthManager *m_auth;
     /// 玩家外观的数据层（免鉴权问官方 + 内容寻址的本地缓存）。
     PlayerSkinStore *m_store;
-    /// 给离线账号挑一张随机皮肤（挑的是一个地址，图还是上面那个 Store 去下）。
-    RandomSkinStore *m_randomStore;
-
-    // 最近一次 reload() 是按哪个实例重走的那一趟 —— 语义是"现在选中的那个实例"。
-    // NOTE: 它存在的唯一理由是 onRandomSkinReady() 那道"过期就再问一次"：那一刻是异步
-    // 回来的，这一层看不见那两个下拉框，只能靠这一位知道该按谁重算（见那边的 NOTE）。
-    QString m_versionId;
-
     // 现在屏幕上用的是哪两张贴图（本地路径）。**只记真的载入成功了的** —— 所以空串
     // 就等于"现在显示的是默认外观"，右栏那句话的判据之一就是它。
     QString m_skinPath;
@@ -173,14 +156,6 @@ private:
     // 手上这张是用户在「账号与外观」里自己挑的那张（见 `OfflineSkin`）。换账号 / 换版本
     // 都重算，所以它只在**这一轮**算出来之后才为真（reload() 开头会清掉）。
     bool m_offlineCustomSkin = false;
-    // 随机挑中的那一张（地址 + 它该记在哪个账号名下）。**挑的那一刻不落盘** ——
-    // 等贴图真的到了盘上再由 onTextureReady() 记账，见那边那段。空串 = 没有待记的。
-    QString m_pendingRandomSkinUrl;
-    QString m_pendingRandomSkinUuid;
-    // 发随机皮肤那次请求时，这位是谁（AccountStore 的规整 uuid）。切账号时"回来的是不是
-    // 刚才那一位"全靠它 —— 只判 offlineIdentity() 分不出"离线 A → 离线 B"。
-    // 请求发出时写一次，回来时比一次，不一样就整份丢掉。
-    QString m_randomSkinRequestUuid;
     // 去官方问的这一次还在路上（决定那句话是"正在获取"还是"取不到"）。
     // NOTE: **只表示"真的发出去了一个请求"**，缓存命中不算 —— 命中是同步回来的，
     // 标成"在路上"会让那句话卡在"正在获取"上下不来。

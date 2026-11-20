@@ -9,8 +9,7 @@
  *
  * 记路径的话，用户把原图挪走、删掉、或者换台机器，这条记录就指着一张不存在的图；而这里的图
  * 是**一份装饰**，坏了就只该退回默认外观，不该让启动器记住一个永远读不出来的东西。所以挑完
- * 就**复制**进 `<skinsDir>/manual-<账号键>.png`，和随机皮肤那条记录（`random-<账号键>.txt`）
- * 同一个目录 —— 两者都是"这个账号在启动器里长什么样"。
+ * 就**复制**进 `<skinsDir>/manual-<账号键>.png`（和皮肤缓存同一个目录）。
  *
  * 【为什么模型要单独记一行】
  *
@@ -22,7 +21,7 @@
  * 【和 PlayerSkinStore / DefaultSkin 的先后】
  *
  * 离线账号那张脸的取舍在 `PlayerSkinController::reload()`：**手动挑的那张最优先**（用户
- * 明确说了要哪一张），其次才是照游戏规矩算出来的官方默认皮肤，最后才随机挑。本模块只回答
+ * 明确说了要哪一张），其次才是照游戏规矩算出来的官方默认皮肤，最后是内置 Steve。本模块只回答
  * "有没有手动挑过、是哪张、哪个模型"，不参与那个次序。
  */
 
@@ -53,7 +52,7 @@ QString loadModel(const QString &uuid);
 bool save(const QString &uuid, const QImage &image, const QString &variant,
           QString *errorOut = nullptr);
 
-/// 把手动挑的那张撤掉（两张文件都删），下次回到"算出来的 / 随机挑的"那一档。
+/// 把手动挑的那张撤掉（两张文件都删），下次回到"算出来的 / 内置 Steve"那一档。
 /// @return 收尾之后确实**什么都没有**了才返回 true（删不掉时报 false，让调用方弹窗）。
 bool clear(const QString &uuid);
 

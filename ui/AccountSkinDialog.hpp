@@ -32,9 +32,12 @@
 #include <QList>
 #include <QString>
 
+class QAction;
 class QComboBox;
 class QBoxLayout;
+class ElidedLabel;
 class QLabel;
+class QMenu;
 class QLineEdit;
 class QListWidget;
 class QPushButton;
@@ -53,6 +56,8 @@ public:
         bool current = false;
         /// 这是一条**离线账号**（只有名字，盘上没有凭据）。行尾会挂「（离线）」。
         bool offline = false;
+        /// 这个账号自己的头像（调用方裁好的方形脸）。空 = 画首字母。
+        QImage face = {};
     };
 
     /// 一件披风。
@@ -75,6 +80,11 @@ public:
     /// 当前身份那一句（"已登录为「X」（正版登录）" / "已登录为「X」（离线登录）" /
     /// "还没登录"）。正文由调用方给（它才知道当前账号是哪种），这里只负责显示。
     void setStatusText(const QString &text);
+    /// 请求失败的原因：写在身份那一句下面另起一行（次要文字色，后面跟「重试」），不动身份那一句。
+    /// 空串 = 收起这一行。
+    void setStatusError(const QString &reason);
+    /// 3D 预览下面那一行次要文字（离线账号的皮肤说明）。空串 = 不显示。
+    void setPreviewNote(const QString &text);
 
     /// 3D 预览那套外观。**和主页右栏是同一份贴图**（同一份数据两个窗口）。
     /// @param skin 皮肤贴图（64×64 或老格式 64×32）。空图 = 只画背景。
@@ -122,20 +132,30 @@ public:
     /// 列表"的意思，用户正打字时来一次刷新就把没提交的名字擦掉了。
     void clearOfflineNameDraft();
 
-    /// 「正版 / 离线」页签：下面只露所选那一种「加账号」的入口。开页前由调用方按当前身份挑一次。
-    void showAccountKind(bool offline);
-    bool offlineKindShown() const;
-    /// 非空 = 这一版正版登录用不了：「正版」页签摆这句话，不摆「登录新账号…」。
+    /// 展开离线账号那一行（名字输入框 + 「添加」），输入框拿焦点。「添加账号」菜单里选「离线账号」就是它。
+    void showOfflineAddRow();
+    bool offlineAddRowShown() const;
+    /// 非空 = 这一版微软登录用不了：「添加账号」菜单里「微软账号」置灰，悬停显示这句话。
     void setOnlineLoginUnavailable(const QString &reason);
+
+    /// 披风列表是哪个账号的。请求失败时列表留着上次的内容，但换过账号就不该再留别人的披风，
+    /// 调用方拿它判断"留不留"。
+    void setCapesOwner(const QString &uuid) { m_capesOwner = uuid; }
+    QString capesOwner() const { return m_capesOwner; }
 
     // ---------- 控件的 objectName ----------
     // 验证工程靠这些名字认控件，别改回按文字去认（文字会随数据变）。
-    static QString onlineKindButtonName() { return QStringLiteral("accountKindOnline"); }
-    static QString offlineKindButtonName() { return QStringLiteral("accountKindOffline"); }
-    static QString onlineUnavailableLabelName() { return QStringLiteral("accountOnlineUnavailable"); }
+    static QString addAccountButtonName() { return QStringLiteral("accountSkinAddButton"); }
+    static QString addAccountMenuName() { return QStringLiteral("accountSkinAddMenu"); }
+    static QString addMicrosoftActionName() { return QStringLiteral("accountSkinAddMicrosoft"); }
+    static QString addOfflineActionName() { return QStringLiteral("accountSkinAddOffline"); }
+    static QString offlineRowName() { return QStringLiteral("accountOfflineRow"); }
     static QString statusLabelName() { return QStringLiteral("accountSkinStatus"); }
+    static QString statusErrorLabelName() { return QStringLiteral("accountSkinStatusError"); }
+    static QString retryButtonName() { return QStringLiteral("accountSkinRetryButton"); }
+    static QString previewNoteName() { return QStringLiteral("accountSkinPreviewNote"); }
+    static QString copyUuidButtonName() { return QStringLiteral("accountSkinCopyUuidButton"); }
     static QString accountListName() { return QStringLiteral("accountSkinAccountList"); }
-    static QString loginButtonName() { return QStringLiteral("accountSkinLoginButton"); }
     static QString switchButtonName() { return QStringLiteral("accountSkinSwitchButton"); }
     static QString removeButtonName() { return QStringLiteral("accountSkinRemoveButton"); }
     static QString refreshButtonName() { return QStringLiteral("accountSkinRefreshButton"); }
@@ -163,7 +183,17 @@ public:
     static QString accountSectionTitle() { return tr("账号"); }
     static QString looksSectionTitle() { return tr("外观预览"); }
     static QString capeSectionTitle() { return tr("披风"); }
-    static QString loginButtonText() { return tr("登录新账号…"); }
+    static QString addAccountButtonText() { return tr("添加账号"); }
+    /// 账号来源，行里名字下面那一行小字，也是「添加账号」菜单里的两项。
+    static QString microsoftAccountText() { return tr("微软账号"); }
+    static QString offlineAccountText() { return tr("离线账号"); }
+    static QString copyUuidText() { return tr("复制 UUID"); }
+    static QString retryButtonText() { return tr("重试"); }
+    /// 离线账号预览下面的说明（预览和游戏一致时不显示）。
+    static QString previewNoteLocalSkin() {
+        return tr("本地皮肤只在启动器内显示，游戏内按名字分配默认皮肤。");
+    }
+    static QString previewNoteSteve() { return tr("游戏内按名字分配默认皮肤。"); }
     static QString switchButtonText() { return tr("切换到所选"); }
     static QString removeButtonText() { return tr("删除所选"); }
     static QString refreshButtonText() { return tr("刷新外观"); }
@@ -176,7 +206,7 @@ public:
         return tr("选一张 PNG（64×64 或 64×32）作为这个离线账号在启动器里的外观。只影响启动器预览，游戏内皮肤由游戏自己决定。");
     }
     static QString offlineSkinResetButtonToolTip() {
-        return tr("移除手动设置的皮肤，恢复此账号的默认或随机皮肤。");
+        return tr("移除手动设置的皮肤，恢复此账号的默认皮肤。");
     }
     static QString applyCapeButtonText() { return tr("应用所选披风"); }
     static QString noCapeText() { return tr("无披风"); }
@@ -251,6 +281,7 @@ signals:
 
 protected:
     void showEvent(QShowEvent *event) override;
+    void hideEvent(QHideEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
 
 private slots:
@@ -287,18 +318,23 @@ private:
 
     QLabel *m_statusLabel = nullptr;
     QListWidget *m_accountList = nullptr;
-    QPushButton *m_loginButton = nullptr;
     QPushButton *m_switchButton = nullptr;
     QPushButton *m_removeButton = nullptr;
     QPushButton *m_refreshButton = nullptr;
     QLineEdit *m_offlineNameEdit = nullptr;
     QPushButton *m_addOfflineButton = nullptr;
-    /// 「添加离线账号」小链接：点开才露出下面那一行（输入框 + 「添加」）。
-    QPushButton *m_onlineKindButton = nullptr;
-    QPushButton *m_offlineKindButton = nullptr;
-    QWidget *m_onlineRow = nullptr;
-    QLabel *m_onlineUnavailableLabel = nullptr;
+    /// 「添加账号」：弹出菜单选微软账号 / 离线账号；选离线才露出下面那一行（输入框 + 「添加」）。
+    QPushButton *m_addAccountButton = nullptr;
+    QMenu *m_addAccountMenu = nullptr;
+    QAction *m_addMicrosoftAction = nullptr;
+    QAction *m_addOfflineAction = nullptr;
     QWidget *m_offlineRow = nullptr;
+    QWidget *m_statusErrorRow = nullptr;
+    ElidedLabel *m_statusErrorLabel = nullptr;
+    QPushButton *m_retryButton = nullptr;
+    QLabel *m_previewNote = nullptr;
+    QPushButton *m_copyUuidButton = nullptr;
+    QString m_capesOwner;
     SkinViewer *m_viewer = nullptr;
     QPushButton *m_uploadButton = nullptr;
     /// 离线账号那一档的两颗（默认都藏着，见 setOfflineSkinState()）。
