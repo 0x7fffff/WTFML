@@ -10,6 +10,12 @@
 #include "controllers/LaunchController.hpp"
 #include "controllers/TaskDetailController.hpp"
 
+#include <QAbstractButton>
+#include <QKeyEvent>
+#include <QLineEdit>
+#include <QShortcut>
+#include <QTabWidget>
+
 void runBottomBarPanelTests() {
     const QString originalDir = AppPaths::minecraftDir();
     QTemporaryDir root;
@@ -1651,6 +1657,166 @@ void runBottomBarPanelTests() {
 
         SkinApi::setBaseUrlOverride(QString());
         AuthManager::setEndpointOverridesForTest({});
+    }
+
+    // ---- AH14 键盘入口：主页回车 = 点「启动游戏」 ----
+    //
+    // 判据是"这一发有没有变成一次点击"，不是"游戏真的起来了"：产品那条接线在这一节里
+    // 摘掉、换成计数器 —— 否则这一下会真去起一个进程。
+    {
+        if (w.ui()->getTabWidget() != nullptr) {
+            w.ui()->getTabWidget()->setCurrentIndex(MainWindowUI::homeTabIndex());
+            QApplication::processEvents();
+        }
+        QPushButton *start = w.ui()->getStartButton();
+        check(start != nullptr && start->isEnabled(),
+              "AH14 主页上那颗「启动游戏」点得动（它是给既有接线用的兼容控件，平时收着）");
+        if (start != nullptr) {
+            QObject::disconnect(start, &QPushButton::clicked, &w, nullptr);
+            int launches = 0;
+            QObject::connect(start, &QPushButton::clicked, &w, [&launches] { ++launches; });
+
+            const auto pressEnter = [&w](bool autoRepeat = false) {
+                QKeyEvent press(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier, QString(), autoRepeat);
+                QApplication::sendEvent(&w, &press);
+                QApplication::processEvents();
+            };
+
+            // 焦点在窗口本身（= 没有交互焦点）：回车等于一次点击。
+            w.setFocus();
+            QApplication::processEvents();
+            pressEnter();
+            check(launches == 1, "AH14 主页没有交互焦点时，回车点一次「启动游戏」",
+                  QStringLiteral("%1 次").arg(launches));
+
+            // 按住不放的那几发不算。
+            pressEnter(true);
+            check(launches == 1, "AH14 回车的 auto-repeat 不再多点一次",
+                  QStringLiteral("%1 次").arg(launches));
+
+            // 不在主页（切到下载页）：这一发不启动。
+            if (QTabWidget *tabs = w.ui()->getTabWidget()) {
+                tabs->setCurrentIndex(MainWindowUI::downloadTabIndex());
+                QApplication::processEvents();
+            }
+            pressEnter();
+            check(launches == 1, "AH14 不在主页时回车不启动",
+                  QStringLiteral("%1 次").arg(launches));
+
+            // 焦点落在可交互控件上：这一发归它自己，窗口不抢。
+            if (QTabWidget *tabs = w.ui()->getTabWidget()) {
+                tabs->setCurrentIndex(MainWindowUI::homeTabIndex());
+                QApplication::processEvents();
+            }
+            QWidget *interactive = nullptr;
+            for (QWidget *widget : w.findChildren<QWidget *>()) {
+                if (!widget->isVisible()) continue;
+                if (qobject_cast<QAbstractButton *>(widget) != nullptr ||
+                    qobject_cast<QLineEdit *>(widget) != nullptr) {
+                    interactive = widget;
+                    break;
+                }
+            }
+            check(interactive != nullptr, "AH14 主页上找得到一颗可交互控件（下面拿它验焦点那一档）");
+            if (interactive != nullptr) {
+                interactive->setFocus();
+                QApplication::processEvents();
+                pressEnter();
+                check(launches == 1, "AH14 焦点在可交互控件上时窗口不抢回车",
+                      QStringLiteral("%1 次").arg(launches));
+            }
+
+            // NOTE: 产品那条接线这一节里不再接回去（本函数到这儿只剩收尾，没人再点它）。
+        }
+    }
+
+    // ---- AH15 键盘入口：启动中 Esc = 取消启动 ----
+    //
+    // "流程走在半路、游戏进程还没起来"这一态用产品自己的测试钩子搭出来（和 AH6c 同一招），
+    // 然后按真键：判据是取消请求有没有交到启动流程、来源是不是"任务中心"。
+    {
+        auto *activity = w.findChild<ActivityCenterController *>();
+        auto *launch = w.findChild<LaunchController *>();
+        check(activity != nullptr && launch != nullptr, "AH15 拿到任务账本和启动流程");
+        if (activity != nullptr && launch != nullptr) {
+            // 先看浮层挡着那一档：Esc 归浮层，不该把取消发下去。
+            w.ui()->overlay()->openPrompt(false);
+            QApplication::processEvents();
+            QKeyEvent escToOverlay(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+            QApplication::sendEvent(&w, &escToOverlay);
+            check(!launch->abortRequestedForTest(), "AH15 浮层开着时 Esc 不取消启动（先归浮层）");
+            w.ui()->overlay()->dismiss();
+            if (w.ui()->overlay()->isOpen()) {
+                w.ui()->overlay()->closeOverlay();
+            }
+            QApplication::processEvents();
+            check(w.ui()->overlay() == nullptr || !w.ui()->overlay()->isOpen(),
+                  "AH15 浮层收干净了（下面那一发才是真按 Esc）");
+            check(QApplication::activePopupWidget() == nullptr, "AH15 没有弹出层占着 Esc");
+
+            const auto task = activity->begin(Tasks::TaskKind::Launch, QStringLiteral("Esc cancel"), releaseId);
+            QApplication::processEvents();
+            launch->setStartingForTest(true);
+            check(w.taskCancelWouldWorkForTest(activity->tasks()->snapshot(task)),
+                  "AH15 这一档「取消得动」（流程在半路、进程还没起来）");
+            QKeyEvent esc(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+            QApplication::sendEvent(&w, &esc);
+            QApplication::processEvents();
+            check(launch->abortRequestedForTest(), "AH15 启动中按 Esc 把取消请求交给启动流程",
+                  QStringLiteral("starting=%1 popup=%2 overlayOpen=%3")
+                      .arg(launch->isStarting())
+                      .arg(QApplication::activePopupWidget() != nullptr)
+                      .arg(w.ui()->overlay() != nullptr && w.ui()->overlay()->isOpen()));
+            check(launch->cancelSourceForTest() == LaunchController::StartCancelSource::TaskCenter,
+                  "AH15 Esc 和启动卡片上那颗「取消」同一条路（来源 = 任务中心）");
+            launch->setStartingForTest(false);
+            if (Tasks::isActiveState(activity->tasks()->snapshot(task).state)) {
+                activity->tasks()->cancel(task);
+            }
+        }
+    }
+
+    // ---- AH16 键盘入口：F5 点当前页那颗刷新 ----
+    //
+    // F5 走的是 QShortcut（`QKeySequence::Refresh`）：这里按它自己的信号驱动一次，
+    // 判据是"当前页那颗刷新被点了、换到没有刷新的页面就不再点"。产品那条接线先摘掉，
+    // 免得这一下真去发请求（这一跑末尾会核对假外网有没有收到没路由的地址）。
+    {
+        QShortcut *f5 = nullptr;
+        for (QShortcut *shortcut : w.findChildren<QShortcut *>()) {
+            if (shortcut->key() == QKeySequence(QKeySequence::Refresh)) {
+                f5 = shortcut;
+                break;
+            }
+        }
+        check(f5 != nullptr, "AH16 主窗口上挂着 F5 那一条快捷键");
+
+        if (QTabWidget *tabs = w.ui()->getTabWidget()) {
+            tabs->setCurrentIndex(MainWindowUI::downloadTabIndex());
+            QApplication::processEvents();
+        }
+        QPushButton *refresh = w.ui()->getDownloadHeaderRefreshButton();
+        check(refresh != nullptr && refresh->isVisible() && refresh->isEnabled(),
+              "AH16 下载页页头那颗刷新露着、点得动");
+        if (f5 != nullptr && refresh != nullptr) {
+            QObject::disconnect(refresh, nullptr, nullptr, nullptr);
+            int clicks = 0;
+            QObject::connect(refresh, &QPushButton::clicked, &w, [&clicks] { ++clicks; });
+            QMetaObject::invokeMethod(f5, "activated");
+            QApplication::processEvents();
+            check(clicks == 1, "AH16 下载页上按 F5 点一次页头那颗刷新",
+                  QStringLiteral("%1 次").arg(clicks));
+
+            // 换到没有刷新按钮的那一页：F5 什么都不做（而不是回头点上一页那颗）。
+            if (QTabWidget *tabs = w.ui()->getTabWidget()) {
+                tabs->setCurrentIndex(MainWindowUI::toolboxTabIndex());
+                QApplication::processEvents();
+            }
+            QMetaObject::invokeMethod(f5, "activated");
+            QApplication::processEvents();
+            check(clicks == 1, "AH16 没有刷新按钮的页面上 F5 什么都不做",
+                  QStringLiteral("%1 次").arg(clicks));
+        }
     }
 
     // ---- AH12 收尾：会话一份不剩、账号清掉、目录换回来 ----

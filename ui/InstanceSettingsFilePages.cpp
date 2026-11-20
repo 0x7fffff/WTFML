@@ -439,6 +439,7 @@ void InstanceSettingsDialog::buildServerPage() {
                 auto *top = newActionGrid();
                 m_serverRefresh = new QPushButton(serverRefreshText(), page);
                 m_serverRefresh->setObjectName(serverRefreshButtonName());
+                Theme::markRefreshButton(m_serverRefresh);  // F5 认它
                 Theme::markButton(m_serverRefresh, Theme::ButtonKind::Neutral);
                 // 重读要碰 NBT 解析（在 src/ 里），所以这一发只能交给 MainWindow。
                 connect(m_serverRefresh, &QPushButton::clicked, this,

@@ -443,6 +443,13 @@ enum class ButtonKind {
 QString buttonKindKey(ButtonKind kind);
 /// 给一颗按钮钉一个身份（**只改颜色**）。下一趟按钮样式重算时生效。
 void markButton(QWidget *button, ButtonKind kind);
+
+/// 「这一颗是页面上的刷新按钮」的标记。F5 靠它找当前页该点哪一颗
+/// （见 `MainWindow::refreshTopmostPage()`）；没挂这一条的按钮 F5 一律不碰。
+/// 只管认人，不种样式 —— 长什么样仍由 `markButton()` 那一档决定。
+void markRefreshButton(QWidget *button);
+/// 上面那条标记的属性名（测试按它认人，别自己抄字符串）。
+QString refreshActionPropertyName();
 /// 「一般性」那一档的黑（次要按钮的字与边、未勾选的勾选框）。**唯一出处。**
 QColor neutralInkColor();
 

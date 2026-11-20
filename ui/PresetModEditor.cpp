@@ -147,7 +147,9 @@ PresetModEditor::PresetModEditor(const QList<Entry> &entries, QWidget *parent) :
         QCoreApplication::translate("PresetModEditor", "保存"), QDialogButtonBox::AcceptRole);
     QPushButton *cancelButton = buttons->addButton(
         QCoreApplication::translate("PresetModEditor", "取消"), QDialogButtonBox::RejectRole);
+    // 「保存」是这个框里唯一的主动作：回车 = 保存（列表上那几颗仍是 autoDefault(false)）。
     saveButton->setAutoDefault(false);
+    saveButton->setDefault(true);
     cancelButton->setAutoDefault(false);
     Theme::markButton(saveButton, Theme::ButtonKind::Primary);
     Theme::markButton(cancelButton, Theme::ButtonKind::Neutral);

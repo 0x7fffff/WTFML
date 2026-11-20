@@ -148,6 +148,7 @@ InstanceFilesPage::InstanceFilesPage(QWidget *parent) : QWidget(parent) {
 
     m_refresh = new QPushButton(refreshText(), m_pathRow);
     m_refresh->setObjectName(refreshButtonName());
+    Theme::markRefreshButton(m_refresh);  // F5 认它
     Theme::markButton(m_refresh, Theme::ButtonKind::Ghost);
     // 刷新是**这一页自己的事**（重新列一遍目录，只有读），不用绕到 MainWindow 去。
     connect(m_refresh, &QPushButton::clicked, this, &InstanceFilesPage::refresh);

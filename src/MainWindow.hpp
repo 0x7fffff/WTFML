@@ -103,6 +103,7 @@ class QTreeWidget;  // 下载页那几张资源表（只用指针和引用，所
 class QTreeWidgetItem;
 class QNetworkAccessManager;
 class QThread;  // 图标反查那一趟（见 m_instanceIconThread），同上只按指针持有
+class QShortcut;
 // onPlayerSkinChanged 收到的两张贴图。**只用 const 引用传**（图是
 // PlayerSkinController 那边载好发过来的），所以前置声明够 —— 定义在 MainWindow.cpp 里
 // （那边的 SkinModel 那条路要用）。
@@ -1375,6 +1376,15 @@ private:
     friend class ServerMenuController;
     void setupConnections();
 
+    /// 键盘入口（实现在 MainWindowEventFilter.cpp）：主页回车启动。
+    /// 返回 true = 这一发归窗口处理掉了（调用方把事件吃掉）。
+    bool handleHomeEnter();
+    /// F5：点当前最上层可见页面上那颗刷新按钮（`Theme::markRefreshButton()` 认人）。
+    void refreshTopmostPage();
+    /// 启动中按 Esc：游戏进程还没起来时走 `cancelLaunch()`（和点卡片上那颗取消同一条路）。
+    /// 浮层/弹出层/下拉开着、或进程已经起来时返回 false（这一发不归窗口）。
+    bool handleEscCancelLaunch();
+
     // ---------- 「世界设置」那两格状态----------
     //
     // 这两条**必须落在 `private:` 里**，跟上面那一堆"世界设置"的函数（它们在
@@ -2094,6 +2104,8 @@ private:
     /// 任务中心那一项启动任务变了 ⇒ 主页启动卡片跟着换。只跟最近那一次启动（多开时卡片只说最新的）。
     void syncLaunchCard(Tasks::TaskId id);
     Tasks::TaskId m_launchCardTask = Tasks::invalidTaskId();
+    /// F5 那一条（见 `refreshTopmostPage()`）。
+    QShortcut *m_refreshShortcut = nullptr;
     /// 「重试」那一下，同上（判据本体是 `retryWouldWork()`，和取消左右对称）。
     void retryTaskFromDetail(const QString &key);
 
