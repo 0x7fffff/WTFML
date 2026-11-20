@@ -26,8 +26,6 @@ int UiAccountSkinChecks() {
             qobject_cast<QPushButton *>(child(AccountSkinDialog::uploadButtonName()));
         QPushButton *applyCapeBtn =
             qobject_cast<QPushButton *>(child(AccountSkinDialog::applyCapeButtonName()));
-        QPushButton *hideCapeBtn =
-            qobject_cast<QPushButton *>(child(AccountSkinDialog::hideCapeButtonName()));
         QPushButton *closeBtn =
             qobject_cast<QPushButton *>(child(AccountSkinDialog::closeButtonName()));
         QLabel *statusLabel =
@@ -48,7 +46,7 @@ int UiAccountSkinChecks() {
                               loginBtn != nullptr && switchBtn != nullptr &&
                               removeBtn != nullptr && refreshBtn != nullptr &&
                               uploadBtn != nullptr && applyCapeBtn != nullptr &&
-                              hideCapeBtn != nullptr && closeBtn != nullptr &&
+                              closeBtn != nullptr &&
                               statusLabel != nullptr && variantCombo != nullptr &&
                               viewer != nullptr && offlineEdit != nullptr &&
                               addOfflineBtn != nullptr && pickOfflineBtn != nullptr &&
@@ -66,17 +64,6 @@ int UiAccountSkinChecks() {
                       removeBtn->text().isEmpty() && !removeBtn->icon().isNull() &&
                       refreshBtn->text() == AccountSkinDialog::refreshButtonText(),
                   "左边四个按钮的文字都是产品文案");
-            // 披风是一个「显示 / 隐藏」分段：露出来的字是短的那两个，长的那两句是 tooltip。
-            // 删除是行尾一颗垃圾桶（字只在 tooltip / 读屏名里）。
-            check(uploadBtn->text() == AccountSkinDialog::uploadButtonText() &&
-                      applyCapeBtn->text() == QStringLiteral("显示") &&
-                      applyCapeBtn->toolTip() == AccountSkinDialog::applyCapeButtonText() &&
-                      hideCapeBtn->text() == QStringLiteral("隐藏") &&
-                      hideCapeBtn->toolTip() == AccountSkinDialog::hideCapeButtonText() &&
-                      closeBtn->text() == AccountSkinDialog::closeButtonText(),
-                  "右边三个 + 底的「关闭」也都是产品文案",
-                  QStringLiteral("显示=%1 / 隐藏=%2 / 关闭=%3")
-                      .arg(applyCapeBtn->text(), hideCapeBtn->text(), closeBtn->text()));
             check(offlineEdit->placeholderText() == AccountSkinDialog::offlineNamePlaceholder() &&
                       offlineEdit->text().isEmpty(),
                   "离线名字那个框一开始是空的，占位文字说明这里填什么",
@@ -291,8 +278,8 @@ int UiAccountSkinChecks() {
                     texture.fill(Qt::red);
                     dialog.setCapeTexture(QStringLiteral("https://textures.example/cape-2"), texture);
                     dialog.setCapeTexture(QStringLiteral("https://textures.example/other"), texture);
-                    check(capeList->item(1)->data(Qt::UserRole + 3).value<QImage>().size() == QSize(64, 32) &&
-                              capeList->item(0)->data(Qt::UserRole + 3).isNull(),
+                    check(capeList->item(2)->data(Qt::UserRole + 3).value<QImage>().size() == QSize(64, 32) &&
+                              capeList->item(1)->data(Qt::UserRole + 3).isNull(),
                           "★ 披风贴图按地址认领：对得上的那一格换成贴图，对不上的不动");
                     check(viewer->cape().isNull(),
                           "没选中的非当前披风贴图到了，不要把人物身上的披风换掉");
@@ -301,35 +288,35 @@ int UiAccountSkinChecks() {
                               viewer->cape().pixelColor(0, 0) == Qt::red,
                           "当前披风的贴图到了才贴到人物身上");
                 }
-                check(capeList->count() == 2, "两件披风都摆出来了",
+                check(capeList->count() == 3, "「无披风」+ 两件披风都摆出来了",
                       QString::number(capeList->count()));
-                check(capeList->item(0)->text() ==
+                check(capeList->item(1)->text() ==
                           QStringLiteral("Migrator") + AccountSkinDialog::currentMark(),
                       "正显示着的那一件挂着「（当前）」", capeList->item(0)->text());
-                check(capeList->item(1)->text() == QStringLiteral("MineCon 2016"),
+                check(capeList->item(2)->text() == QStringLiteral("MineCon 2016"),
                       "另一件不挂标记", capeList->item(1)->text());
                 check(dialog.selectedCapeId().isEmpty() && !applyCapeBtn->isEnabled(),
-                      "还没选披风时「显示所选披风」灰着");
+                      "还没选披风时「应用」灰着");
 
-                capeList->setCurrentRow(1);
+                capeList->setCurrentRow(2);
                 QApplication::processEvents();
                 check(dialog.selectedCapeId() == QStringLiteral("cape-2"),
-                      "选中第 2 件的 id 认得出来", dialog.selectedCapeId());
+                      "选中第 3 行（cape-2）的 id 认得出来", dialog.selectedCapeId());
                 check(applyCapeBtn->isEnabled(), "选中之后那个按钮可点");
 
                 applyCapeBtn->click();
                 check(selectCount == 1 && selectedCape == QStringLiteral("cape-2"),
-                      "点「显示所选披风」发的是选中那件的 id", selectedCape);
+                      "点「应用」发的是选中那件的 id", selectedCape);
                 check(viewer->cape().size() == QSize(64, 32) &&
                           viewer->cape().pixelColor(0, 0) == Qt::red,
-                      "点「显示」后人物预览当场披上选中那件");
+                      "点「应用」后人物预览当场披上选中那件");
                 check(qAbs(viewer->yaw() - 205.0) < 1.0,
-                      "点「显示」后转到背面 3/4", QString::number(viewer->yaw()));
+                      "点「应用」后转到背面 3/4", QString::number(viewer->yaw()));
                 dialog.setCapes(capes);  // 模拟接口刷新回来：列表重建、选中被清掉
                 QApplication::processEvents();
                 check(viewer->cape().size() == QSize(64, 32) &&
                           viewer->cape().pixelColor(0, 0) == Qt::red,
-                      "刷新列表后预览仍是刚才点「显示」的那件，不退回旧当前披风");
+                      "刷新列表后预览仍是刚才点「应用」的那件，不退回旧当前披风");
                 {
                     QImage stale(64, 32, QImage::Format_ARGB32);
                     stale.fill(Qt::blue);
@@ -338,21 +325,23 @@ int UiAccountSkinChecks() {
                           "换皮肤/资料刷新带回旧披风图时，不会把刚选的那件盖掉");
                 }
 
-                // 「不显示披风」**不看选中项**：它是一个独立的动作（取消），列表里选中
-                // 哪一件都跟它没关系。
-                capeList->setCurrentRow(-1);
+                // 列表第一项「无披风」：选中后点「应用」= 取消当前披风。
+                capeList->setCurrentRow(0);
                 QApplication::processEvents();
-                check(!applyCapeBtn->isEnabled(), "取消选中之后「显示所选披风」又灰回去");
-                hideCapeBtn->click();
-                check(hideCount == 1, "没选中任何披风时「不显示披风」照样发信号");
-                check(viewer->cape().isNull(), "点「隐藏」后人物预览当场把披风摘掉");
+                check(capeList->item(0)->text() == AccountSkinDialog::noCapeText(),
+                      "列表第一项是「无披风」", capeList->item(0)->text());
+                check(applyCapeBtn->isEnabled(), "选中「无披风」后「应用」可点");
+                applyCapeBtn->click();
+                check(hideCount == 1, "应用「无披风」发的是取消披风信号");
+                check(viewer->cape().isNull(), "应用「无披风」后人物预览当场把披风摘掉");
                 check(qAbs(viewer->yaw() - 25.0) < 1.0,
-                      "点「隐藏」后回到正面视角", QString::number(viewer->yaw()));
+                      "应用「无披风」后回到正面视角", QString::number(viewer->yaw()));
 
                 dialog.setCapes({});
                 QApplication::processEvents();
-                check(capeList->count() == 0 && !applyCapeBtn->isEnabled(),
-                      "一件披风都没有时列表是空的、按钮灰着（披风列表不摆占位行）");
+                check(capeList->count() == 1 && capeList->item(0)->data(Qt::UserRole + 4).toBool() &&
+                          !applyCapeBtn->isEnabled(),
+                      "一件披风都没有时列表仍摆「无披风」，未选中时按钮灰着");
             }
 
             // ---- X7 setLooks：同一份贴图进预览，下拉框跟着当前模型走 ----
@@ -531,6 +520,7 @@ int UiAccountSkinChecks() {
     }
     return 0;
 }
+
 
 
 

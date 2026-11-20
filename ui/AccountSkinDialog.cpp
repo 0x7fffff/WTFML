@@ -183,7 +183,12 @@ public:
         painter->drawRoundedRect(cell.adjusted(0.5, 0.5, -0.5, -0.5), 10, 10);
         const QImage texture = index.data(Qt::UserRole + 3).value<QImage>();
         painter->setPen(Qt::NoPen);
-        if (!texture.isNull() && texture.width() >= 64) {
+        if (index.data(Qt::UserRole + 4).toBool()) {
+            // 「无披风」：一支斜杠，和真实披风格区分开。
+            painter->setPen(QPen(t.text, 2));
+            painter->drawLine(QPointF(cell.left() + 12, cell.bottom() - 12),
+                              QPointF(cell.right() - 12, cell.top() + 12));
+        } else if (!texture.isNull() && texture.width() >= 64) {
             // 披风贴图正面在 (1,1) 起 10×16（按 64 宽的比例换算高清贴图），放大 2 倍、最近邻不糊。
             const int unit = texture.width() / 64;
             const QRectF front(cell.center().x() - 10, cell.center().y() - 16, 20, 32);
@@ -508,27 +513,15 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     m_capeCaption = makeCaption(QString(), this);
     controls->addWidget(m_capeCaption);
 
-    // 披风只有两种状态：披着所选那件 / 不披。做成一个分段，勾着的那段 = 现在的样子
-    // （setCapes() 按"有没有正披着的"同步）；长句在 tooltip 里。
+    // 应用所选：列表第一项是「无披风」，选中它就是取消当前披风。
     QHBoxLayout *capeButtons = new QHBoxLayout();
     capeButtons->setSpacing(8);
     controls->addLayout(capeButtons);
-    auto *capeSegment = new QWidget(this);
-    capeSegment->setObjectName(QStringLiteral("accountCapeSegment"));
-    auto *capeSegmentLayout = new QHBoxLayout(capeSegment);
-    capeSegmentLayout->setContentsMargins(3, 3, 3, 3);
-    capeSegmentLayout->setSpacing(2);
-    m_applyCapeButton = new QPushButton(tr("显示"), capeSegment);
+    m_applyCapeButton = new QPushButton(tr("应用"), this);
     m_applyCapeButton->setObjectName(applyCapeButtonName());
     m_applyCapeButton->setToolTip(applyCapeButtonText());
-    m_hideCapeButton = new QPushButton(tr("隐藏"), capeSegment);
-    m_hideCapeButton->setObjectName(hideCapeButtonName());
-    m_hideCapeButton->setToolTip(hideCapeButtonText());
-    capeSegmentLayout->addWidget(m_applyCapeButton);
-    capeSegmentLayout->addWidget(m_hideCapeButton);
-    Theme::markSegmented(capeSegment, {m_applyCapeButton, m_hideCapeButton});
-    m_hideCapeButton->setChecked(true);
-    capeButtons->addWidget(capeSegment);
+    Theme::markButton(m_applyCapeButton, Theme::ButtonKind::Neutral);
+    capeButtons->addWidget(m_applyCapeButton);
     capeButtons->addStretch(1);
 
     // ---------- 底：关闭 ----------
@@ -577,17 +570,20 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
         }
     });
     connect(m_applyCapeButton, &QPushButton::clicked, this, [this] {
-        const QString id = selectedCapeId();
-        if (!id.isEmpty()) {
-            m_previewCapeId = id;
-            updatePreviewCape(true, true);
-            emit capeSelectRequested(id);
+        const QListWidgetItem *item = m_capeList->currentItem();
+        if (item == nullptr) return;
+        const QString id = item->data(Qt::UserRole).toString();
+        if (id.isEmpty()) {  // 「无披风」那一项
+            m_previewCapeId.clear();
+            m_noCapeApplied = true;
+            updatePreviewCape(false, true);
+            emit hideCapeRequested();
+            return;
         }
-    });
-    connect(m_hideCapeButton, &QPushButton::clicked, this, [this] {
-        m_previewCapeId.clear();
-        updatePreviewCape(false, true);
-        emit hideCapeRequested();
+        m_previewCapeId = id;
+        m_noCapeApplied = false;
+        updatePreviewCape(true, true);
+        emit capeSelectRequested(id);
     });
 
     updateCapeCaption();
@@ -744,7 +740,9 @@ void AccountSkinDialog::setStatusText(const QString &text) {
 void AccountSkinDialog::setLooks(const QImage &skin, const QImage &cape, bool slim) {
     // 资料接口不一定当场带回披风贴图；只要「显示」还勾着，就用披风列表里那件的缓存补上。
     QImage effectiveCape = cape;
-    if (m_applyCapeButton != nullptr && m_applyCapeButton->isChecked()) {
+    if (m_noCapeApplied) {
+        effectiveCape = QImage();
+    } else if (!m_previewCapeId.isEmpty()) {
         // 换皮肤/刷新资料时接口可能带回旧的披风图（这里是 15 周年）；只要用户点过
         // 「显示」某件，就以那件的缓存为准，别让旧资料把它盖回去。
         for (int i = 0; i < m_capeList->count(); ++i) {
@@ -771,8 +769,18 @@ void AccountSkinDialog::setLooks(const QImage &skin, const QImage &cape, bool sl
 }
 
 void AccountSkinDialog::setCapes(const QList<CapeRow> &capes) {
-    if (capes.isEmpty()) m_previewCapeId.clear();
+    if (capes.isEmpty()) {
+        m_previewCapeId.clear();
+        m_noCapeApplied = false;
+    }
+    const bool wearing = std::any_of(capes.cbegin(), capes.cend(), [](const CapeRow &cape) { return cape.active; });
     m_capeList->clear();
+    QListWidgetItem *none = new QListWidgetItem(m_capeList);
+    none->setText(noCapeText());
+    none->setToolTip(noCapeText());
+    none->setData(Qt::UserRole, QString());
+    none->setData(Qt::UserRole + 1, !wearing);
+    none->setData(Qt::UserRole + 4, true);
     for (const CapeRow &cape : capes) {
         QListWidgetItem *item = new QListWidgetItem(m_capeList);
         item->setText(cape.active ? cape.alias + currentMark() : cape.alias);
@@ -785,9 +793,7 @@ void AccountSkinDialog::setCapes(const QList<CapeRow> &capes) {
         }
     }
     m_capeList->setCurrentRow(-1);  // 别让第一格自动变成「已选中」；预览跟当前披风走
-    m_capeList->setVisible(!capes.isEmpty());
-    const bool wearing = std::any_of(capes.cbegin(), capes.cend(), [](const CapeRow &cape) { return cape.active; });
-    (wearing ? m_applyCapeButton : m_hideCapeButton)->setChecked(true);
+    m_capeList->setVisible(true);
     updatePreviewCape(wearing);  // 新列表的 active 标记才是准的，预览跟着它重新贴一次
     updateCapeCaption();
     refreshButtonStates();
@@ -937,12 +943,11 @@ void AccountSkinDialog::refreshButtonStates() {
     const bool haveAccount = !selectedUuid().isEmpty();
     m_switchButton->setEnabled(idle && haveAccount);
     m_removeButton->setEnabled(idle && haveAccount);
-    m_applyCapeButton->setEnabled(idle && !selectedCapeId().isEmpty());
+    m_applyCapeButton->setEnabled(idle && m_capeList->currentItem() != nullptr);
     // 加离线账号要跟着"忙不忙"灰：它一旦成功就会把活动槽清空（切到离线身份），而正飞着的
     // 那次登录回来还要往活动槽里写 —— 两个人会打架。
     m_offlineNameEdit->setEnabled(idle);
     m_addOfflineButton->setEnabled(idle);
-    m_hideCapeButton->setEnabled(idle);
     // 离线那一档：露着的时候才按 idle 判；「恢复默认外观」还要**确实有东西可撤**。
     m_offlineSkinButton->setEnabled(idle && m_offlineSkin);
     m_offlineSkinResetButton->setEnabled(idle && m_offlineSkin && m_hasCustomSkin);

@@ -156,7 +156,6 @@ public:
     static QString variantComboName() { return QStringLiteral("accountSkinVariantCombo"); }
     static QString capeListName() { return QStringLiteral("accountSkinCapeList"); }
     static QString applyCapeButtonName() { return QStringLiteral("accountSkinApplyCapeButton"); }
-    static QString hideCapeButtonName() { return QStringLiteral("accountSkinHideCapeButton"); }
     static QString closeButtonName() { return QStringLiteral("accountSkinCloseButton"); }
 
     // ---------- 产品文案 ----------
@@ -179,8 +178,8 @@ public:
     static QString offlineSkinResetButtonToolTip() {
         return tr("移除手动设置的皮肤，恢复此账号的默认或随机皮肤。");
     }
-    static QString applyCapeButtonText() { return tr("显示所选披风"); }
-    static QString hideCapeButtonText() { return tr("不显示披风"); }
+    static QString applyCapeButtonText() { return tr("应用所选披风"); }
+    static QString noCapeText() { return tr("无披风"); }
     static QString closeButtonText() { return tr("关闭"); }
     static QString variantClassicText() { return tr("经典（Steve）"); }
     static QString variantSlimText() { return tr("纤细（Alex）"); }
@@ -309,7 +308,6 @@ private:
     QComboBox *m_variantCombo = nullptr;
     QListWidget *m_capeList = nullptr;
     QPushButton *m_applyCapeButton = nullptr;
-    QPushButton *m_hideCapeButton = nullptr;
     QPushButton *m_closeButton = nullptr;
     QWidget *m_rowActions = nullptr;
     QLabel *m_capeCaption = nullptr;
@@ -317,6 +315,9 @@ private:
     QImage m_currentSkin;
     /// 按贴图地址缓存，列表重建时先把已有的贴图塞回去，别等下一次网络回调。
     QHash<QString, QImage> m_capeTextures;
-    /// 用户最后点「显示」的那件披风；资料刷新时预览以它为准，别退回旧 active。
+    /// 用户最后点「应用」的那件披风；资料刷新时预览以它为准，别退回旧 active。
     QString m_previewCapeId;
+    /// 用户应用了「无披风」：资料刷新带回旧披风也不能再贴回来。
+    bool m_noCapeApplied = false;
 };
+

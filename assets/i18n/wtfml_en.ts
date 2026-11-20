@@ -72,12 +72,12 @@
             <translation>Remove the custom skin and restore the default skin assigned to this account.</translation>
         </message>
         <message>
-            <source>显示所选披风</source>
-            <translation>Show selected cape</translation>
+            <source>应用所选披风</source>
+            <translation>Apply selected cloak</translation>
         </message>
         <message>
-            <source>不显示披风</source>
-            <translation>Hide cape</translation>
+            <source>无披风</source>
+            <translation>No cape</translation>
         </message>
         <message>
             <source>关闭</source>
@@ -132,16 +132,12 @@
             <translation>Skin</translation>
         </message>
         <message>
-            <source>显示</source>
-            <translation>Show</translation>
-        </message>
-        <message>
-            <source>隐藏</source>
-            <translation>Hide</translation>
-        </message>
-        <message>
             <source>登录取自 %1</source>
             <translation>Saved on %1</translation>
+        </message>
+        <message>
+            <source>应用</source>
+            <translation>Application</translation>
         </message>
         <message>
             <source>选择皮肤图片</source>
@@ -2536,11 +2532,11 @@ Assets and libraries are not packaged by default: these two parts can be re-down
 
 待还原快照：
 %2</source>
-            <translation>"%1" The current file will be completely replaced by the one in the snapshot - mods, configurations, and saves are all included.&#32;
+            <translation>"%1" The current file will be completely replaced by the one in the snapshot - mods, configurations, and saves are all included. 
 
- Before restoring, a safe snapshot will be automatically left for the current copy, so this step can be rolled back.&#32;
+ Before restoring, a safe snapshot will be automatically left for the current copy, so this step can be rolled back. 
 
-What you want to restore is this one:&#32;
+What you want to restore is this one: 
 %2</translation>
         </message>
         <message>
@@ -3139,7 +3135,7 @@ What you want to restore is this one:&#32;
         </message>
         <message>
             <source>兔子脚</source>
-            <translation>Rabbit&apos;s Foot</translation>
+            <translation>Rabbit's Foot</translation>
         </message>
         <message>
             <source>跳跃</source>
@@ -3479,7 +3475,7 @@ What you want to restore is this one:&#32;
         </message>
         <message>
             <source>龙息</source>
-            <translation>Dragon&apos;s Breath</translation>
+            <translation>Dragon's Breath</translation>
         </message>
         <message>
             <source>喷溅型%1</source>
@@ -4758,9 +4754,9 @@ The instance is ready, but some presets could not be applied:
             <source>「%1」及其中的存档、截图、模组等文件将移入回收站，可从回收站恢复。
 
 如需保留磁盘上的文件，请改用「移除」。</source>
-            <translation>The folder "%1" and all the files in it will be deleted (it will go to the Recycle Bin and can be restored from there).&#32;
+            <translation>The folder "%1" and all the files in it will be deleted (it will go to the Recycle Bin and can be restored from there). 
 
-World saves, screenshots, and your own mods are all in this directory.&#32;
+World saves, screenshots, and your own mods are all in this directory. 
 To remove only from the list, please use the "Remove" operation, the disk file will be retained.</translation>
         </message>
         <message>
@@ -5190,7 +5186,7 @@ The part that has been moved is in the Recycle Bin and can be restored.</transla
         </message>
         <message>
             <source>在方块交互爆炸中，一些方块不会掉落战利品</source>
-            <translation>In block interaction explosions, some blocks won&apos;t drop their loot</translation>
+            <translation>In block interaction explosions, some blocks won't drop their loot</translation>
         </message>
         <message>
             <source>广播命令方块输出</source>
@@ -5338,7 +5334,7 @@ The part that has been moved is in the Recycle Bin and can be restored.</transla
         </message>
         <message>
             <source>在生物爆炸中，一些方块不会掉落战利品</source>
-            <translation>In mob explosions, some blocks won&apos;t drop their loot</translation>
+            <translation>In mob explosions, some blocks won't drop their loot</translation>
         </message>
         <message>
             <source>允许破坏性生物行为</source>
@@ -5350,11 +5346,11 @@ The part that has been moved is in the Recycle Bin and can be restored.</transla
         </message>
         <message>
             <source>创造模式下玩家在下界传送门中等待的时间</source>
-            <translation>Player&apos;s Nether Portal delay in creative mode</translation>
+            <translation>Player's Nether Portal delay in creative mode</translation>
         </message>
         <message>
             <source>非创造模式下玩家在下界传送门中等待的时间</source>
-            <translation>Player&apos;s Nether Portal delay in non-creative mode</translation>
+            <translation>Player's Nether Portal delay in non-creative mode</translation>
         </message>
         <message>
             <source>入睡占比</source>
@@ -5414,7 +5410,7 @@ The part that has been moved is in the Recycle Bin and can be restored.</transla
         </message>
         <message>
             <source>在TNT爆炸中，一些方块不会掉落战利品</source>
-            <translation>In TNT explosions, some blocks won&apos;t drop their loot</translation>
+            <translation>In TNT explosions, some blocks won't drop their loot</translation>
         </message>
         <message>
             <source>无差别愤怒</source>
@@ -6755,6 +6751,29 @@ Files can only be moved within the same drive. Existing files will not be replac
             <translation>%1: %2 of %3 items processed.</translation>
         </message>
         <message>
+            <source>复制世界</source>
+            <translation>Copy the world</translation>
+        </message>
+        <message>
+            <source>游戏正在运行，请先关闭游戏再操作存档。</source>
+            <translation>The game is running, please close the game before operating the archive.</translation>
+        </message>
+        <message numerus="yes">
+            <source>以下 %n 个世界将移入回收站：</source>
+            <translation>
+                <numerusform>The following %n worlds will be moved to the Trash:</numerusform>
+                <numerusform>The following %n world will be moved to the Trash:</numerusform>
+            </translation>
+        </message>
+        <message>
+            <source>另有 %1 个世界</source>
+            <translation>%1 more worlds</translation>
+        </message>
+        <message>
+            <source>无法复制「%1」：%2</source>
+            <translation>Unable to copy '%1': %2</translation>
+        </message>
+        <message>
             <source>%1 升级副本</source>
             <translation>%1 Upgrade copy</translation>
         </message>
@@ -6975,7 +6994,7 @@ Files can only be moved within the same drive. Existing files will not be replac
 不会自动适配版本，不覆盖现有文件，不迁移配置。%5</source>
             <translation>%1
 
- Move %2 %3 mods to "%4".&#32;
+ Move %2 %3 mods to "%4". 
  will not automatically adapt versions, will not overwrite existing files, and will not migrate configurations. %5</translation>
         </message>
         <message>
@@ -7070,7 +7089,7 @@ Files can only be moved within the same drive. Existing files will not be replac
             <source>已备份存档信息。手动还原时，将备份复制到存档目录并命名为 level.dat。
 
 备份位置：%1</source>
-            <translation>World save information has been backed up. When restoring manually, copy the backup to the world save directory and name it level.dat.&#32;
+            <translation>World save information has been backed up. When restoring manually, copy the backup to the world save directory and name it level.dat. 
 
 Backup location: %1</translation>
         </message>
@@ -7137,7 +7156,7 @@ Backup location: %1</translation>
         <message>
             <source>已备份“%1”的存档信息：
 %2</source>
-            <translation>The world save information of "%1" has been backed up:&#32;
+            <translation>The world save information of "%1" has been backed up: 
 %2</translation>
         </message>
         <message>
@@ -7187,6 +7206,13 @@ The corresponding records in the game servers.dat will be removed together.</tra
         <message>
             <source>移除</source>
             <translation>Remove</translation>
+        </message>
+        <message numerus="yes">
+            <source>从列表中删除选中的 %n 个服务器？</source>
+            <translation>
+                <numerusform>The following %n worlds will be moved to the Trash:</numerusform>
+                <numerusform>The following %n world will be moved to the Trash:</numerusform>
+            </translation>
         </message>
         <message>
             <source>试着直接加入服务器：%1（%2）</source>
@@ -7786,6 +7812,10 @@ Discard changes?</translation>
         <message>
             <source>请选择另一个已存在且不经过链接的目标文件夹。</source>
             <translation>Choose a different existing destination folder that does not use a link.</translation>
+        </message>
+        <message>
+            <source>所选文件中有重名文件，请分批操作：%1</source>
+            <translation>There are files with the same name in the selected files, please operate in batches: %1</translation>
         </message>
         <message>
             <source>目标已存在，不覆盖同名文件：%1</source>
@@ -9620,7 +9650,7 @@ Please select a valid game directory.</translation>
             <source>游戏版本或加载器将变更，原有模组可能不兼容。
 
 建议禁用原有模组，文件将以 .disabled 后缀保留。</source>
-            <translation>Game versions or loaders will change, and old mods have not yet been verified for adaptation.&#32;
+            <translation>Game versions or loaders will change, and old mods have not yet been verified for adaptation. 
 
 It is recommended to disable the old mod first (the file is retained and the suffix is ​​changed to .disabled). Leaving it enabled may cause the game to fail to launch.</translation>
         </message>
@@ -9642,9 +9672,9 @@ It is recommended to disable the old mod first (the file is retained and the suf
 本次升级保留当前实例的存档、截图、配置和其他用户文件。替换前将创建并校验快照，原目录可通过「回滚原地升级」恢复。
 
 请保存设置后再升级。确认继续？</source>
-            <translation>Replace the core of "%1" with %2 / %3.&#32;
+            <translation>Replace the core of "%1" with %2 / %3. 
 
-World saves, screenshots, configurations, and other user files are all retained, and user files of the target instance are not imported. First create and verify a complete snapshot file by file before replacing it; the original directory is retained separately and can be restored using "Rollback in-place upgrade".&#32;
+World saves, screenshots, configurations, and other user files are all retained, and user files of the target instance are not imported. First create and verify a complete snapshot file by file before replacing it; the original directory is retained separately and can be restored using "Rollback in-place upgrade". 
 
 Subject to disk content: Please cancel and save unsaved settings first. After replacement, the current settings page will be closed. This will not automatically adapt or download mods. Continue?</translation>
         </message>
@@ -9700,7 +9730,7 @@ Subject to disk content: Please cancel and save unsaved settings first. After re
             <source>恢复「%1」最近一次原地升级前的完整目录。
 
 当前版本也会另行保留，不删除文件。升级之后的新存档进度不会合并到旧目录；如需保留，可从事务目录中的 replaced 取回。</source>
-            <translation>Restore the complete directory of "%1" before the latest in-place upgrade.&#32;
+            <translation>Restore the complete directory of "%1" before the latest in-place upgrade. 
 
 The current version will also be retained separately and the file will not be deleted. The new world save progress after the upgrade will not be merged into the old directory; if it needs to be retained, it can be retrieved from replaced in the transaction directory.</translation>
         </message>
@@ -13372,7 +13402,7 @@ Go back to the "%1" tab, click the "←" in the upper left corner to close it, a
             <source>将删除服务端「%1」（含存档、模组与配置）。文件将移至回收站。
 
 确定删除？</source>
-            <translation>The server "%1" (including world saves, mods and configurations) will be deleted. The file will be moved to the Recycle Bin.&#32;
+            <translation>The server "%1" (including world saves, mods and configurations) will be deleted. The file will be moved to the Recycle Bin. 
 
 Are you sure to delete?</translation>
         </message>
@@ -14005,14 +14035,6 @@ Are you sure to delete?</translation>
         <message>
             <source>每天向 hitokoto 和 ZenQuotes（zenquotes.io）取一句，不带个人信息；关闭后不请求。</source>
             <translation>Get a quote every day from hitokoto and ZenQuotes (zenquotes.io) without personal information; no requests after closing.</translation>
-        </message>
-        <message>
-            <source>动效</source>
-            <translation>Animation</translation>
-        </message>
-        <message>
-            <source>系统开启「减少动画」时自动关闭。</source>
-            <translation>The system automatically turns off "Reduce Animation" when it is turned on.</translation>
         </message>
         <message>
             <source>主页快速启动</source>
@@ -15402,10 +15424,6 @@ It will not restart automatically when stopped manually or exited normally.</tra
             <translation>Follow default</translation>
         </message>
         <message>
-            <source>界面动画</source>
-            <translation>Interface animation</translation>
-        </message>
-        <message>
             <source>整份主题</source>
             <translation>Entire topic</translation>
         </message>
@@ -16120,9 +16138,9 @@ So there is no import. (Fabric / Forge / NeoForge / OptiFine can be installed di
             <source>无法识别整合包格式，因为压缩包缺少有效清单。
 
 支持 Modrinth（modrinth.index.json）、CurseForge（manifest.json）、MultiMC / Prism（mmc-pack.json），以及含 mods/、config/ 或 options.txt 的 .minecraft 压缩包。</source>
-            <translation>There is no integrated package list in this compressed package, and I cannot recognize its format.&#32;
+            <translation>There is no integrated package list in this compressed package, and I cannot recognize its format. 
 
- recognizes these types: Modrinth format (there is a copy of modrinth.index.json in the root directory), CurseForge format (there is a copy of manifest.json), MultiMC / Prism exported examples (there is a copy of mmc-pack.json), and lazy packages that directly compress the .minecraft folder (with mods/, config/ or options.txt in it). If&#32;
+ recognizes these types: Modrinth format (there is a copy of modrinth.index.json in the root directory), CurseForge format (there is a copy of manifest.json), MultiMC / Prism exported examples (there is a copy of mmc-pack.json), and lazy packages that directly compress the .minecraft folder (with mods/, config/ or options.txt in it). If 
 
  doesn't match, it's probably just an ordinary compressed package - such as a resource package, a shaderpack, or a collection of just a few description files.</translation>
         </message>
@@ -20713,7 +20731,7 @@ A world may not downgrade across versions; disk space is checked before executio
 创建副本保留全部用户文件；更新当前实例会先创建并校验完整快照。
 平台发行版与本地声明分别显示，旧模组按下方选择保留或禁用。</source>
             <translation>Minecraft %1 / %2 %3
- Create a copy retaining all user files; updating the current instance will first create and verify a complete snapshot.&#32;
+ Create a copy retaining all user files; updating the current instance will first create and verify a complete snapshot. 
 The platform release version and local statement are displayed separately. Old mods can be retained or disabled by clicking below.</translation>
         </message>
         <message>
@@ -20969,10 +20987,10 @@ The platform release version and local statement are displayed separately. Old m
 有目标发行版的模组可替换为适配版（缺的前置会自动补齐），其余按保留或禁用处理；无法确认的需先选处理方式。
 替换失败或前置失败会整趟回滚，并写出报告。
 存档跨版本后可能无法降级；请勿同时运行实例。</source>
-            <translation>Updated to Minecraft %1 / %2 %3.&#32;
+            <translation>Updated to Minecraft %1 / %2 %3. 
 
-Mods with a target release version can be replaced with an adapted version (missing prefixes will be automatically filled in), and the rest should be retained or disabled; if it cannot be confirmed, you need to choose a processing method first.&#32;
- If the replacement fails or the prefix fails, the entire process will be rolled back and a report will be written.&#32;
+Mods with a target release version can be replaced with an adapted version (missing prefixes will be automatically filled in), and the rest should be retained or disabled; if it cannot be confirmed, you need to choose a processing method first. 
+ If the replacement fails or the prefix fails, the entire process will be rolled back and a report will be written. 
 Archiving across versions may not be downgraded; do not run instances simultaneously.</translation>
         </message>
         <message>
@@ -24206,6 +24224,10 @@ Please close the program occupying the port, or change the port in "Common Setti
             <source>已删服务器：%1（%2）</source>
             <translation>Deleted server: %1 (%2)</translation>
         </message>
+        <message>
+            <source>已删服务器：%1 台</source>
+            <translation>Deleted servers: %1</translation>
+        </message>
     </context>
     <context>
         <name>ServerListFile</name>
@@ -24296,6 +24318,10 @@ Please close the program occupying the port, or change the port in "Common Setti
         <message>
             <source>没有指定要从哪个 servers.dat 里删。</source>
             <translation>No servers.dat file was specified for removing the entry.</translation>
+        </message>
+        <message>
+            <source>没有指定要从哪个 servers.dat 里删，或者没有选中任何一条。</source>
+            <translation>There is no specified server.dat to delete from, or no one is selected.</translation>
         </message>
     </context>
     <context>
@@ -26141,102 +26167,6 @@ The changes you made yourself will not be retained.</translation>
             <translation>%1 ms</translation>
         </message>
         <message>
-            <source>先选一个文件</source>
-            <translation>Select a file first</translation>
-        </message>
-        <message>
-            <source>把文件拖到这一页上，或者点「选一个…」。</source>
-            <translation>Drag files onto this page, or click "Choose one...".</translation>
-        </message>
-        <message>
-            <source>算哈希：%1（%2）</source>
-            <translation>Calculate the hash: %1 (%2)</translation>
-        </message>
-        <message>
-            <source>此摘要使用 %1 算法，当前选择的是 %2。请切换到对应算法后重新计算。</source>
-            <translation>This string is calculated according to %1, which is not the same as the %2 selected above - change the algorithm and calculate it again.</translation>
-        </message>
-        <message>
-            <source>哈希：%1 = %2</source>
-            <translation>Hash: %1 = %2</translation>
-        </message>
-        <message>
-            <source>哈希没算成：%1（%2）</source>
-            <translation>The hash did not count: %1 (%2)</translation>
-        </message>
-        <message>
-            <source>批量算哈希：%1 个文件（%2）</source>
-            <translation>Batch hash calculation: %1 files (%2)</translation>
-        </message>
-        <message>
-            <source>第 %1 / %2 个：%3</source>
-            <translation>No. %1 / %2: %3</translation>
-        </message>
-        <message>
-            <source>共 %1 个文件 / %2</source>
-            <translation>Total %1 files / %2</translation>
-        </message>
-        <message>
-            <source> / 停下了，后面那几个没算</source>
-            <translation>/ Stopped, not counting the following ones.</translation>
-        </message>
-        <message>
-            <source> / %1 个没算成</source>
-            <translation>/ %1 are not counted</translation>
-        </message>
-        <message>
-            <source> / 一个都没算成</source>
-            <translation>/ None of them count</translation>
-        </message>
-        <message>
-            <source>批量算哈希：停下了（%1 / %2）</source>
-            <translation>Batch hash calculation: stopped (%1 / %2)</translation>
-        </message>
-        <message>
-            <source>批量算哈希：%1 个文件，%2 个没算成</source>
-            <translation>Batch hash calculation: %1 files, %2 files were not calculated</translation>
-        </message>
-        <message>
-            <source>没写成</source>
-            <translation>Not written</translation>
-        </message>
-        <message>
-            <source>无法打开「%1」：%2</source>
-            <translation>"%1" cannot be opened: %2</translation>
-        </message>
-        <message>
-            <source>「%1」没写完：%2</source>
-            <translation>"%1" is not finished: %2</translation>
-        </message>
-        <message>
-            <source>哈希清单导出：%1</source>
-            <translation>Hash list export: %1</translation>
-        </message>
-        <message>
-            <source>存好了</source>
-            <translation>Saved</translation>
-        </message>
-        <message>
-            <source>清单写到 %1</source>
-            <translation>The list is written to %1</translation>
-        </message>
-        <message>
-            <source>「%1」在计算后发生变化（文件大小或修改时间不同）。请重新计算摘要。</source>
-            <translation>"%1" has changed after the calculation (the size / modification time does not match) - the string in the list is not its current summary, so recalculate it.</translation>
-        </message>
-        <message>
-            <source>「%1」在计算后已移除或移动，清单中的摘要已失效。</source>
-            <translation>"%1" was moved or deleted after the calculation - the string in the list is not what it is now.</translation>
-        </message>
-        <message>
-            <source>文件在计算后已移除或移动，当前摘要已失效。</source>
-            <translation>The file was moved or deleted after the calculation - the string of snippets above is not what it looks like now.</translation>
-        </message>
-        <message>
-            <source>文件在计算后发生变化（文件大小或修改时间不同）。请重新计算摘要。</source>
-            <translation>This file has changed since the calculation (the size/modification time does not match) - the summary above is not what it is now, so do the calculation again.</translation>
-        </message>
-        <message>
             <source>目标版本 %1 不含%2。此药水自 Java 版 %3 起可用。
 
 </source>
@@ -26417,14 +26347,6 @@ The changes you made yourself will not be retained.</translation>
         <message>
             <source>服务器状态与延迟</source>
             <translation>Server status and latency</translation>
-        </message>
-        <message>
-            <source>SHA 校验</source>
-            <translation>SHA check</translation>
-        </message>
-        <message>
-            <source>计算并核对文件哈希</source>
-            <translation>Calculate and check file hashes</translation>
         </message>
         <message>
             <source>减一</source>
@@ -26649,118 +26571,6 @@ The changes you made yourself will not be retained.</translation>
         <message>
             <source>检测中…</source>
             <translation>Under detection…</translation>
-        </message>
-        <message>
-            <source>文件路径：深度不定</source>
-            <translation>File path: variable depth</translation>
-        </message>
-        <message>
-            <source>拖入文件或点击选择</source>
-            <translation>Drag files or click to select</translation>
-        </message>
-        <message>
-            <source>选择…</source>
-            <translation>Choose…</translation>
-        </message>
-        <message>
-            <source>可多选，多个文件逐个计算。</source>
-            <translation>Multiple selections are possible, and multiple files are calculated one by one.</translation>
-        </message>
-        <message>
-            <source>文件</source>
-            <translation>Document</translation>
-        </message>
-        <message>
-            <source>算法</source>
-            <translation>Algorithm</translation>
-        </message>
-        <message>
-            <source>对照摘要：SHA-256 是 64 个十六进制字符，要能看全</source>
-            <translation>Comparison summary: SHA-256 is 64 hexadecimal characters, you need to be able to see the whole</translation>
-        </message>
-        <message>
-            <source>对照摘要（可选）</source>
-            <translation>Comparison summary (optional)</translation>
-        </message>
-        <message>
-            <source>对照摘要</source>
-            <translation>Comparison summary</translation>
-        </message>
-        <message>
-            <source>校验结果</source>
-            <translation>Verification result</translation>
-        </message>
-        <message>
-            <source>复制摘要</source>
-            <translation>Copy summary</translation>
-        </message>
-        <message>
-            <source>复制成标准的校验和格式（一行一个「摘要  文件名」）。</source>
-            <translation>Copy into standard checksum format (one "summary filename" per line).</translation>
-        </message>
-        <message>
-            <source>复制全部</source>
-            <translation>Copy all</translation>
-        </message>
-        <message>
-            <source>导出…</source>
-            <translation>Export…</translation>
-        </message>
-        <message>
-            <source>把这张清单存成一个 .txt。</source>
-            <translation>Save this list as a .txt.</translation>
-        </message>
-        <message>
-            <source>选择文件</source>
-            <translation>Select file</translation>
-        </message>
-        <message>
-            <source>把清单存成一个 .txt</source>
-            <translation>Save the list as a .txt</translation>
-        </message>
-        <message>
-            <source>文本文件 (*.txt)</source>
-            <translation>Text file (*.txt)</translation>
-        </message>
-        <message>
-            <source>&lt;div style='font-size:16px;font-weight:600'&gt;计算失败&lt;/div&gt;&lt;div style='color:%1;margin-top:4px'&gt;%2&lt;/div&gt;</source>
-            <translation>&lt;div style='font-size:16px;font-weight:600'&gt;Computation failed&lt;/div&gt;&lt;div style='color:%1;margin-top:4px'&gt;%2&lt;/div&gt;</translation>
-        </message>
-        <message>
-            <source>一致</source>
-            <translation>Consistent</translation>
-        </message>
-        <message>
-            <source>不一致</source>
-            <translation>Inconsistent</translation>
-        </message>
-        <message>
-            <source>%1 摘要已算好</source>
-            <translation>%1 Summary has been calculated</translation>
-        </message>
-        <message>
-            <source> · 文件大小 %1</source>
-            <translation>· File size %1</translation>
-        </message>
-        <message>
-            <source>&lt;div style='color:%1'&gt;计算失败：%2&lt;/div&gt;</source>
-            <translation>&lt;div style='color:%1'&gt; Calculation failed: %2&lt;/div&gt;</translation>
-        </message>
-        <message>
-            <source>（没给原因）</source>
-            <translation>(No reason given)</translation>
-        </message>
-        <message>
-            <source>已读取 %1</source>
-            <translation>Read %1</translation>
-        </message>
-        <message>
-            <source>已读取 %1 / %2（%3%）</source>
-            <translation>Read %1 / %2 (%3%)</translation>
-        </message>
-        <message>
-            <source>正在计算…</source>
-            <translation>Calculating…</translation>
         </message>
         <message>
             <source>未搭建</source>
