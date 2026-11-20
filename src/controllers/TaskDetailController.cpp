@@ -214,7 +214,7 @@ void TaskDetailController::openTarget(const QString &key) {
     // **服务端那一批任务记的是服务端 id，不是实例 id**（安装和备份那两批都走
     // `beginTask(..., serverId, ...)`），而 `AppPaths::versionDir()` 拼出来的是
     // `<数据目录>/versions/<id>` —— 对服务端来说那个目录**永远不存在**。所以按下
-    // 「打开目标位置」本来会报一句"那个目录现在不在"（而它明明就在 `Servers/<id>`）。
+    // 「打开目标位置」本来会报一句"那个目录现在不在"（而它明明就在 `servers/<id>`）。
     // 先按实例认，认不出来再看它是不是一个服务端。
     QString dir;
     if (task.kind == Tasks::TaskKind::Download && QDir::isAbsolutePath(task.targetId)) {
@@ -294,3 +294,4 @@ void TaskDetailController::scheduleRefreshOpenPage() {
         refreshOpenPage();
     });
 }
+

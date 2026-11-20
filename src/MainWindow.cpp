@@ -232,7 +232,7 @@
 // 保留的理由都在它的文件头）。`ServerListFile::pathFor()` 也是这一份路径的唯一出处。
 #include "manage/ServerListFile.hpp"
 // 服务端工作区那一层：判据层（状态 / EULA / properties）和
-// 扫盘那一层（`<数据目录>/Servers` 底下谁在住）。界面那一页只摆控件，判据全在这儿。
+// 扫盘那一层（`<数据目录>/servers` 底下谁在住）。界面那一页只摆控件，判据全在这儿。
 #include "download/ServerInstall.hpp"
 #include "server/ServerModel.hpp"
 #include "server/ServerRegistry.hpp"
@@ -1638,3 +1638,4 @@ void MainWindow::onVersionDetailsFetched(const QString &versionId, const QJsonOb
         m_versionManager->downloadVersion(versionId, versionsPath);
     });
 }
+

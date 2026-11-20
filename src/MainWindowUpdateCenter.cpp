@@ -123,7 +123,7 @@ void MainWindow::setInstanceMode(MainWindowUI::InstanceMode mode) {
     }
     m_instanceMode = mode;
     if (mode == MainWindowUI::InstanceMode::Server) {
-        // 切到服务端那一页时顺手重扫一遍：盘上那个 Servers/ 可能刚被别的东西动过
+        // 切到服务端那一页时顺手重扫一遍：盘上那个 servers/ 可能刚被别的东西动过
         // （用户在资源管理器里删了一个、或者拖进来一个装好的）。
         refreshServerList();
     } else if (mode == MainWindowUI::InstanceMode::Preset && m_presetController != nullptr) {
@@ -245,3 +245,4 @@ void MainWindow::finishUpdateBatch(bool success, const QString &errorMessage) {
     const QString instanceId = run.instanceId;
     openPageWhenIdle([this, instanceId] { openUpdateCenter(instanceId); });
 }
+

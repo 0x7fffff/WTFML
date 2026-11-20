@@ -53,7 +53,7 @@ agent/
 
 ## 4. 实现边界
 
-- `fs.write` 只开放文本配置白名单；`versions/libraries/assets/java/Servers` 原始写拒绝；二进制/jar/zip 不读内容。
+- `fs.write` 只开放文本配置白名单；`versions/libraries/assets/java/servers` 原始写拒绝；二进制/jar/zip 不读内容。
 - 路径校验是字符串快速拒绝 + Win32 句柄级最终路径/文件 ID/reparse 核对；句柄校验降低 TOCTOU 竞争窗口，不宣称彻底解决。
 - 本阶段没有 `logs.tail` / `diagnostics.*` / `instance.context` / `backup.restore`，也没有任意命令和 MCP。
 - 日志自动读取仍可能带出 Windows 用户名、启动参数回显、绝对路径、硬件指纹；这些留给 Stage 2 的日志/诊断字段投影。
@@ -81,3 +81,4 @@ agent/
 | 真机高 DPI/读屏 | 未覆盖 |
 | junction 无法创建的平台 | 夹具 `SKIP`，不计入通过 |
 | 日志字段投影（用户名/参数/路径/硬件指纹） | 留给 Stage 2 |
+

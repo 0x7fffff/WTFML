@@ -22,7 +22,7 @@ int MwServerCreationChecks(const QDir &root) {
         sandbox.sync();
         AppPaths::setMinecraftDir(root.path());
         check(!QDir(AppPaths::serversDir()).exists(),
-              "T39 前提：起手一个 Servers/ 都没有（服务端根目录按需创建，不预建）");
+              "T39 前提：起手一个 servers/ 都没有（服务端根目录按需创建，不预建）");
 
         MainWindow w;
         w.show();
@@ -294,7 +294,7 @@ int MwServerCreationChecks(const QDir &root) {
                 QApplication::processEvents();
                 check(QDir(AppPaths::serverDir(newId)).exists() &&
                           QFile::exists(AppPaths::serverMetaPath(newId)),
-                      "★★ T39.5 收下那一页之后：`Servers/新服务端/` 真的建出来了、里面有一份 "
+                      "★★ T39.5 收下那一页之后：`servers/新服务端/` 真的建出来了、里面有一份 "
                       "`.wtfml-server`（建这个服务端不是只改内存）");
                 check(stack->currentIndex() == 1,
                       "★ T39.5 建完自动切到「服务端」那一页（用户刚建的那一个就在那儿）");
@@ -351,5 +351,6 @@ int MwServerCreationChecks(const QDir &root) {
     }
     return 0;
 }
+
 
 
