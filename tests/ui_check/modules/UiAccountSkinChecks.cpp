@@ -290,11 +290,10 @@ int UiAccountSkinChecks() {
                 }
                 check(capeList->count() == 3, "「无披风」+ 两件披风都摆出来了",
                       QString::number(capeList->count()));
-                check(capeList->item(1)->text() ==
-                          QStringLiteral("Migrator") + AccountSkinDialog::currentMark(),
-                      "正显示着的那一件挂着「（当前）」", capeList->item(0)->text());
+                check(capeList->item(1)->text() == QStringLiteral("Migrator"),
+                      "披风名后面不再挂「（当前）」", capeList->item(1)->text());
                 check(capeList->item(2)->text() == QStringLiteral("MineCon 2016"),
-                      "另一件不挂标记", capeList->item(1)->text());
+                      "另一件也是纯名字", capeList->item(2)->text());
                 check(dialog.selectedCapeId().isEmpty() && !applyCapeBtn->isEnabled(),
                       "还没选披风时「应用」灰着");
 

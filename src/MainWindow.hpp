@@ -2973,6 +2973,8 @@ private:
     // setupAccountSkinDialog()）。它是 this 的子对象、也没开 WA_DeleteOnClose，所以关掉
     // 之后指针照样有效 —— 再点一次是把它 show 回来，不是重建。
     AccountSkinDialog *m_accountSkinDialog = nullptr;
+    /// 换披风是一秒内连点就重复发请求的重灾区：短时间只放一次。
+    QElapsedTimer m_lastCapeAction;
     // 底栏头像那块图。**不能**在 updateBottomBar() 里现算：那个函数每次进度刷新
     // （几百毫秒一次）都会被调，现算等于一直在重渲染同一张 8×8 的皮肤。
     // NOTE: 这一格只属于"底栏要的那张图"，不是外观那条路上的状态：外观说
@@ -3062,5 +3064,6 @@ private:
     void exportCrashReport(const QString &key);
     void openCrashReportsDir(const QString &key);
 };
+
 
 

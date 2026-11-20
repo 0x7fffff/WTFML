@@ -12337,6 +12337,10 @@ Minecraft %2 / %3 %4</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>换披风太频繁，请稍后再试。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>更换披风失败</source>
         <translation type="unfinished"></translation>
     </message>

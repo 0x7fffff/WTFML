@@ -319,5 +319,8 @@ private:
     QString m_previewCapeId;
     /// 用户应用了「无披风」：资料刷新带回旧披风也不能再贴回来。
     bool m_noCapeApplied = false;
+    /// 披风列表已经喂过（之后资料接口再带旧披风图也不信它）。
+    bool m_capesLoaded = false;
 };
+
 

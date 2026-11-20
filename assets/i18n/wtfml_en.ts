@@ -6760,7 +6760,7 @@ Files can only be moved within the same drive. Existing files will not be replac
         </message>
         <message numerus="yes">
             <source>以下 %n 个世界将移入回收站：</source>
-            <translation>
+            <translation type="unfinished">
                 <numerusform>The following %n worlds will be moved to the Trash:</numerusform>
                 <numerusform>The following %n world will be moved to the Trash:</numerusform>
             </translation>
@@ -7209,7 +7209,7 @@ The corresponding records in the game servers.dat will be removed together.</tra
         </message>
         <message numerus="yes">
             <source>从列表中删除选中的 %n 个服务器？</source>
-            <translation>
+            <translation type="unfinished">
                 <numerusform>The following %n worlds will be moved to the Trash:</numerusform>
                 <numerusform>The following %n world will be moved to the Trash:</numerusform>
             </translation>
@@ -12697,6 +12697,10 @@ Anything you changed after that update will also be reverted.</translation>
         <message>
             <source>已恢复默认外观。</source>
             <translation>Default appearance has been restored.</translation>
+        </message>
+        <message>
+            <source>换披风太频繁，请稍后再试。</source>
+            <translation>Changing cloak too frequently, please try again later.</translation>
         </message>
         <message>
             <source>更换披风失败</source>
