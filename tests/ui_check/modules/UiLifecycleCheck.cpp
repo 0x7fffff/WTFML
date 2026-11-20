@@ -249,7 +249,7 @@ int UiLifecycleCheck(QApplication &app) {
         }
         dialog.showPage(QStringLiteral("server"));
         auto *serverColumns = dialog.findChild<QTreeWidget *>(Dlg::serverTreeName());
-        expect(serverColumns && serverColumns->columnWidth(1) == 120 && serverColumns->columnWidth(2) == 144,
+        expect(serverColumns && serverColumns->columnWidth(1) == 240 && serverColumns->columnWidth(2) == 144,
                "server address and status have bounded default widths instead of following long error text");
         dialog.setUpgradeContext(QStringLiteral("当前实例：测试实例 · Minecraft 1.20.1 · Fabric"));
         dialog.setTransferTargets(QStringLiteral("upgrade"), {{QStringLiteral("1.21 尚未准备"), QStringLiteral("@download:1.21")},
