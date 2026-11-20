@@ -227,14 +227,29 @@ QStringList LaunchController::launchArguments(const QString &versionId, const QJ
         m_owner->m_authManager->playerUuid(), window, screen, quickPlay);
 }
 
-void LaunchController::abortStart(bool byUser) {
-    // 只竖旗子、不做别的：调用方是 `closeEvent`，它自己正卡在"启动"那条调用栈的嵌套
-    // 事件循环里。在这里直接收尾（finishTask / 删东西）会踩到那条栈上的状态。
+void LaunchController::abortStart(StartCancelSource source) {
+    // 只竖旗子、不做别的：调用方是 `closeEvent` 或任务中心那颗「取消」，它自己正卡在
+    // "启动"那条调用栈的嵌套事件循环里。在这里直接收尾（finishTask / 删东西）会踩到
+    // 那条栈上的状态。区别只有一处：**谁**要取消 —— 早退那几处按它写日志，
+    // `finishAbortedStart()` 按它决定记「已取消」还是失败。
+    m_cancelSource = source;
     m_abortRequested = true;
-    m_abortByUser = byUser;
+    // 正在下 Java 运行时的（换令牌与 natives 之后那一大段）也一起停：那一段在工作线程上，
+    // 它只认这个合作式取消位（见 `ensureJavaForVersion()` 里的 `cancel` 参数）。
+    m_abortJavaDownload.store(true, std::memory_order_relaxed);
     // 排着的那一发"加入世界"也一起作废：这一趟都被取消了，它没有"下一次"可等 ——
     // 留着它，用户下次自己点「启动」时游戏会莫名其妙地进一个他早就放弃的世界。
     m_owner->m_pendingQuickPlay = QuickPlay::Target();
+}
+
+void LaunchController::finishAbortedStart(Tasks::TaskId launchTask, const QString &failReason) {
+    if (m_cancelSource != StartCancelSource::None) {
+        // 用户自己按的取消：账本收成 Cancelled（不亮"没看过的失败"红点、不弹失败框），
+        // 和下载 / 备份 / 导入世界那几条取消路同一个记法。
+        m_owner->m_activityCenter->tasks()->cancel(launchTask);
+        return;
+    }
+    m_owner->finishTask(launchTask, false, failReason);
 }
 
 void LaunchController::onStartButtonClicked() {
@@ -256,15 +271,20 @@ void LaunchController::onStartButtonClicked() {
         return;
     }
     const FlagGuard startGuard(m_startInProgress);
-    // 上一趟"关窗取消"留下的旗子不能带到这一趟里来（见 `abortStart()`）。
+    // 上一趟（关窗 / 任务中心 / 卡片）留下的取消不能带到这一趟里来（见 `abortStart()`）。
     m_abortRequested = false;
-    m_abortByUser = false;
+    m_cancelSource = StartCancelSource::None;
+    m_abortJavaDownload.store(false, std::memory_order_relaxed);
     // 检查点：每一处**刚从一个嵌套事件循环里出来**的地方都用它判一次。用户在那段等待里
-    // （换令牌最长 15 秒、下 Java 可能几分钟）点关闭并确认之后，路就停在这里，
-    // 不再把游戏拉起来、也不再往下写盘。
+    // （换令牌最长 15 秒、natives 最长 180 秒、下 Java 可能几分钟）点任务中心的「取消」，
+    // 或者点关闭并确认之后，路就停在这里，不再把游戏拉起来、也不再往下写盘。
     const auto shouldStop = [this] { return m_abortRequested; };
-    const auto logStopped = [this] {
-        m_owner->appendLog(m_abortByUser ? m_owner->tr("启动已取消。") : m_owner->tr("启动已取消：启动器正在关闭。"));
+    // 早退那几处共用的一句日志：按取消来源分（关窗 / 任务中心）。写在同一处是为了
+    // "取消来源"只有一个读者 —— 四处各拼一句的话，改一处就会漏三处。
+    const auto logCancelledStart = [this] {
+        m_owner->appendLog(m_cancelSource == StartCancelSource::LauncherClosing
+                               ? m_owner->tr("启动已取消：启动器正在关闭。")
+                               : m_owner->tr("启动已取消。"));
     };
 
     // 「加入选中的世界 / 加入服务器」排上的那一发：**开头就取走并清掉**。
@@ -364,9 +384,8 @@ void LaunchController::onStartButtonClicked() {
     // 不全 / natives 起不来 / ASCII 别名建不出 / 启动前检查没过 / Java 不匹配那个框里点了
     // 取消…），每一个都会让这件任务永远停在"正在启动"上。见 TaskAbortGuard 那段。
     // failReason：早退时写进任务的那一句（主页启动卡片「启动失败」下面那一行读它）。
-    // 用户自己点了取消的那几条早退留空 —— 卡片据此直接还原，不报「启动失败」。
     QString failReason;
-    TaskAbortGuard launchGuard([this, launchTask, &failReason]() { m_owner->finishTask(launchTask, false, failReason); });
+    TaskAbortGuard launchGuard([this, launchTask, &failReason]() { finishAbortedStart(launchTask, failReason); });
 
     // 这一趟走不走离线：**只看当前账号是不是离线账号**（唯一出处，见 m_owner->offlineIdentity()）。
     const bool offlineMode = m_owner->offlineIdentity();
@@ -395,7 +414,7 @@ void LaunchController::onStartButtonClicked() {
 
     // 换令牌那一段转过嵌套事件循环 —— 用户可能在里面点了关闭。
     if (shouldStop()) {
-        logStopped();
+        logCancelledStart();
         return;
     }
 
@@ -472,6 +491,12 @@ void LaunchController::onStartButtonClicked() {
         });
         stageActive->store(false);
         m_owner->m_activityCenter->tasks()->setProgress(launchTask, 0, 0);
+    }
+    // natives 那一段（旧版解压最长 180 秒）也转过嵌套事件循环：取消要在这里就停下，
+    // 别再把 ASCII 别名、启动前检查那几笔写盘做完才收（那些都是"起步之后才做"的活）。
+    if (shouldStop()) {
+        logCancelledStart();
+        return;
     }
     if (nativesDir.isEmpty() && !nativeErrors.isEmpty()) {
         m_owner->appendLog(m_owner->tr("准备 natives 失败："));
@@ -585,6 +610,12 @@ void LaunchController::onStartButtonClicked() {
     // 「问」和「做」分开：这一段只负责拿到用户的答案，值、meta、全局设置一概不动 ——
     // 那些由下面按答案各走各的。问在合成值之后、挑 Java 之前。
     const MainWindow::JavaMismatchAnswer answer = m_owner->askAboutJavaMismatch(versionId, override, javaMajorVersion);
+    // 那一问也是内嵌提示（`execPrompt` 转嵌套事件循环）：任务中心在那段等待里按的取消
+    // 到这里就该停 —— 别再进低内存那一问、也别去下 Java 运行时。
+    if (shouldStop()) {
+        logCancelledStart();
+        return;
+    }
     if (answer == MainWindow::JavaMismatchAnswer::AbortLaunch) {
         return;
     }
@@ -611,7 +642,7 @@ void LaunchController::onStartButtonClicked() {
     }
     // 那一问本身也是内嵌提示（`execPrompt` 转嵌套事件循环）。
     if (shouldStop()) {
-        logStopped();
+        logCancelledStart();
         return;
     }
     // 「仍然用这个 Java 启动」只有一个后果：把"允许不匹配"那个口子打开。判在
@@ -649,13 +680,14 @@ void LaunchController::onStartButtonClicked() {
         runOffUiThread([&] {
             javaReady = javaStore->ensureJavaForVersion(javaSettings, javaMajorVersion, javaComponent,
                                                         allowAutoSelect, &javaError,
-                                                        allowMismatchedPath, true, onJavaProgress);
+                                                        allowMismatchedPath, true, onJavaProgress,
+                                                        &m_abortJavaDownload);
         });
         stageActive->store(false);
         m_owner->m_activityCenter->tasks()->setProgress(launchTask, 0, 0);
     }
     if (shouldStop()) {
-        logStopped();
+        logCancelledStart();
         return;
     }
     if (!javaReady) {
@@ -751,7 +783,7 @@ void LaunchController::onStartButtonClicked() {
     // 最后一道：到这里为止没有再让出过事件循环，但下面那句 `startGame()` 一旦返回就
     // 已经有进程了 —— 取消只在这一句之前还有意义。
     if (shouldStop()) {
-        logStopped();
+        logCancelledStart();
         return;
     }
     // 身份和实例名都在**启动这一刻**钉进会话里（LauncherManager 的 GameSession 快照）：

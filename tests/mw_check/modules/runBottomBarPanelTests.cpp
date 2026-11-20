@@ -6,6 +6,7 @@
 #include "manage/InstanceMetaFile.hpp"
 #include "server/ServerProcess.hpp"
 #include "controllers/ActivityCenterController.hpp"
+#include "controllers/LaunchController.hpp"
 #include "controllers/TaskDetailController.hpp"
 
 void runBottomBarPanelTests() {
@@ -739,13 +740,55 @@ void runBottomBarPanelTests() {
         auto *activity = w.findChild<ActivityCenterController *>();
         auto *sessions = w.findChild<GameSessionController *>();
         auto *detail = w.findChild<TaskDetailController *>();
-        check(activity && sessions && detail, "Launch task controllers are available");
-        if (activity && sessions && detail) {
+        auto *launch = w.findChild<LaunchController *>();
+        check(activity && sessions && detail && launch, "Launch task controllers are available");
+        if (activity && sessions && detail && launch) {
+            // ---- AH6c 进程起来之前也能取消（#61）----
+            //
+            // 启动流程那几段（换令牌 / 准备 natives / 下 Java 运行时）最长几分钟，期间
+            // 任务中心那颗「取消」现在就得能用：按下去之后流程在下一个检查点停下，
+            // 不拉起游戏，任务记成「已取消」而不是失败。
+            const auto preTask = activity->begin(Tasks::TaskKind::Launch,
+                                                 QStringLiteral("Launch test"),
+                                                 releaseId);
+            const QString preKey = QString::number(preTask);
+            check(!w.taskCancelWouldWorkForTest(activity->tasks()->snapshot(preTask)),
+                  "AH6c 没有启动流程在走时，新建的启动任务没有可取消的东西");
+            // 摆出"启动流程正走在半路"（真实入口只有 onStartButtonClicked()，这里用
+            // 测试钩子直接把那一面旗立起来）。
+            launch->setStartingForTest(true);
+            check(w.taskCancelWouldWorkForTest(activity->tasks()->snapshot(preTask)),
+                  "AH6c 进程还没起来、启动流程在半路时，cancelWouldWork 为真");
+            detail->open(preKey);
+            auto *preCancel = w.findChild<QPushButton *>(MainWindowUI::taskDetailCancelName());
+            check(preCancel && !preCancel->isHidden(),
+                  "AH6c 进程起来前详情页就露「取消」");
+            if (preCancel != nullptr && !preCancel->isHidden()) {
+                preCancel->click();
+                check(launch->abortRequestedForTest()
+                          && launch->cancelSourceForTest()
+                                 == LaunchController::StartCancelSource::TaskCenter,
+                      "AH6c 按「取消」把取消请求交给启动流程（来源 = 任务中心）");
+                check(activity->tasks()->snapshot(preTask).state == Tasks::TaskState::Running,
+                      "AH6c 流程走到下一个检查点之前，任务还在「进行中」");
+                // 流程在检查点上早退时收尾的就是这一句（见 TaskAbortGuard）。
+                launch->finishAbortedStart(preTask);
+                check(activity->tasks()->snapshot(preTask).state == Tasks::TaskState::Cancelled,
+                      "AH6c 用户取消的启动任务记「已取消」，不记失败");
+            }
+            launch->setStartingForTest(false);
+            w.ui()->overlay()->dismiss();
+            if (Tasks::isActiveState(activity->tasks()->snapshot(preTask).state)) {
+                activity->tasks()->cancel(preTask);
+            }
+
+            // ---- 进程起来之后：取消只停这一份会话（d5e70087 那条）----
             const auto task = activity->begin(Tasks::TaskKind::Launch, QStringLiteral("Launch test"), releaseId);
             const QString key = QString::number(task);
             detail->open(key);
             auto *cancel = w.findChild<QPushButton *>(MainWindowUI::taskDetailCancelName());
-            check(cancel && cancel->isHidden(), "Launch cannot be cancelled before a process is bound");
+            check(cancel && cancel->isHidden(),
+                  "Launch cannot be cancelled before a process is bound and while no launch runs");
 
             const int target = manager->startGame(holderArgs, holderSettings, releaseId, releaseId);
             const int other = manager->startGame(holderArgs, holderSettings, releaseId, releaseId);

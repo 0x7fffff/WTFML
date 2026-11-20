@@ -904,15 +904,8 @@ MainWindow::MainWindow(QWidget *parent)
             openTaskDetailPage(QString::number(id));
             return;
         }
-        // 卡片上唯一一处取消。进程已起来（任务挂上了会话号）= 停掉那一份会话（同任务中心那颗「取消」）；
-        // 还在起来之前 = 让启动路在下一个检查点停下。
-        // shortcut: #61 的统一取消入口合进来之后改调那一个。
-        const Tasks::TaskSnapshot task = m_activityCenter->tasks()->snapshot(id);
-        if (task.sessionId > 0) {
-            cancelTaskFromDetail(QString::number(id));
-        } else if (m_launchController != nullptr) {
-            m_launchController->abortStart(true);
-        }
+        // 卡片上唯一一处取消：走 #61 的统一入口（进程起来前停启动流程，起来后停会话），任务记「已取消」。
+        cancelLaunch(m_activityCenter->tasks()->snapshot(id));
     });
     // 行尾那颗「取消」：走的是和详情页里那一颗**完全同一条路**（`onTaskDetailAction`）——
     // 两处各写一遍的话，"取消"的语义迟早会分家（一处删文件、一处不删）。
