@@ -2135,11 +2135,7 @@ private:
     // / NOTE: 走到这里时面板**已经收回去了**（见 MainWindowUI 里 BottomBarPanel 那段：
     // / 这两个动作都要弹模态窗，压在 Qt::Popup 底下会点不动），所以这里可以放心 exec()。
     void onBottomBarPanelAction(bool account, const QString &key, int action);
-    /// 账号弹层里点了某个（非当前）账号那一行。
-    ///
-    /// 离线账号：切过去就完事（它本来就没有凭据）。正版账号：切过去之后**看一眼盘上那张
-    /// 令牌的剩余有效期**，不到 6 小时就顺手换一张新的 —— 换不出来就弹窗说原因，
-    /// 并指向"重新登录一次"那条路。
+    /// 账号弹层里点了某个（非当前）账号那一行：只切号，不触发网络刷新。
     void useAccountFromPanel(const QString &uuid);
     /// 账号弹层菜单区那一行「退出登录」（只在有当前身份时摆）。
     ///
@@ -2646,8 +2642,9 @@ private:
     // / 把这个窗建出来并接好线（幂等：已经建过就什么都不做）。
     void setupAccountSkinDialog();
     /// 刷新这个窗里的三样东西：账号列表（本地）、3D 预览（走和主页同一条路）、
-    /// 披风列表（**要令牌**，所以这一步会联网）。窗还没建时什么都不做。
-    void refreshAccountSkin();
+    /// 披风列表（页面可见时：@p allowTokenRefresh 为 true 走 loadSavedToken 按 6 小时窗口刷新后拉取；
+    /// false 则只用未过期的本地令牌直接拉取，已过期时在失败行提示，不刷新令牌）。窗还没建时只刷新主页预览。
+    void refreshAccountSkin(bool allowTokenRefresh = true);
     /// 这个窗顶部那句话应该写什么（当前身份）。**唯一一处**决定它 —— 离线身份、未登录、
     /// 正版三种状态要是散在各条路上，迟早出现"底栏说离线、这里说正版"。
     QString accountSkinStatusText() const;

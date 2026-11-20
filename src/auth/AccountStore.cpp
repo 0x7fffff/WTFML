@@ -26,6 +26,8 @@ constexpr const char kMicrosoftField[] = "microsoft";
 constexpr const char kMinecraftField[] = "minecraft";
 // 离线账号的标志位。**只有它为 true 的项可以没有上面那两份副本** —— 见 addOffline()。
 constexpr const char kOfflineField[] = "offline";
+// 刷新令牌失效标记（例如微软返回 invalid_grant）。
+constexpr const char kNeedsReloginField[] = "needs_relogin";
 
 /// 读列表（整份 JSON）。
 ///
@@ -187,6 +189,7 @@ QList<SavedAccount> AccountStore::accounts() {
         account.name = item.value(QLatin1String(kNameField)).toString();
         account.savedAt = item.value(QLatin1String(kSavedAtField)).toString();
         account.offline = item.value(QLatin1String(kOfflineField)).toBool();
+        account.needsRelogin = !account.offline && item.value(QLatin1String(kNeedsReloginField)).toBool();
         account.isCurrent = !current.isEmpty() && account.uuid == current;
         result.append(account);
     }
@@ -218,9 +221,56 @@ bool AccountStore::find(const QString &uuid, SavedAccount *out) {
             out->name = item.value(QLatin1String(kNameField)).toString();
             out->savedAt = item.value(QLatin1String(kSavedAtField)).toString();
             out->offline = item.value(QLatin1String(kOfflineField)).toBool();
+            out->needsRelogin = !out->offline && item.value(QLatin1String(kNeedsReloginField)).toBool();
             out->isCurrent = !current.isEmpty() && uuid == current;
         }
         return true;
+    }
+    return false;
+}
+
+bool AccountStore::needsRelogin(const QString &uuid) {
+    if (uuid.isEmpty()) {
+        return false;
+    }
+    const QJsonObject item = entryFor(uuid);
+    if (item.isEmpty() || item.value(QLatin1String(kOfflineField)).toBool()) {
+        return false;
+    }
+    return item.value(QLatin1String(kNeedsReloginField)).toBool();
+}
+
+bool AccountStore::setNeedsRelogin(const QString &uuid, bool required, QString *errorOut) {
+    if (uuid.isEmpty()) {
+        return false;
+    }
+    bool readable = false;
+    QJsonArray array = readAccounts(&readable);
+    if (!readable) {
+        if (errorOut != nullptr) {
+            *errorOut = unreadableListMessage();
+        }
+        return false;
+    }
+    for (int i = 0; i < array.size(); ++i) {
+        QJsonObject item = array.at(i).toObject();
+        if (item.value(QLatin1String(kUuidField)).toString() != uuid) {
+            continue;
+        }
+        if (item.value(QLatin1String(kOfflineField)).toBool()) {
+            return false;
+        }
+        const bool currentFlag = item.value(QLatin1String(kNeedsReloginField)).toBool();
+        if (currentFlag == required) {
+            return true;
+        }
+        if (required) {
+            item.insert(QLatin1String(kNeedsReloginField), true);
+        } else {
+            item.remove(QLatin1String(kNeedsReloginField));
+        }
+        array.replace(i, item);
+        return writeAccounts(array, errorOut);
     }
     return false;
 }
@@ -287,7 +337,13 @@ bool AccountStore::captureActive(QString *errorOut) {
     }
     bool replaced = false;
     for (int i = 0; i < array.size(); ++i) {
-        if (array.at(i).toObject().value(QLatin1String(kUuidField)).toString() == uuid) {
+        const QJsonObject existing = array.at(i).toObject();
+        if (existing.value(QLatin1String(kUuidField)).toString() == uuid) {
+            // 保留已有的「需要重新登录」标记（登出 / 切离线前的保存不应把标记抹掉；
+            // 成功登录或刷新成功会在写盘前显式清除该标记）。
+            if (existing.value(QLatin1String(kNeedsReloginField)).toBool()) {
+                entry.insert(QLatin1String(kNeedsReloginField), true);
+            }
             array.replace(i, entry);
             replaced = true;
             break;

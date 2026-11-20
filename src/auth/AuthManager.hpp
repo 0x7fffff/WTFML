@@ -22,6 +22,24 @@ class AuthManager : public QObject {
     Q_OBJECT
 
 public:
+    /// 令牌刷新失败分类：区分「网络/服务器暂不可用（可重试或离线游玩）」与「刷新令牌失效（必须重新登录）」。
+    enum class RefreshFailureKind {
+        None,             ///< 未失败（或尚未触发刷新）
+        Network,          ///< 网络不通、超时或服务端暂不可用 / 限流
+        ReloginRequired,  ///< 刷新令牌失效或缺失，必须重新登录
+        Other,            ///< 其它配置或账号受限错误（如未配置客户端 ID、XSTS 拦截、无档案等）
+    };
+
+    /// 测试用端点覆盖（与 SkinApi::setBaseUrlOverride 同形）：空串表示使用官方地址。
+    struct EndpointOverrides {
+        QString oauthTokenUrl;
+        QString xboxLiveAuthUrl;
+        QString xstsAuthUrl;
+        QString minecraftLoginUrl;
+        QString minecraftProfileUrl;
+        QString clientId;
+    };
+
     /**
      * @brief 构建验证管理器。
      * @param parent Parent QObject.
@@ -54,16 +72,32 @@ public:
     bool loginInFlight() const;
 
     /**
-     * @brief 拿一个能启动游戏的 Minecraft access_token；盘上那个过期了就整条链重走一遍。
+     * @brief 拿一个能启动游戏的 Minecraft access_token；剩余不足 6 小时（或已过期）时重新刷新。
      * @param errorMessage 可选。失败时写进一句**能直接给用户看**的失败原因（"没登录过"
      * 和"登录过期了换不出来"是两回事，对应的话也不一样 —— 光返回空串的话，
      * 调用方只能笼统说一句"请先登录"，用户照做也还是登不上）。
      * @return Minecraft 令牌；没登录过、解不出来、或者刷新失败时返回空串。
      *
-     * NOTE: Minecraft 令牌还在有效期内时**不碰网络**，直接用它；过期了才去用盘上微软那份的
-     * refresh_token 重新换（见 refreshMinecraftToken()）。
+     * NOTE: 盘上 Minecraft 令牌剩余有效期 >= tokenRefreshWindowSecs（6 小时）时**不碰网络**，
+     * 直接用它；不足 6 小时才去用盘上微软那份的 refresh_token 重新换（见 refreshMinecraftToken()）。
      */
     QString loadSavedToken(QString *errorMessage = nullptr);
+
+    /// 返回当前已加载到内存中的 Minecraft access_token（不触发网络刷新；给断网离线游玩兜底用）。
+    QString savedAccessToken() const { return m_accessToken; }
+
+    /// 最近一次刷新失败的分类（成功或跳过刷新时为 None）。
+    RefreshFailureKind lastRefreshFailureKind() const { return m_lastRefreshFailureKind; }
+
+    /// 当前账号是否因刷新令牌失效而被标记为「需要重新登录」。
+    bool needsRelogin() const { return m_needsRelogin; }
+
+    /// 根据 HTTP 状态码、网络错误与 OAuth error 字段对刷新失败进行分类（纯函数）。
+    static RefreshFailureKind classifyRefreshFailure(int status, const QString &networkError,
+                                                     const QString &oauthError = QString());
+
+    /// 测试专用：把令牌刷新链的地址与客户端 ID 指到本机模拟服务端（默认全部为空 = 官方配置）。
+    static void setEndpointOverridesForTest(const EndpointOverrides &overrides);
 
     /// 盘上那张 Minecraft 令牌**离到期还有多少秒**。
     ///
@@ -218,7 +252,8 @@ private:
     /// （响应里没带新的那种情况）。**不会**顺手把 Minecraft 那条链也走一遍。
     bool requestMicrosoftTokenRefresh(const QString &refreshToken, QString *accessToken,
                                       QString *errorMessage,
-                                      const QString &expectedActiveUuid = QString());
+                                      const QString &expectedActiveUuid = QString(),
+                                      RefreshFailureKind *failureKind = nullptr);
 
     /// 微软 access_token → Xbox Live → XSTS → Minecraft 令牌 → 玩家档案。整条链走通才
     /// 返回 true：中途任何一步失败，**Minecraft 那份令牌和玩家名一个都不写**
@@ -228,15 +263,18 @@ private:
     /// （见 exchangeAuthorizationCode()，同文件实现里那段 NOTE 也记着）。它单独用不了
     /// （是"下次续期用的凭据"、不是"已登录"），但盘上确实有它。
     bool runMinecraftChain(const QString &microsoftAccessToken, QString *errorMessage,
-                           const QString &expectedActiveUuid = QString());
+                           const QString &expectedActiveUuid = QString(),
+                           RefreshFailureKind *failureKind = nullptr);
     bool requestXboxLiveToken(const QString &microsoftAccessToken, QString *xblToken,
-                              QString *userHash, QString *errorMessage);
+                              QString *userHash, QString *errorMessage,
+                              RefreshFailureKind *failureKind = nullptr);
     bool requestXstsToken(const QString &xblToken, QString *xstsToken, QString *userHash,
-                          QString *errorMessage);
+                          QString *errorMessage, RefreshFailureKind *failureKind = nullptr);
     bool requestMinecraftToken(const QString &userHash, const QString &xstsToken,
-                               QString *mcToken, int *expiresIn, QString *errorMessage);
+                               QString *mcToken, int *expiresIn, QString *errorMessage,
+                               RefreshFailureKind *failureKind = nullptr);
     bool fetchPlayerProfile(const QString &mcToken, QString *name, QString *uuid,
-                            QString *errorMessage);
+                            QString *errorMessage, RefreshFailureKind *failureKind = nullptr);
 
     bool storeMicrosoftTokenData(const QJsonObject &tokenData);
     bool storeMinecraftTokenData(const QString &mcToken, int expiresIn, const QString &name,
@@ -275,4 +313,6 @@ private:
     // （内嵌事件循环），favicon 那一下会**重入**到这里来 —— 它没有授权码，会当成"登录失败"
     // 弹个窗，把好好的登录搅黄。这一位就是用来把重入的那次挡在外面的。
     bool m_handlingCallback = false;
+    RefreshFailureKind m_lastRefreshFailureKind = RefreshFailureKind::None;
+    bool m_needsRelogin = false;
 };

@@ -79,7 +79,9 @@ void MainWindow::onAccountSkinButtonClicked() {
         // —— 页面还没画出来，那个请求已经在跑了，用户只会以为按钮点坏了。
         // 这里排一发队：开页是**非阻塞**的（`OverlayHost::showPage()`），返回之后主循环照常
         // 转，这一发就排在"页面已经在屏幕上"之后跑。
-        QMetaObject::invokeMethod(this, [this] { refreshAccountSkin(); }, Qt::QueuedConnection);
+        // NOTE: 打开账号页不刷新令牌：当前令牌未过期时直接用本地令牌拉披风列表，
+        // 已过期则在失败行提示「登录凭据已过期，披风列表未更新。」。
+        QMetaObject::invokeMethod(this, [this] { refreshAccountSkin(false); }, Qt::QueuedConnection);
         // 那一发刷新排在页面摆上来之后；先把「皮肤」那一行摆对，免得开页的第一帧
         // 露的是正版才有的「上传皮肤…」（离线账号按下去只会失败）。
         m_accountSkinDialog->setOfflineSkinState(offlineIdentity(),
@@ -146,7 +148,7 @@ QString MainWindow::accountSkinStatusText() const {
     return AccountSkinDialog::identityText(m_authManager->playerName());
 }
 
-void MainWindow::refreshAccountSkin() {
+void MainWindow::refreshAccountSkin(bool allowTokenRefresh) {
     // NOTE: **这一句只挡窗里那些东西**（账号列表 / 状态行 / 披风），预览那一份照刷 ——
     // 主页那个小人、底栏头像、那个窗里的 3D 预览**都只在
     // startPlayerSkinLoad() → applyPlayerSkin() 里更新**，这一句 return 若把预览也挡掉，
@@ -219,17 +221,6 @@ void MainWindow::refreshAccountSkin() {
     if (!m_accountSkinDialog->isVisible()) {
         return;
     }
-    // 下面这两下是**同步**的（补忙态）：loadSavedToken() 可能要真去换一次令牌、
-    // fetchOwnedCapes() 一定发一次 GET —— 两个函数都是"调完才返回"，于是点「刷新」之后的
-    // 这几秒钟里 UI 线程一直在这两行里面出不来：窗不重绘、什么都按不动，Windows 过一会儿
-    // 还会给标题挂上"(无响应)"。
-    //
-    // NOTE: 到这儿必须先把忙态点起来并 processEvents 一次：第 2 步的 setBusy(false)
-    // 之后到这里谁也没把忙态点起来的话，用户看到的是一个画着旧内容、点什么都没反应的窗。
-    // 忙态 + 一次 processEvents（排掉用户输入）和 enterSyncWait() 是同一个手法：
-    // 进去之前先把话说出来。下面每条返回路上都要松开它。
-    m_accountSkinDialog->setBusy(true, tr("正在获取披风列表…"));
-    QApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
 
     // 失败时的收尾：「已登录为…」那一句保持不变，原因另起一行（后面跟「重试」）；披风列表留着上次
     // 取到的内容，只有它属于另一个账号时才清掉（不能让用户在 B 账号下看到 A 的披风）。
@@ -245,11 +236,40 @@ void MainWindow::refreshAccountSkin() {
     };
 
     QString error;
-    const QString token = m_authManager->loadSavedToken(&error);
-    if (token.isEmpty()) {
-        // 没登录（或者令牌换不出来）。
-        failRefresh(error);
-        return;
+    QString token;
+    if (!allowTokenRefresh) {
+        if (!m_authManager->loggedIn()) {
+            m_accountSkinDialog->setCapes({});
+            m_accountSkinDialog->setCapesOwner(QString());
+            return;
+        }
+        // 开页与切号：不触发令牌刷新。令牌尚未过期就用现有令牌直接拉披风，已过期则在失败行提示。
+        if (m_authManager->tokenSecondsLeft() <= 0 || m_authManager->savedAccessToken().isEmpty()) {
+            failRefresh(tr("登录凭据已过期，披风列表未更新。"));
+            return;
+        }
+        token = m_authManager->savedAccessToken();
+    }
+
+    // 下面这两下是**同步**的（补忙态）：loadSavedToken() 可能要真去换一次令牌、
+    // fetchOwnedCapes() 一定发一次 GET —— 两个函数都是"调完才返回"，于是点「刷新」之后的
+    // 这几秒钟里 UI 线程一直在这两行里面出不来：窗不重绘、什么都按不动，Windows 过一会儿
+    // 还会给标题挂上"(无响应)"。
+    //
+    // NOTE: 到这儿必须先把忙态点起来并 processEvents 一次：第 2 步的 setBusy(false)
+    // 之后到这里谁也没把忙态点起来的话，用户看到的是一个画着旧内容、点什么都没反应的窗。
+    // 忙态 + 一次 processEvents（排掉用户输入）和 enterSyncWait() 是同一个手法：
+    // 进去之前先把话说出来。下面每条返回路上都要松开它。
+    m_accountSkinDialog->setBusy(true, tr("正在获取披风列表…"));
+    QApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+
+    if (allowTokenRefresh) {
+        token = m_authManager->loadSavedToken(&error);
+        if (token.isEmpty()) {
+            // 没登录（或者令牌换不出来）。
+            failRefresh(error);
+            return;
+        }
     }
 
     QList<OwnedCape> capes;
@@ -439,49 +459,8 @@ void MainWindow::useAccountFromPanel(const QString &uuid) {
         // 只是防一手。
         return;
     }
-    const bool offline = AccountStore::isOffline(uuid);
-    // 切换本身走**现成那一条**：onAccountSwitchRequested() 已经把"离线走 setOfflinePlayer、
-    // 正版走 reloadStoredAccount"和"重画底栏 + 刷外观"都做完了。这里只补正版那半句。
+    // 切换账号只读盘并更新界面，不触发网络刷新（用到令牌时再按 6 小时窗口按需刷新）。
     onAccountSwitchRequested(uuid);
-    // 没切过去就到此为止。**这一句不是为了兜底而兜底**：onAccountSwitchRequested() 失败时
-    // （列表里那份副本不完整会走那条）没有换人，活动槽里还是**上一个**账号的凭据 ——
-    // 再往下走就会拿上一个人的令牌去做"够不够 6 小时"的判断，甚至去刷新他的令牌，
-    // 而弹出来的话会把那个账号的名字写成这一行的名字。失败的框它自己已经弹过了。
-    if (AccountStore::activeUuid() != uuid) {
-        return;
-    }
-    if (offline) {
-        return;  // 离线身份没有令牌这回事
-    }
-
-    // 正版：看一眼**盘上属于这个账号的那张**令牌还剩多少（onAccountSwitchRequested() 刚
-    // 把这一份读进内存）。还够用（剩 ≥6 小时）就到此为止 —— 这一下不联网。
-    //
-    // NOTE: 这里刻意**不用 loadSavedToken()**：它只在"已经过期"时才去换，而要的是
-    // "剩不到 6 小时就换"（见 AuthManager::tokenRefreshWindowSecs 那段）。
-    if (m_authManager->tokenSecondsLeft() >= AuthManager::tokenRefreshWindowSecs) {
-        return;
-    }
-    QString error;
-    // 这一段**是同步的**（15 秒超时的那种请求），先给用户一句话再进去。
-    enterSyncWait(tr("正在刷新登录凭据…"));
-    const bool refreshed = m_authManager->refreshMinecraftToken(&error);
-    leaveSyncWait();
-    if (refreshed) {
-        appendLog(tr("「%1」的登录令牌剩余不足 6 小时，已自动更新。")
-                      .arg(AccountStore::nameOf(uuid)));
-        return;
-    }
-    // 失败：**账号已经切过去了**，只是令牌没换到新的 —— 这两件事必须分开说，不然用户会
-    // 以为切换失败了（那他就会再点一次，而再点一次还是这个结果）。
-    //
-    // NOTE: 已知的两种失败原因（Azure 应用没被 Mojang 批准 / 盘上凭据属于另一个应用）
-    // 都不是这里能修的，只能重新登录一次 —— 所以那句话得指出**下一步**，不能只说
-    // "刷新失败"。
-    appendLog(tr("无法刷新「%1」的登录凭据：%2").arg(AccountStore::nameOf(uuid), error));
-    InlineMessage::warning(m_ui->overlay(), tr("登录凭据刷新失败"),
-                         tr("已切换至「%1」，但登录凭据已失效：%2。请在账号管理中重新登录。")
-                             .arg(AccountStore::nameOf(uuid), error));
 }
 
 void MainWindow::onAccountSwitchRequested(const QString &uuid) {
@@ -507,9 +486,12 @@ void MainWindow::onAccountSwitchRequested(const QString &uuid) {
     }
     updateBottomBar();
     appendLog(tr("已切换到账号「%1」。").arg(AccountStore::nameOf(uuid)));
-    // 外观也得跟着换：新账号是另外一套皮肤和披风。这一步会把预览、披风列表、账号列表
-    // 一起刷一遍。
-    refreshAccountSkin();
+    if (m_accountSkinDialog != nullptr) {
+        m_accountSkinDialog->setCapes({});
+        m_accountSkinDialog->setCapesOwner(QString());
+    }
+    // 切号不刷新令牌；若页开着且当前令牌未过期，用本地令牌拉新账号的披风，已过期则在失败行提示。
+    refreshAccountSkin(false);
 }
 
 void MainWindow::onAccountRemoveRequested(const QString &uuid) {
@@ -542,7 +524,7 @@ void MainWindow::onAccountRemoveRequested(const QString &uuid) {
         updateBottomBar();
     }
     appendLog(tr("已删除账号「%1」。").arg(name));
-    refreshAccountSkin();
+    refreshAccountSkin(false);
 }
 
 namespace {

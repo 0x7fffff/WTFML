@@ -391,15 +391,71 @@ void LaunchController::onStartButtonClicked() {
     const bool offlineMode = m_owner->offlineIdentity();
 
     QString token;
+    bool offlineFallbackLaunch = false;
     if (!offlineMode) {
-        // 拿不到令牌的原因有好几种（从没登录过 / 登录过期了换不出来 / 换的时候被 XSTS 挡了），
-        // 对应的话完全不同。要一句"请先登录"，用户照做也还是登不上 —— 所以这里把
-        // AuthManager 给的原因一起弹出来。
-        QString tokenError;
-        // 这一段**是同步的**：令牌需要换的时候它要在 UI 线程上发请求（单次超时 15 秒），
-        // 期间界面完全不重绘。先给用户一句话再进去，别让他以为点了没反应。
-        token = m_owner->m_authManager->loadSavedToken(&tokenError);
-        if (token.isEmpty()) {
+        for (;;) {
+            if (shouldStop()) {
+                logCancelledStart();
+                return;
+            }
+            // 拿不到令牌的原因有好几种（从没登录过 / 网络不通 / 刷新令牌失效 / XSTS 拦截），
+            // 分别处理：网络问题允许重试或离线游玩，刷新令牌失效或未登录必须重新登录。
+            QString tokenError;
+            // 这一段**是同步的**：令牌需要换的时候它要在 UI 线程上发请求（单次超时 15 秒）。
+            token = m_owner->m_authManager->loadSavedToken(&tokenError);
+            if (shouldStop()) {
+                logCancelledStart();
+                return;
+            }
+            if (!token.isEmpty()) {
+                break;
+            }
+
+            const AuthManager::RefreshFailureKind failureKind =
+                m_owner->m_authManager->lastRefreshFailureKind();
+            if (m_owner->m_authManager->loggedIn() &&
+                failureKind == AuthManager::RefreshFailureKind::Network) {
+                const QString reason =
+                    tokenError.isEmpty() ? tr("网络连接失败") : tokenError;
+                const int choice = InlineMessage::ask(
+                    m_owner->m_ui->overlay(), MessageKind::Warning, tr("无法刷新登录凭据"),
+                    tr("无法刷新登录凭据：%1。可以重试，或以离线方式进入游戏（无法加入正版服务器）。").arg(reason),
+                    {tr("重试"), tr("离线游玩"), tr("取消")}, 0, -1, false);
+                if (shouldStop()) {
+                    logCancelledStart();
+                    return;
+                }
+                if (choice == 0) {
+                    continue;
+                }
+                if (choice == 1) {
+                    token = m_owner->m_authManager->savedAccessToken();
+                    if (token.isEmpty()) {
+                        token = QStringLiteral("0");
+                    }
+                    offlineFallbackLaunch = true;
+                    m_owner->appendLog(
+                        m_owner->tr("无法刷新登录凭据（%1），已选择以离线方式启动。").arg(reason));
+                    break;
+                }
+                // 「取消」（2）或 Esc / 关窗（-1）：按 #61 取消记法将任务记为「已取消」，不带失败原因。
+                abortStart(StartCancelSource::TaskCenter);
+                logCancelledStart();
+                return;
+            }
+
+            if (m_owner->m_authManager->loggedIn() &&
+                failureKind == AuthManager::RefreshFailureKind::ReloginRequired) {
+                InlineMessage::warning(
+                    m_owner->m_ui->overlay(), tr("需要重新登录"),
+                    tokenError.isEmpty()
+                        ? tr("登录凭据已失效，请重新登录微软账号，或在「账号与外观…」中添加离线账号。")
+                        : tr("%1\n\n请重新登录微软账号，或在「账号与外观…」中添加离线账号。")
+                              .arg(tokenError));
+                failReason = tr("登录凭据已失效，需要重新登录。");
+                return;
+            }
+
             // NOTE: 这里的"离线"指的是**那一个动作**：在
             // 「账号与外观…」那个窗里填个名字、点「添加离线账号」。
             InlineMessage::warning(m_owner->m_ui->overlay(), tr("登录缺失"),
@@ -427,7 +483,8 @@ void LaunchController::onStartButtonClicked() {
     const QString launchAccountKey = identityKeyFor(offlineMode, launchPlayerName, launchPlayerUuid);
 
     m_owner->m_activityCenter->tasks()->setStepState(launchTask, 0, Tasks::TaskStepState::Done,
-        offlineMode ? tr("离线账号，无需联网登录") : QString());
+        offlineMode ? tr("离线账号，无需联网登录")
+                    : (offlineFallbackLaunch ? tr("离线游玩（使用本地档案）") : QString()));
     m_owner->m_activityCenter->tasks()->setStepState(launchTask, 1, Tasks::TaskStepState::Running);
     // version.json 要提前取：natives 的准备和启动前检查都依赖它
     QJsonObject versionJson = m_owner->m_versionManager->getVersionJson(versionId);
