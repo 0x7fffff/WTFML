@@ -241,9 +241,8 @@ int MwAccountAppearanceChecks() {
                                   QString("%1 -> %2")
                                       .arg(before.name())
                                       .arg(dialogViewer->skin().pixelColor(0, 0).name()));
-                            check(!dialogViewer->cape().isNull() &&
-                                      dialogViewer->cape().pixelColor(0, 0) == QColor(200, 30, 30),
-                                  "Z3 披风也一起进去了");
+                            check(dialogViewer->cape().isNull(),
+                                  "Z3 披风不再由资料缓存直接覆盖（由披风列表负责）");
                         }
                         QFile::remove(skinPath);
                         QFile::remove(capePath);
