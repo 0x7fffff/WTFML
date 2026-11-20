@@ -10,6 +10,7 @@
 #include "TaskCenterPanel.hpp"
 #include "AgentPage.hpp"
 #include "Animations.hpp"  // 换页 / 展开折叠 / 上拉面板那几段动效
+#include "BrandMark.hpp"
 #include "DesignDefaults.hpp"
 #include "ElidedLabel.hpp"
 #include "Glass.hpp"
@@ -322,7 +323,8 @@ private:
 /// 颜色在绘制时现取，换主题不必重挂样式表；尺寸仍归 QSS（min-height / max-height）。
 class HeroButton final : public QPushButton {
 public:
-    enum class Shape { Pill, Square, Tile, Play };
+    /// Capsule：启动卡片右边那颗「取消 / 关闭」——圆头、淡底浓度同 Square（0.40），中间写字。
+    enum class Shape { Pill, Square, Tile, Play, Capsule };
     HeroButton(Shape shape, QWidget *parent) : QPushButton(parent), m_shape(shape) {
         setAttribute(Qt::WA_Hover, true);
         setCursor(Qt::PointingHandCursor);
@@ -342,13 +344,17 @@ protected:
         const bool scene = Glass::sceneShown();
         const bool hot = isEnabled() && (underMouse() || isDown());
         const QRectF box = QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5);
-        const qreal radius = m_shape == Shape::Pill || m_shape == Shape::Play ? box.height() / 2 : 14.0;
+        const qreal radius = m_shape == Shape::Pill || m_shape == Shape::Play || m_shape == Shape::Capsule
+                                 ? box.height() / 2
+                                 : 14.0;
         if (m_shape == Shape::Play) {
             p.setPen(Qt::NoPen);
             p.setBrush(isDown() ? t.primaryPressed : underMouse() ? t.primaryHover : t.primary);
             p.drawEllipse(box);
         } else {
-            qreal alpha = m_shape == Shape::Pill ? 0.30 : m_shape == Shape::Square ? 0.40 : 0.0;
+            qreal alpha = m_shape == Shape::Pill                                    ? 0.30
+                          : m_shape == Shape::Square || m_shape == Shape::Capsule ? 0.40
+                                                                                  : 0.0;
             if (m_shape == Shape::Tile && (hot || hasFocus())) alpha = 0.42;
             if (hot) alpha += isDown() ? 0.18 : 0.10;
             if (alpha > 0 || m_dashed) {
@@ -374,6 +380,11 @@ protected:
             const QSize s = iconSize();
             const QRect r(QPoint((width() - s.width()) / 2, (height() - s.height()) / 2), s);
             icon().paint(&p, r);
+        }
+        if (m_shape == Shape::Capsule) {
+            p.setPen(heroInk(false));
+            p.setFont(font());
+            p.drawText(rect(), Qt::AlignCenter, text());
         }
         if (hasFocus() && property("wtfmlKeyboardFocus").toBool()) {
             QPen ring(Theme::focusRingColor(palette()));
@@ -409,6 +420,182 @@ private:
     Shape m_shape;
     QPointer<QWidget> m_reveal;
     bool m_dashed = false;
+};
+
+/// 启动卡片失败态的「查看详情」：一段能点的主题色文字，无底无框，悬停多一道下划线。
+/// 颜色取 primary：accentInk 在三套主题上都和 heroInk 太近，看不出哪个能点；浅色主题压深一档保对比。
+class HeroLink final : public QPushButton {
+public:
+    explicit HeroLink(QWidget *parent) : QPushButton(parent) {
+        setAttribute(Qt::WA_Hover, true);
+        setCursor(Qt::PointingHandCursor);
+    }
+
+protected:
+    void paintEvent(QPaintEvent *) override {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        QFont f = font();
+        f.setUnderline(underMouse());
+        p.setFont(f);
+        p.setPen(Theme::isDark() ? Theme::tokens().primary : Theme::tokens().primary.darker(130));
+        p.drawText(rect(), Qt::AlignCenter, text());
+        if (hasFocus() && property("wtfmlKeyboardFocus").toBool()) {
+            QPen ring(Theme::focusRingColor(palette()));
+            ring.setWidthF(2.0);
+            p.setPen(ring);
+            p.setBrush(Qt::NoBrush);
+            p.drawRoundedRect(QRectF(rect()).adjusted(1, 1, -1, -1), 8, 8);
+        }
+    }
+    void enterEvent(QEnterEvent *event) override {
+        QPushButton::enterEvent(event);
+        update();
+    }
+    void leaveEvent(QEvent *event) override {
+        QPushButton::leaveEvent(event);
+        update();
+    }
+};
+
+/// 启动卡片那一行（规格：.tongxi 样张 card-spec.md §2）：
+/// 「手写 W 76×52 | 22 | 说明 / 进度两行（加载 300 宽、失败 236 宽）| … | 胶囊 84×36」，整行恒宽 512、高 52，
+/// 胶囊（取消 / 关闭）三种状态下位置、尺寸不动；失败态「查看详情」落在胶囊左边、进度条尾巴原本那段。
+/// 两行网格：第一行 y 4–24（说明），第二行 y 24–44（进度条 / 停在…），右边操作的中线都压在第二行中线 y 34。
+/// 整行尺寸固定，直接按坐标摆；换状态只换字和显隐，不重排。
+class HomeLaunchRow final : public QWidget {
+public:
+    static constexpr int kWidth = 512, kHeight = 52;
+    static constexpr int kMarkW = 76, kColumnX = 76 + 22, kColumnW = 300, kFailColumnW = 236;
+    static constexpr int kLinkX = kColumnX + kFailColumnW + 20, kLinkW = 60;
+    static constexpr int kPillX = kColumnX + kColumnW + 30, kPillW = 84, kPillH = 36;
+    static constexpr int kLine1Y = 4, kLine2Y = 24, kLineH = 20, kFailIndent = 22;
+
+    explicit HomeLaunchRow(QWidget *parent) : QWidget(parent) {
+        setObjectName(QStringLiteral("homeLaunchCard"));
+        setFixedSize(kWidth, kHeight);
+        setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+        mark = new LaunchMark(this);
+        mark->setObjectName(QStringLiteral("homeLaunchMark"));
+        mark->setGeometry(0, 0, kMarkW, kHeight);
+        const auto label = [this](const QString &name, int px, QFont::Weight weight, bool secondary) {
+            auto *l = new ElidedLabel(this);
+            l->setObjectName(name);
+            l->setMinimumWidth(1);
+            QFont f = l->font();
+            f.setPixelSize(px);
+            f.setWeight(weight);
+            l->setFont(f);
+            l->setAttribute(Qt::WA_TransparentForMouseEvents);
+            followHeroInk(l, secondary);
+            return l;
+        };
+        step = label(QStringLiteral("homeLaunchStep"), 14, QFont::Medium, false);
+        count = label(QStringLiteral("homeLaunchCount"), 13, QFont::Normal, true);
+        count->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        reason = label(QStringLiteral("homeLaunchReason"), 14, QFont::Medium, false);
+        stopAt = label(QStringLiteral("homeLaunchStopAt"), 13, QFont::Normal, true);
+        warn = new QLabel(this);
+        warn->setObjectName(QStringLiteral("homeLaunchWarn"));
+        warn->setAttribute(Qt::WA_TransparentForMouseEvents);
+        warn->setScaledContents(true);
+        const auto applyWarn = [this]() {
+            const Theme::Tokens t = Theme::tokens();
+            warn->setPixmap(VersionIcons::line(QStringLiteral("warn"), 16, Theme::textTone(t.dangerInk, t.danger), 1.8));
+        };
+        applyWarn();
+        Theme::follow(warn, applyWarn);
+        bar = new TaskProgressBar(this);
+        bar->setObjectName(QStringLiteral("homeLaunchBar"));
+        bar->setFullUsesAccent(true);  // 成功走满仍是主题色，和 W、整张卡片一致（成功 / 失败另由眉题与 W 区分）
+        details = new HeroLink(this);
+        details->setObjectName(QStringLiteral("homeLaunchDetails"));
+        details->setText(QCoreApplication::translate("MainWindowUI", "查看详情"));
+        QFont linkFont = details->font();
+        linkFont.setPixelSize(14);
+        linkFont.setWeight(QFont::DemiBold);
+        details->setFont(linkFont);
+        details->setGeometry(kLinkX, kHeight - kPillH, kLinkW, kPillH);
+        pill = new HeroButton(HeroButton::Shape::Capsule, this);
+        pill->setObjectName(QStringLiteral("homeLaunchPill"));
+        QFont pillFont = pill->font();
+        pillFont.setPixelSize(14);
+        pillFont.setWeight(QFont::Medium);
+        pill->setFont(pillFont);
+        pill->setGeometry(kPillX, kHeight - kPillH, kPillW, kPillH);  // 底边贴行底（同原主按钮），中线 = 第二行中线
+        place(false);
+    }
+
+    /// 按状态摆字、显隐（胶囊永远在同一处）。
+    void apply(const MainWindowUI::LaunchCard &card, const QString &instanceName) {
+        using Phase = MainWindowUI::LaunchCard::Phase;
+        const bool failed = card.phase == Phase::Failed;
+        place(failed);
+        step->setVisible(!failed);
+        bar->setVisible(!failed);
+        count->setVisible(!failed && card.phase == Phase::Running && card.total > 0);
+        warn->setVisible(failed);
+        reason->setVisible(failed);
+        stopAt->setVisible(failed);
+        details->setVisible(failed);
+        pill->setVisible(card.phase != Phase::Succeeded);  // 成功态不给操作，只藏不挪
+        pill->setText(failed ? QCoreApplication::translate("MainWindowUI", "关闭")
+                             : QCoreApplication::translate("MainWindowUI", "取消"));
+        pill->setAccessibleName(pill->text());
+        details->setAccessibleName(details->text());
+        QString line1;
+        if (failed) {
+            reason->setText(card.reason);
+            stopAt->setText(QCoreApplication::translate("MainWindowUI", "停在「%1」").arg(card.stage));
+            line1 = card.reason;
+            mark->finish(false);
+        } else if (card.phase == Phase::Succeeded) {
+            step->setText(QCoreApplication::translate("MainWindowUI", "游戏窗口已打开"));
+            bar->setRange(0, 1);
+            bar->setValue(1);
+            line1 = step->text();
+            mark->finish(true);
+        } else {
+            step->setText(card.stage);
+            line1 = card.stage;
+            if (card.total > 0) {
+                const qint64 done = qBound<qint64>(0, card.done, card.total);
+                count->setText(card.bytes ? QStringLiteral("%1 / %2 MB")
+                                                .arg(qRound64(done / 1048576.0))
+                                                .arg(qMax<qint64>(1, qRound64(card.total / 1048576.0)))
+                                          : QStringLiteral("%1 / %2").arg(done).arg(card.total));
+                bar->setRange(0, 1000);
+                bar->setValue(int(done * 1000 / card.total));
+                line1 += QLatin1Char(' ') + count->text();
+            } else {
+                bar->setRange(0, 0);
+            }
+            mark->startWriting();
+        }
+        const QString eyebrow = failed ? QCoreApplication::translate("MainWindowUI", "启动失败")
+                                : card.phase == Phase::Succeeded ? QCoreApplication::translate("MainWindowUI", "游戏已启动")
+                                                                 : QCoreApplication::translate("MainWindowUI", "正在启动游戏");
+        setAccessibleName(QCoreApplication::translate("MainWindowUI", "%1 %2：%3").arg(eyebrow, instanceName, line1));
+    }
+
+    LaunchMark *mark = nullptr;
+    ElidedLabel *step = nullptr, *count = nullptr, *reason = nullptr, *stopAt = nullptr;
+    QLabel *warn = nullptr;
+    TaskProgressBar *bar = nullptr;
+    HeroLink *details = nullptr;
+    HeroButton *pill = nullptr;
+
+private:
+    void place(bool failed) {
+        const int w = failed ? kFailColumnW : kColumnW;
+        step->setGeometry(kColumnX, kLine1Y, w, kLineH);
+        count->setGeometry(kColumnX, kLine1Y, w, kLineH);
+        const int barH = 4;
+        bar->setGeometry(kColumnX, kLine2Y + (kLineH - barH) / 2, w, barH);
+        warn->setGeometry(kColumnX, kLine1Y + 2, 16, 16);
+        reason->setGeometry(kColumnX + kFailIndent, kLine1Y, w - kFailIndent, kLineH);
+        stopAt->setGeometry(kColumnX + kFailIndent, kLine2Y, w - kFailIndent, kLineH);
+    }
 };
 
 /// 主页右上那颗账号胶囊里的圆头像（32，和胶囊两头的半圆同心）。没登录（pixmap 空）画淡底 + 人形线条。
@@ -627,7 +814,8 @@ QString homeTileSubtitle(const QString &detail) {
 }
 
 /// 启动区那一行元信息（设计稿 .meta）：加载器 · Minecraft 版本 · 上次游玩。
-QString homeLaunchMeta(const MainWindowUI::HomeQuickItem &item) {
+/// 启动卡片出来时末项换成 @p tail（登录方式，card-spec §1）。
+QString homeLaunchMeta(const MainWindowUI::HomeQuickItem &item, const QString &tail = {}) {
     const QString versionLine = item.detail.section(QLatin1Char('\n'), 0, 0);
     const QString activityLine = item.detail.section(QLatin1Char('\n'), 1, 1);
     QStringList parts;
@@ -635,7 +823,7 @@ QString homeLaunchMeta(const MainWindowUI::HomeQuickItem &item) {
     const QString loader = versionLine.section(QStringLiteral(" / "), 1).trimmed();
     if (!loader.isEmpty()) parts << loader;
     if (!game.isEmpty()) parts << game;
-    const QString when = activityLine.section(QStringLiteral(" / "), 0, 0).trimmed();
+    const QString when = tail.isEmpty() ? activityLine.section(QStringLiteral(" / "), 0, 0).trimmed() : tail;
     if (!when.isEmpty()) parts << when;
     return parts.join(QStringLiteral("  ·  "));
 }
@@ -1969,7 +2157,12 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
     // 下面「启动游戏」+ 实例设置。一个实例都没有时：「还没有实例」+「下载游戏」。
     if (homeQuickCurrentSection != nullptr && homeQuickCurrentRow != nullptr) {
         closeHomeInstancePicker();  // 它贴着的那一块马上要重建
+        if (m_launchRow != nullptr) {
+            m_launchRow->hide();
+            m_launchRow->setParent(homeQuickCurrentSection);  // 卡片那一行不跟着重建，W 的动画不断
+        }
         clearRow(homeQuickCurrentRow);
+        m_homeCurrentItem = current.isEmpty() ? HomeQuickItem{} : current.first();
         if (!current.isEmpty()) {
             const HomeQuickItem &item = current.first();
             auto *card = new QWidget(homeQuickCurrentSection);
@@ -2004,6 +2197,8 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
                 eyebrowFont.setWeight(QFont::Medium);
                 eyebrow->setFont(eyebrowFont);
                 eyebrow->setAttribute(Qt::WA_TransparentForMouseEvents);
+                // 先装：过滤器后装的先跑，followHeroInk 刷完 heroInk 之后这一条再按失败涂回危险色。
+                Theme::follow(eyebrow, [this]() { syncLaunchCard(); });
                 followHeroInk(eyebrow, true);
                 blockColumn->addWidget(eyebrow);
             }
@@ -2067,6 +2262,22 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
             auto *actions = new QHBoxLayout;
             actions->setContentsMargins(kHomeHeroInset, 0, 0, 0);
             actions->setSpacing(10);
+            if (!item.empty) {
+                if (m_launchRow == nullptr) {
+                    auto *row = new HomeLaunchRow(card);
+                    QObject::connect(row->pill, &QPushButton::clicked, row, [this]() {
+                        onLaunchCardAction(LaunchCardAction::Cancel);
+                    });
+                    QObject::connect(row->details, &QPushButton::clicked, row, [this]() {
+                        onLaunchCardAction(LaunchCardAction::Details);
+                    });
+                    m_launchRow = row;
+                } else {
+                    m_launchRow->setParent(card);
+                }
+                m_launchRow->hide();
+                actions->addWidget(m_launchRow);  // 显隐由 syncLaunchCard() 管：卡片和下面两颗按钮二选一
+            }
             auto *launch = new QPushButton(card);
             launch->setObjectName(QStringLiteral("homeCurrentLaunch"));
             launch->setProperty("wtfmlHeroStart", true);
@@ -2130,6 +2341,7 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
             column->addLayout(actions);
             homeQuickCurrentRow->addWidget(card, 1);
             syncHomeLaunchButton();
+            syncLaunchCard();
             card->layout()->activate();
             card->setFixedHeight(card->layout()->sizeHint().height());
         }
@@ -2295,6 +2507,76 @@ void MainWindowUI::setHomeQuickMode(HomeQuickMode mode) {
     apply(homeQuickCurrentTab, nullptr, HomeQuickMode::Current);
     apply(homeQuickRecentTab, homeQuickRecentSection, HomeQuickMode::Recent);
     apply(homeQuickFavoriteTab, homeFavoriteSection, HomeQuickMode::Favorite);
+}
+
+void MainWindowUI::setLaunchCard(const LaunchCard &card) {
+    LaunchCard next = card;
+    if (next.phase == LaunchCard::Phase::Failed && next.stage.isEmpty() && next.taskId == m_launchCard.taskId)
+        next.stage = m_launchCard.stage;  // 失败那一刻没给阶段：停在上一份数据的那一段
+    const bool firstSuccess = next.phase == LaunchCard::Phase::Succeeded
+                              && !(m_launchCard.taskId == next.taskId && m_launchCard.phase == LaunchCard::Phase::Succeeded);
+    m_launchCard = next;
+    if (firstSuccess && homeQuickCurrentSection != nullptr) {
+        QTimer::singleShot(launchCardSuccessHoldMs(), homeQuickCurrentSection, [this, id = next.taskId]() {
+            if (m_launchCard.taskId != id || m_launchCard.phase != LaunchCard::Phase::Succeeded) return;
+            m_launchCardDismissed = id;
+            syncLaunchCard();
+        });
+    }
+    syncLaunchCard();
+}
+
+bool MainWindowUI::launchCardShown() const {
+    return m_launchRow != nullptr && m_launchCard.phase != LaunchCard::Phase::Idle
+           && m_launchCard.taskId != m_launchCardDismissed && !m_homeCurrentItem.empty
+           && !m_homeCurrentItem.key.isEmpty()
+           && (m_launchCard.instanceKey.isEmpty() || m_launchCard.instanceKey == m_homeCurrentItem.key);
+}
+
+void MainWindowUI::syncLaunchCard() {
+    if (homeQuickCurrentSection == nullptr) return;
+    const bool shown = launchCardShown();
+    const bool failed = shown && m_launchCard.phase == LaunchCard::Phase::Failed;
+    if (auto *launch = homeQuickCurrentSection->findChild<QPushButton *>(QStringLiteral("homeCurrentLaunch")))
+        launch->setVisible(!shown);
+    if (auto *edit = homeQuickCurrentSection->findChild<QPushButton *>(QStringLiteral("homeCurrentEdit")))
+        edit->setVisible(!shown);
+    if (auto *row = static_cast<HomeLaunchRow *>(m_launchRow)) {
+        if (shown) {
+            row->apply(m_launchCard, m_homeCurrentItem.name);
+        } else {
+            row->mark->reset();
+        }
+        row->setVisible(shown);
+    }
+    if (auto *eyebrow = homeQuickCurrentSection->findChild<QLabel *>(QStringLiteral("homeCurrentEyebrow"))) {
+        eyebrow->setText(!shown ? QCoreApplication::translate("MainWindowUI", "当前实例")
+                         : failed ? QCoreApplication::translate("MainWindowUI", "启动失败")
+                         : m_launchCard.phase == LaunchCard::Phase::Succeeded
+                             ? QCoreApplication::translate("MainWindowUI", "游戏已启动")
+                             : QCoreApplication::translate("MainWindowUI", "正在启动游戏"));
+        const Theme::Tokens t = Theme::tokens();
+        // 三个角色一起换（同 followHeroInk）：眉题在卡片按钮里，前景角色跟着父控件是 ButtonText。
+        const QColor ink = failed ? Theme::textTone(t.dangerInk, t.danger) : heroInk(true);
+        QPalette pal = eyebrow->palette();
+        for (const QPalette::ColorRole role : {QPalette::WindowText, QPalette::ButtonText, QPalette::Link}) pal.setColor(role, ink);
+        eyebrow->setPalette(pal);
+    }
+    if (auto *meta = static_cast<ElidedLabel *>(homeQuickCurrentSection->findChild<QLabel *>(QStringLiteral("homeCurrentVersion"))))
+        meta->setText(homeLaunchMeta(m_homeCurrentItem, shown ? m_launchCard.login : QString()));
+}
+
+void MainWindowUI::onLaunchCardAction(LaunchCardAction action) {
+    const quint64 id = m_launchCard.taskId;
+    if (action == LaunchCardAction::Details) {
+        if (m_launchCardHandler) m_launchCardHandler(id, action);
+        return;
+    }
+    // 胶囊：加载中 = 取消（停掉这次启动），失败 = 关闭（只还原）。两种都当场还原成平常的启动行。
+    const bool cancel = m_launchCard.phase == LaunchCard::Phase::Running;
+    m_launchCardDismissed = id;
+    syncLaunchCard();
+    if (cancel && m_launchCardHandler) m_launchCardHandler(id, LaunchCardAction::Cancel);
 }
 
 void MainWindowUI::setHomeLaunchRunning(bool running) {

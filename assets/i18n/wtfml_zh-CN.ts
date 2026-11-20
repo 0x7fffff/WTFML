@@ -306,10 +306,6 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>游戏进程启动后可取消此任务。</source>
-            <translation type="unfinished"></translation>
-        </message>
-        <message>
             <source>导出正在生成压缩包。为避免留下不完整的文件，压缩阶段无法取消。</source>
             <translation type="unfinished"></translation>
         </message>
@@ -5546,6 +5542,10 @@
             <source>找不到也下载不到 Java %1。</source>
             <translation type="unfinished"></translation>
         </message>
+        <message>
+            <source>已取消准备 Java 运行时。</source>
+            <translation type="unfinished"></translation>
+        </message>
     </context>
     <context>
         <name>GroupDialog</name>
@@ -10773,6 +10773,14 @@ Minecraft %2 / %3 %4</source>
 %3
 
 请在「实例设置」中手动指定路径，再启动游戏。</source>
+            <translation type="unfinished"></translation>
+        </message>
+        <message>
+            <source>启动已取消。</source>
+            <translation type="unfinished"></translation>
+        </message>
+        <message>
+            <source>启动已取消：启动器正在关闭。</source>
             <translation type="unfinished"></translation>
         </message>
     </context>

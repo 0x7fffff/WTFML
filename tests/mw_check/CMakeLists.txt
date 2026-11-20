@@ -429,6 +429,7 @@ set(SOURCE_FILES
     # MainWindowUI.cpp 直接 new 它们两个，少了这两行会在链接那一步报
     # `undefined reference to TitleBar::TitleBar(QWidget*)` / `WindowChrome::…`。
     ${REPO_ROOT}/ui/TitleBar.cpp
+    ${REPO_ROOT}/ui/BrandMark.cpp
     ${REPO_ROOT}/ui/DesignDefaults.cpp
     ${REPO_ROOT}/ui/Theme.cpp
     # 动效那一层：按钮按下 / 换页 / 展开折叠。MainWindowUI.cpp 和
@@ -694,9 +695,10 @@ set_tests_properties(wtfml.workspace PROPERTIES
     TIMEOUT 30
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
 )
+# TIMEOUT 480：单独跑约 200 秒，和其他套件并行或机器忙时会超过 240 秒。
 set_tests_properties(wtfml.main-window PROPERTIES
     LABELS "ui;integration"
-    TIMEOUT 240
+    TIMEOUT 480
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
 )
 

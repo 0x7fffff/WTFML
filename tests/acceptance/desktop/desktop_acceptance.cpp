@@ -25,6 +25,7 @@
 #include "DesktopInputAcceptance.hpp"
 #include "DesktopDesignShots.hpp"
 #include "DesktopPageShots.hpp"
+#include "DesktopLaunchCardShots.hpp"
 #include <QProcess>
 #include "auth/AccountStore.hpp"
 #include "launcher/LauncherManager.hpp"
@@ -32,8 +33,10 @@
 int main(int argc, char **argv) {
     bool designShots = false;
     bool pageShots = false;
+    bool launchCardShots = false;
     for (int i = 1; i < argc; ++i) pageShots |= qstrcmp(argv[i], "--page-shots") == 0;
-    for (int i = 1; i < argc; ++i) designShots |= qstrcmp(argv[i], "--design-shots") == 0 || pageShots;
+    for (int i = 1; i < argc; ++i) launchCardShots |= qstrcmp(argv[i], "--launch-card-shots") == 0;
+    for (int i = 1; i < argc; ++i) designShots |= qstrcmp(argv[i], "--design-shots") == 0 || pageShots || launchCardShots;
     // grab() 也要截到毛玻璃底下的风景；真屏抓边缘样张时可从外面指定别的档（如 acrylic）。
     if (designShots && qEnvironmentVariableIsEmpty("WTFML_BACKDROP")) qputenv("WTFML_BACKDROP", "scene");
     // 离屏平台在 Windows 上用 FreeType 字库，只扫 Qt 自己的 lib/fonts（没有这个目录）：系统字体一支
@@ -60,6 +63,7 @@ int main(int argc, char **argv) {
     parser.addOption({"manual-input", "90-second native keyboard observation without synthesizing keys"});
     parser.addOption({"design-shots", "Design comparison screenshots at device pixel ratio 1"});
     parser.addOption({"page-shots", "Settings / tasks / account / log / dialog comparison screenshots"});
+    parser.addOption({"launch-card-shots", "Home launch card (#65): three themes x four states, plus W frame strips"});
     parser.process(app);
     const bool extended = parser.isSet("extended");
     const int sceneCount = extended ? 10 : 4;
@@ -129,7 +133,10 @@ int main(int argc, char **argv) {
     window.show();
     if (designShots) {
         Anim::setEnabled(false);  // 截图要确定的终态
-        if (pageShots) {
+        if (launchCardShots) {
+            Anim::setEnabled(true);  // 卡片要看真的动画那一刻（不定进度条、W 的墨段）
+            LaunchCardShots::run(app, window, root);
+        } else if (pageShots) {
             PageShots::run(app, window, root);
         } else {
             DesktopAcceptance::seedTasks(window);

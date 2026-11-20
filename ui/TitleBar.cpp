@@ -6,6 +6,7 @@
 #include "TitleBar.hpp"
 
 #include "Animations.hpp"
+#include "BrandMark.hpp"
 #include "Glass.hpp"
 #include "Theme.hpp"
 #include "VersionIcons.hpp"
@@ -13,7 +14,6 @@
 #include <QApplication>
 #include <QEasingCurve>
 #include <QFile>
-#include <QRegularExpression>
 #include <QFontMetrics>
 #include <QHBoxLayout>
 #include <QKeyEvent>
@@ -137,72 +137,13 @@ void paintWriteMask(QPainter &mask, qreal progress) {
 /// 品牌标「手写的 W」：设计稿 24 px 专版（`assets/app/wtfml-24.svg`，一条只有 M/L/Z 的填充路径），
 /// 读成 24×24 坐标里的 QPainterPath，画多大缩多大、颜色由调用方给。
 const QPainterPath &brandMarkPath() {
-    static const QPainterPath path = [] {
-        initIconResources();
-        QFile file(QStringLiteral(":/assets/app/wtfml-24.svg"));
-        QPainterPath out;
-        out.setFillRule(Qt::WindingFill);  // SVG 默认 nonzero
-        if (!file.open(QIODevice::ReadOnly)) return out;
-        const QString svg = QString::fromUtf8(file.readAll());
-        const QString d = QRegularExpression(QStringLiteral(" d=\"([^\"]*)\"")).match(svg).captured(1);
-        QChar command;
-        QList<qreal> numbers;
-        const auto flush = [&] {
-            for (int i = 0; i + 1 < numbers.size(); i += 2) {
-                const QPointF p(numbers.at(i), numbers.at(i + 1));
-                // M 后面跟着的多组坐标按 L 算（SVG 规矩）。
-                if (command == QLatin1Char('M') && i == 0) out.moveTo(p);
-                else out.lineTo(p);
-            }
-            if (command == QLatin1Char('Z')) out.closeSubpath();
-            numbers.clear();
-        };
-        static const QRegularExpression token(QStringLiteral(R"([MLZ]|-?\d*\.?\d+)"));
-        for (auto it = token.globalMatch(d); it.hasNext();) {
-            const QString t = it.next().captured(0);
-            if (t.size() == 1 && t.at(0).isLetter()) {
-                flush();
-                command = t.at(0);
-                if (command == QLatin1Char('Z')) flush();
-            } else {
-                numbers.append(t.toDouble());
-            }
-        }
-        flush();
-        return out;
-    }();
+    initIconResources();
+    static const QPainterPath path = BrandMark::pathFromSvg(QStringLiteral(":/assets/app/wtfml-24.svg"));
     return path;
 }
 
-/// 品牌标的两档渐变色（上 → 下）。出厂暮色雪山（预设 dark、没改主题色）用图标原色；
-/// 别的主题、改过主题色的按主题色走（上一档提亮）。
-QPair<QColor, QColor> brandMarkStops() {
-    const Theme::Spec spec = Theme::current();
-    const QColor presetAccent = Theme::tokens(spec.presetId).primary;
-    const bool customAccent = spec.accent.isValid() && spec.accent != presetAccent;
-    // 「跟着系统」落在深色那一档时长得和暮色雪山一样，也用原色。
-    const bool charcoal = Theme::tokens().primary == Theme::tokens(QStringLiteral("dark")).primary;
-    if (charcoal && !customAccent) return {QColor("#8682D4"), QColor("#6C68BC")};
-    const QColor base = customAccent ? spec.accent : Theme::tokens().deep;
-    return {base.lighter(118), base};
-}
-
-/// @p c 叠在 @p backgrounds 每一种底上之后最低的那个对比度（半透明的墨按叠出来的色算）。
-double worstContrast(const QColor &c, const QList<QColor> &backgrounds) {
-    double low = 21.0;
-    for (const QColor &bg : backgrounds) low = qMin(low, Glass::contrast(Glass::over(c, bg), bg));
-    return low;
-}
-
-/// 把 @p color 往 @p ink 那头挪，直到它在 @p backgrounds 每一种底上都有 3:1（WCAG 图形对比度）。
-/// @p ink 是这一处文字用的墨（主题保证它在这些底上读得清），所以一定收得住。
-QColor ensureGraphicContrast(QColor color, const QColor &ink, const QList<QColor> &backgrounds) {
-    const auto worst = [&](const QColor &c) { return worstContrast(c, backgrounds); };
-    // 小步挪（每步 5%），刚够 3:1 就停：离主题色越近越好（出厂暮色雪山的下端只需挪一点）。
-    const QColor from = color;
-    for (int step = 1; step <= 20 && worst(color) < 3.0; ++step) color = blendedColor(from, ink, step * 0.05);
-    return color;
-}
+using BrandMark::ensureGraphicContrast;
+using BrandMark::worstContrast;
 
 /// 窗口按钮的墨：在 @p under（这颗按钮底下此刻实测的两端）上不够 3:1 时，往这一套主题里
 /// heroInk / heroVeil（一深一浅）中对比度更高的那头小步挪，刚够就停（和品牌标同一个逼近）。
@@ -372,10 +313,10 @@ void TitleBarButton::paintEvent(QPaintEvent *) {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing, true);
     if (m_glyph == Glyph::Logo) {
-        // 颜色先按主题取（brandMarkStops），再补对比度：底色取这一格在**任一页**可能落到的
+        // 颜色先按主题取（BrandMark::stops()），再补对比度：底色取这一格在**任一页**可能落到的
         // （主页清晰风景 + 别的页磨砂底），墨色固定用轨的正文色，所以换页、风景淡入淡出时颜色不跳。
         // 自定义背景图很亮 / 很暗时字靠着色层兜底，这枚小图形靠往墨色挪。
-        const QPair<QColor, QColor> stops = brandMarkStops();
+        const QPair<QColor, QColor> stops = BrandMark::stops();
         QList<QColor> under{Theme::tokens().page};
         if (const Glass::Backdrop *backdrop = Glass::Backdrop::of(this)) under = backdrop->colorsUnderAnyPage(this);
         if (Theme::partHasBackground(Theme::Part::TitleBar)) {
