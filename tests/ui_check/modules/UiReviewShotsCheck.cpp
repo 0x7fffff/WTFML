@@ -78,6 +78,15 @@
 
 namespace {
 
+/// 给已有焦点的控件送一发 Tab：让 Theme 的焦点过滤器记下"最后一次输入是键盘"。
+/// W 的焦点下划线只认键盘到达的焦点，样张里光 setFocus(TabFocusReason) 不再画。
+void sendTabKey(QWidget *target) {
+    QKeyEvent tab(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier);
+    QApplication::sendEvent(target, &tab);
+    QApplication::processEvents();
+}
+
+
 struct ShotOptions {
     QString out;
     QString theme;
@@ -725,6 +734,7 @@ int shootR155(QApplication &app, QMainWindow &window, MainWindowUI &ui, const Sh
                 static_cast<TitleBarButton *>(logo)->hasKeyboardFocus() ? "画" : "不画");
     logo->clearFocus();
     logo->setFocus(Qt::TabFocusReason);
+    sendTabKey(logo);  // W 只认真按键后的 Tab 焦点
     shot(QStringLiteral("home-nav-collapsed-w-tab-focus"));
     logo->clearFocus();
 
@@ -957,6 +967,7 @@ int shootR179c(QApplication &app, QMainWindow &window, MainWindowUI &ui, const S
     ui.getTabWidget()->setCurrentIndex(MainWindowUI::homeTabIndex());
     QAbstractButton *logo = ui.titleBar()->logoButton();
     logo->setFocus(Qt::TabFocusReason);
+    sendTabKey(logo);
     shot(QStringLiteral("home-w-tab-focus"));
     for (const bool focused : {true, false}) {
         if (!focused) logo->clearFocus();

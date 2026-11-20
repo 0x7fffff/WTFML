@@ -2,6 +2,7 @@
 #include "MainWindowPageLayout.hpp"
 
 #include <QKeyEvent>
+#include <QPushButton>
 // Z11：自绘外框 + 左导航轨（ui/TitleBar）。这里验接线与摆位：轨在左边、宽 208 / 折叠 64、
 // 启动先是图标轨、点品牌标 W 收展（155）、窄窗（< 1024）强制折、右栏顶上那条 40 高的窗口按钮条（最小化 / 最大化 / 关闭）、
 // 导航的颗数与字、点下去发什么信号、品牌字。"系统那条白条到底去掉了没有"是 Win32 那一层
@@ -223,6 +224,77 @@ int UiTitleBarChecks(QMainWindow &window, MainWindowUI &ui) {
     QApplication::processEvents();
     check(!rail->isCollapsed() && rail->width() == TitleBar::railWidth(), "★ Z11 窗口放宽回去轨自动展开");
     QObject::disconnect(collapseSpy);
+
+    // ---------- W 的焦点下划线判据：理由是 Tab 还不够，还要最后一次输入是键盘 ----------
+    // 鼠标关浮层 / 换页时 Qt 把焦点按 TabFocusReason 交给链上下一个（W 排在后面就接到），没人按过 Tab。
+    {
+        QWidget host;
+        host.resize(420, 240);
+        auto *overlay = new QPushButton(QStringLiteral("浮层"), &host);
+        auto *probeRail = new TitleBar(&host);
+        host.show();
+        host.activateWindow();
+        QApplication::processEvents();
+        auto *probeLogo = static_cast<TitleBarButton *>(probeRail->logoButton());
+        int logoClicks = 0;
+        QObject::connect(probeLogo, &QAbstractButton::clicked, probeLogo, [&logoClicks] { ++logoClicks; });
+        Qt::FocusReason landedReason = Qt::OtherFocusReason;
+        struct ReasonProbe : QObject {
+            Qt::FocusReason *out;
+            bool eventFilter(QObject *, QEvent *e) override {
+                if (e->type() == QEvent::FocusIn) *out = static_cast<QFocusEvent *>(e)->reason();
+                return false;
+            }
+        } reasonProbe;
+        reasonProbe.out = &landedReason;
+        probeLogo->installEventFilter(&reasonProbe);
+        const auto press = [](QWidget *target, Qt::Key key) {
+            QKeyEvent down(QEvent::KeyPress, key, Qt::NoModifier);
+            QApplication::sendEvent(target, &down);
+            QApplication::processEvents();
+        };
+        probeLogo->clearFocus();
+        QApplication::processEvents();
+        const QImage plain = captureWidget(probeLogo);
+
+        // ① 鼠标点过浮层，再把它藏起来：焦点交给 W（理由 Tab），不画下划线、回车也不收放。
+        overlay->setFocusPolicy(Qt::StrongFocus);
+        QMouseEvent click(QEvent::MouseButtonPress, QPointF(5, 5), QPointF(overlay->mapToGlobal(QPoint(5, 5))),
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(overlay, &click);
+        overlay->setFocus(Qt::MouseFocusReason);
+        QApplication::processEvents();
+        overlay->hide();
+        QApplication::processEvents();
+        check(probeLogo->hasFocus() &&
+                  (landedReason == Qt::TabFocusReason || landedReason == Qt::BacktabFocusReason),
+              "★ 藏起有焦点的控件后 Qt 把焦点按 Tab 理由交给 W（复现前提）",
+              QStringLiteral("有焦点 %1 理由 %2").arg(probeLogo->hasFocus()).arg(int(landedReason)));
+        check(!probeLogo->hasKeyboardFocus() && captureWidget(probeLogo) == plain,
+              "★ 鼠标关浮层 / 换页把焦点交给 W：不画下划线");
+        press(probeLogo, Qt::Key_Return);
+        check(logoClicks == 0 && !probeLogo->hasKeyboardFocus(),
+              "★ 交接来的焦点按回车不收放导航，也不因按键点亮下划线");
+
+        // ② 真按 Tab 从前一个控件选到 W：画下划线，回车收放。
+        probeLogo->clearFocus();
+        overlay->show();
+        overlay->setFocus(Qt::MouseFocusReason);
+        QApplication::processEvents();
+        press(overlay, Qt::Key_Tab);
+        check(probeLogo->hasFocus() && probeLogo->hasKeyboardFocus() && captureWidget(probeLogo) != plain,
+              "★ 真按 Tab 选到 W：画下划线");
+        press(probeLogo, Qt::Key_Return);
+        check(logoClicks == 1, "★ 真按 Tab 选到 W 后回车收放导航");
+
+        // ③ 窗口激活自动落上来的焦点：回车不收放（过滤器此时已因按键把属性置真，守卫不能读它）。
+        probeLogo->clearFocus();
+        probeLogo->setFocus(Qt::ActiveWindowFocusReason);
+        QApplication::processEvents();
+        press(probeLogo, Qt::Key_Return);
+        check(probeLogo->hasFocus() && logoClicks == 1 && !probeLogo->hasKeyboardFocus(),
+              "★ 窗口激活后直接按回车不收放导航");
+    }
 
     // ---------- 窗口按钮的信号（单独一份轨，不去真的收主窗口） ----------
     {
