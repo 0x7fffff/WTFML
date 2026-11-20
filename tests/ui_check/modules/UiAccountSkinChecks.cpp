@@ -595,6 +595,30 @@ int UiAccountSkinChecks() {
                     check(!note->isVisibleTo(&dialog), "说明清空后收起");
                 }
                 dialog.setAccounts(rows);
+
+                // 预览说明：默认窗口宽度（1280×800）下一行放下，可以比 3D 预览宽
+                const QSize oldSize = dialog.size();
+                dialog.resize(1280, 800);
+                dialog.setPreviewNote(AccountSkinDialog::previewNoteLocalSkin());
+                QApplication::processEvents();
+                if (note != nullptr) {
+                    check(note->height() < note->fontMetrics().lineSpacing() * 3 / 2 &&
+                              note->width() > viewer->width(),
+                          "默认窗口下预览说明一行放下，宽度比 3D 预览宽",
+                          QStringLiteral("%1×%2 / 预览 %3").arg(note->width()).arg(note->height()).arg(viewer->width()));
+                }
+                dialog.setPreviewNote(QString());
+                dialog.resize(oldSize);
+
+                // 离开这一页（隐藏）再回来：离线名字框收起、输入清空
+                dialog.showOfflineAddRow();
+                offlineEdit->setText(QStringLiteral("没提交的名字"));
+                dialog.hide();
+                QApplication::processEvents();
+                dialog.show();
+                QApplication::processEvents();
+                check(!dialog.offlineAddRowShown() && offlineEdit->text().isEmpty(),
+                      "离开页面再回来：离线名字框收起、输入清空");
             }
 
             // ---- X10 信号接线 ----

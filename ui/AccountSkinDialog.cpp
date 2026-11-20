@@ -16,6 +16,7 @@
 #include "SkinViewer.hpp"
 #include "OverlayHost.hpp"
 #include "VersionIcons.hpp"
+#include <QHideEvent>
 #include <QShowEvent>
 #include <algorithm>
 #include <QResizeEvent>
@@ -53,6 +54,7 @@ constexpr int kControlsWidth = 280;
 constexpr int kCapeCell = 44;            // 设计稿 .cape：44 × 60
 constexpr int kCapeCellHeight = 60;
 constexpr int kCapeGap = 8;
+constexpr int kPreviewNoteMaxWidth = 420;  // 预览说明一行的宽度上限
 
 // 行里显示用的拆开那几样（条目 text() 仍是「名字（离线）（当前）」那一整句，测试和无障碍读它）。
 constexpr int kNameRole = Qt::UserRole + 2;
@@ -205,6 +207,20 @@ public:
         }
         painter->restore();
     }
+};
+
+/// 预览下面那行说明：理想宽度 = 文字一行放下的宽度（封顶 kPreviewNoteMaxWidth，可以比 3D 预览宽），
+/// 放不下才自然折行；最小宽度很小，窄窗口里布局能把它压到预览那么宽。
+class PreviewNoteLabel : public QLabel {
+public:
+    using QLabel::QLabel;
+
+    QSize sizeHint() const override {
+        const int line = fontMetrics().horizontalAdvance(text()) + 2;
+        const int width = qMin(line, kPreviewNoteMaxWidth);
+        return QSize(width, heightForWidth(width));
+    }
+    QSize minimumSizeHint() const override { return QSize(120, QLabel::minimumSizeHint().height()); }
 };
 
 /// 侧栏式列表：无框、透明底，行自己画底色。
@@ -454,7 +470,18 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     stageLayout->setContentsMargins(0, 0, 0, 0);
     stageLayout->setSpacing(8);
     stageLayout->addWidget(m_viewer, 0, Qt::AlignHCenter);
-    m_previewNote = makeCaption(QString(), stage);
+    m_previewNote = new PreviewNoteLabel(stage);
+    m_previewNote->setWordWrap(true);
+    m_previewNote->setFont(Theme::textFont(m_previewNote->font(), Theme::TextRole::Caption));
+    {
+        const auto tint = [label = m_previewNote] {
+            QPalette palette = label->palette();
+            palette.setColor(QPalette::WindowText, Theme::tokens().secondary);
+            label->setPalette(palette);
+        };
+        tint();
+        Theme::follow(m_previewNote, tint);
+    }
     m_previewNote->setObjectName(previewNoteName());
     m_previewNote->setAlignment(Qt::AlignHCenter | Qt::AlignTop);
     m_previewNote->hide();
@@ -653,6 +680,12 @@ void AccountSkinDialog::showEvent(QShowEvent *event) {
     placeRowActions();
 }
 
+void AccountSkinDialog::hideEvent(QHideEvent *event) {
+    QDialog::hideEvent(event);
+    // 离开这一页（或页面被收起）后再回来，离线名字框是收起、清空的。
+    if (!event->spontaneous() && !m_offlineRow->isHidden()) clearOfflineNameDraft();
+}
+
 void AccountSkinDialog::resizeEvent(QResizeEvent *event) {
     QDialog::resizeEvent(event);
     // 三档：宽（≥860）账号 | 立绘 | 皮肤披风 三栏；中宽（最小窗 900 逻辑宽就落在这一档）两栏，
@@ -683,7 +716,8 @@ void AccountSkinDialog::resizeEvent(QResizeEvent *event) {
 
 bool AccountSkinDialog::eventFilter(QObject *watched, QEvent *event) {
     if (watched == m_accountList->viewport() && event->type() == QEvent::Resize) {
-        placeRowActions();
+        // 行矩形要等列表重新布局之后才是新宽度，排到下一轮再摆（窗口拉窄时行尾按钮不会留在旧位置）。
+        QMetaObject::invokeMethod(this, &AccountSkinDialog::placeRowActions, Qt::QueuedConnection);
     }
     return QDialog::eventFilter(watched, event);
 }
@@ -802,6 +836,7 @@ void AccountSkinDialog::setStatusError(const QString &reason) {
 
 void AccountSkinDialog::setPreviewNote(const QString &text) {
     m_previewNote->setText(text);
+    m_previewNote->updateGeometry();
     m_previewNote->setVisible(!text.isEmpty());
 }
 

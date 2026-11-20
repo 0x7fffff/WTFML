@@ -18,6 +18,8 @@
 #include <QPainter>
 #include <QPointer>
 #include <QPushButton>
+#include <QScrollArea>
+#include <QScrollBar>
 #include <QTimer>
 
 namespace PageShots {
@@ -87,6 +89,7 @@ struct Shot {
     QString theme;
     std::function<QWidget *(MainWindow &, const Fixture &)> setup;
     bool popups = false;  // 弹出菜单是独立窗口，grab() 不含它：true 时把可见的 QMenu 合成进图
+    QSize size = {1280, 800};
 };
 
 /// 夹具用的演示皮肤：整张铺衣服色，头正面 8×8 在 (8,8) 画肤色、头发、眼睛，足够认出头像和立绘。
@@ -253,6 +256,17 @@ inline QList<Shot> shots() {
         list.append({"account-offline-local-" + theme + ".png", theme, [](MainWindow &w, const Fixture &) {
             return accountPage(w, QStringLiteral("off-steve"));
         }});
+        if (dark) {  // 最小窗口 900×590 下的预览说明
+            list.append({"account-offline-local-min-dark.png", theme, [](MainWindow &w, const Fixture &) {
+                return accountPage(w, QStringLiteral("off-steve"), [](AccountSkinDialog *dialog) {
+                    for (QWidget *p = dialog->parentWidget(); p; p = p->parentWidget())
+                        if (auto *scroll = qobject_cast<QScrollArea *>(p)) {  // 窄窗口页面要滚，滚到底看预览说明
+                            scroll->verticalScrollBar()->setValue(scroll->verticalScrollBar()->maximum());
+                            break;
+                        }
+                });
+            }, false, {900, 590}});
+        }
         list.append({"account-error-" + theme + ".png", theme, [](MainWindow &w, const Fixture &) {
             return accountPage(w, QStringLiteral("ms-wanderer"), [](AccountSkinDialog *dialog) {
                 dialog->setStatusError(QStringLiteral("无法连接到 Minecraft 服务，请检查网络后重试。"));
@@ -326,9 +340,9 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
         Theme::setSpec(Theme::presetSpec(shot.theme));
         Theme::apply(app);
         window.showNormal();
-        window.resize(1280, 800);
+        window.resize(shot.size);
         QPointer<QWidget> target = shot.setup(window, fixture);
-        QTimer::singleShot(300, &window, [&window]() { window.resize(1280, 800); });
+        QTimer::singleShot(300, &window, [&window, size = shot.size]() { window.resize(size); });
         QTimer::singleShot(1000, &window, [&window, root, shot, target]() {
             QImage image = target ? target->grab().toImage() : QImage();
             if (shot.popups && !image.isNull()) {
