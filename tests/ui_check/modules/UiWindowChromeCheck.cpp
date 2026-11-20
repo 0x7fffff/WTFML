@@ -318,7 +318,6 @@ int UiWindowChromeCheck(QApplication &) {
             Anim::setEnabled(true);
             checkHeroSweep(sweepHeroFade(tabs, backdrop, away), true, 0.0,
                            "WC 风景淡变 主页→设置：中途 0<α<1、单调变小、终值恰为 0");
-            check(!window.property(Anim::kBackdropFadingProperty).toBool(), "WC 风景淡变 淡完撤掉「正在淡」窗口标记（幕布不再每帧重拍底板）");
             checkHeroSweep(sweepHeroFade(tabs, backdrop, home), false, 1.0,
                            "WC 风景淡变 设置→主页：中途 0<α<1、单调变大、终值恰为 1");
             Anim::setEnabled(false);

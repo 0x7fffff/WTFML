@@ -123,6 +123,9 @@ public:
     /// 动效关着 / 还没上屏时直接落到终值。
     qreal heroOpacity() const { return m_heroOpacity; }
     static constexpr int kHeroFadeMs = 250;
+    /// 开程序「雾散开」：首帧只画磨砂（风景停在 0），首帧画完的下一轮事件循环再把风景淡上来。
+    /// 只在第一次上屏前调才有用。
+    void deferHeroUntilFirstPaint() { m_deferHero = true; }
 
 signals:
     /// 主页风景的不透明度变了（淡变的每一帧，以及不淡时直接落到终值）：窗口按钮的墨色跟着它渐变。
@@ -189,6 +192,7 @@ private:
     qreal m_heroOpacity = 0.0;
     QVariantAnimation *m_heroFade = nullptr;  // objectName "glassHeroFade"
     bool m_painted = false;                   // 上屏以来画过：没画过的不淡（启动、从托盘回来）
+    bool m_deferHero = false;                 // deferHeroUntilFirstPaint()：首帧画完才淡入风景
     QString m_heroKey;
     QColor m_darkest = QColor(Qt::black);
     QColor m_brightest = QColor(Qt::white);

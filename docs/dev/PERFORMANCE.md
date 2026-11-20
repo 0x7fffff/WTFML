@@ -218,6 +218,8 @@ pwsh -File tools/perf-startup.ps1 -Runs 6 -Instances 40
 
 量的是 `build/verification-mingw13/WTFMinecraftLauncher.exe`（Release `-O3`）。每次运行：进程创建 → 标题为 `WTF Minecraft Launcher` 的可见顶层窗口出现（`visibleMs`）→ 该窗口开始应答 `WM_NULL`（`readyMs`，消息循环能转了）→ 之后 3 秒内每 20 ms 探一次，记窗口应答的最长一次（`maxBlockMs`）和超时次数。
 
+验收配置（`--acceptance-profile`）自带的整窗截图（`window-<pid>.png`）在窗口出现后 1.2 s 才拍，编码和写盘放在线程池里：此前它在 500 ms 时于主线程上耗时约 300 ms，`maxBlockMs` 在 2026-11 的报告里约为 300 ms，测到的就是这张截图，不是界面本身。
+
 ### 2026-10-25 基线
 
 | 场景 | 次数 | visible 中位 | 范围 | ready 中位 | maxBlock 范围 | 常驻内存 |

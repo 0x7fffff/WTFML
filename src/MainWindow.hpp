@@ -34,6 +34,7 @@
 #include "util/ServerPing.hpp"
 #include "tasks/TaskManager.hpp"
 #include "..\ui\TaskCenterPanel.hpp"
+#include "..\ui\WindowMotion.hpp"
 #include "..\ui\TaskDetailPage.hpp"
 #include "..\ui\IntegrityReportPage.hpp"
 #include "manage/VersionIntegrity.hpp"
@@ -3030,6 +3031,8 @@ private:
     QTimer *m_taskSummaryTimer = nullptr;
     /// 主窗口改大小后节流落盘（单发 400 ms；关窗时 closeEvent 再补一次）。
     QTimer *m_windowSizeSaveTimer = nullptr;
+    /// 关窗合雾走到哪（`WindowMotion::interceptClose()`）：Done 时 closeEvent 直接放行，不再问第二遍。
+    WindowMotion::CloseFog m_closeFog = WindowMotion::CloseFog::Idle;
     /// 任务详情页那一页。**页对象和这一页上的决定**
     /// 都在控制器里（`src/controllers/TaskDetailController`）：页是**建一次留着**、每次开页
     /// `setTask()` 重摆的那一条规矩也归它管。

@@ -153,6 +153,9 @@ public:
     /// 焦点是用 Tab / Shift+Tab 选来的（品牌标 W 只在这时画焦点框、接回车 / 空格）。
     /// 窗口一激活 Qt 会把焦点自动交给链上第一个能 Tab 的控件（就是 W），那种焦点不算。
     bool hasKeyboardFocus() const { return m_keyboardFocus && hasFocus(); }
+    /// 品牌标（Logo）写到哪：0 = 空着，1 = 写完（平常的样子）。开程序时从 0 走到 1。
+    void setWriteProgress(qreal progress);
+    qreal writeProgress() const { return m_writeProgress; }
 
 protected:
     void paintEvent(QPaintEvent *event) override;
@@ -175,4 +178,5 @@ private:
     bool m_current = false;
     bool m_restore = false;
     bool m_keyboardFocus = false;
+    qreal m_writeProgress = 1.0;
 };

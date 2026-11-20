@@ -101,6 +101,39 @@ QString iconName(TitleBarButton::NavIcon icon) {
 
 int railPaddingFor(int width) { return width < (kRailWidth + kRailMiniWidth) / 2 ? kRailMiniPadding : kRailPadding; }
 
+/// 开程序时品牌标写一遍：书写中线（24 px 专版坐标，w24.py 从 256 版中线映射，遮罩全放出覆盖 99%）。
+struct WritePoint { float x, y, r, s, t; };
+const WritePoint kWritePoints[] = {
+#include "BrandWriteData.inc"
+};
+
+/// 写到第 @p progress（0..1，按书写时刻）时，沿中线放出的遮罩（圆头变宽笔）。
+void paintWriteMask(QPainter &mask, qreal progress) {
+    const int n = int(sizeof(kWritePoints) / sizeof(kWritePoints[0]));
+    // 书写时刻 → 弧长（t 单调），手写节奏（三分之二幂律）已经在 t 里
+    qreal s = kWritePoints[n - 1].s;
+    for (int i = 1; i < n; ++i) {
+        if (kWritePoints[i].t >= progress) {
+            const WritePoint &a = kWritePoints[i - 1], &b = kWritePoints[i];
+            const qreal u = b.t > a.t ? (progress - a.t) / (b.t - a.t) : 1.0;
+            s = a.s + (b.s - a.s) * u;
+            break;
+        }
+    }
+    for (int i = 1; i < n && kWritePoints[i - 1].s < s; ++i) {
+        const WritePoint &a = kWritePoints[i - 1], &b = kWritePoints[i];
+        QPointF to(b.x, b.y);
+        qreal r = b.r;
+        if (b.s > s) {
+            const qreal u = (s - a.s) / (b.s - a.s);
+            to = QPointF(a.x, a.y) + (to - QPointF(a.x, a.y)) * u;
+            r = a.r + (b.r - a.r) * u;
+        }
+        mask.setPen(QPen(Qt::black, 2 * r, Qt::SolidLine, Qt::RoundCap));
+        mask.drawLine(QPointF(a.x, a.y), to);
+    }
+}
+
 /// 品牌标「手写的 W」：设计稿 24 px 专版（`assets/app/wtfml-24.svg`，一条只有 M/L/Z 的填充路径），
 /// 读成 24×24 坐标里的 QPainterPath，画多大缩多大、颜色由调用方给。
 const QPainterPath &brandMarkPath() {
@@ -276,6 +309,13 @@ void TitleBarButton::setRestoreGlyph(bool restore) {
     update();
 }
 
+void TitleBarButton::setWriteProgress(qreal progress) {
+    progress = qBound(0.0, progress, 1.0);
+    if (m_writeProgress == progress) return;
+    m_writeProgress = progress;
+    update();
+}
+
 bool TitleBarButton::event(QEvent *event) {
     // 焦点是窗口激活时自动落上来的：头一下 Tab / Shift+Tab 就地亮出焦点框（留在 W），不跳过它去下一个。
     if (event->type() == QEvent::KeyPress && hasFocus() && !m_keyboardFocus) {
@@ -351,6 +391,31 @@ void TitleBarButton::paintEvent(QPaintEvent *) {
         QLinearGradient gradient(0, 4.8, 0, 19.2);  // 设计稿 24 专版的渐变区间（路径坐标）
         gradient.setColorAt(0, ensureGraphicContrast(stops.first, m_ink, under));
         gradient.setColorAt(1, ensureGraphicContrast(stops.second, m_ink, under));
+        if (m_writeProgress < 1.0) {
+            // 写到一半：原填充画进图层，再用遮罩 DestinationIn 裁（不用 setClipPath，它不抗锯齿）。
+            const qreal dpr = devicePixelRatioF();
+            QImage layer(size() * dpr, QImage::Format_ARGB32_Premultiplied);
+            layer.setDevicePixelRatio(dpr);
+            layer.fill(Qt::transparent);
+            QImage mask = layer;
+            const QTransform glyph = p.transform();
+            if (m_writeProgress > 0.0) {
+                QPainter m(&mask);
+                m.setRenderHint(QPainter::Antialiasing, true);
+                m.setTransform(glyph);
+                paintWriteMask(m, m_writeProgress);
+                QPainter l(&layer);
+                l.setRenderHint(QPainter::Antialiasing, true);
+                l.setTransform(glyph);
+                l.fillPath(brandMarkPath(), gradient);
+                l.resetTransform();
+                l.setCompositionMode(QPainter::CompositionMode_DestinationIn);
+                l.drawImage(0, 0, mask);
+            }
+            p.resetTransform();
+            p.drawImage(0, 0, layer);
+            return;
+        }
         p.fillPath(brandMarkPath(), gradient);
         if (hasKeyboardFocus()) {
             // 键盘焦点：W 底下一笔主题色的手写下划线（像签名收笔），不画框。

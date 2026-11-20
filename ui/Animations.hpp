@@ -66,9 +66,6 @@ constexpr int pressOutMs() { return 150; }
 ///
 /// 页面进入使用 250 ms ease-out，与覆盖层和面板保持一致。
 constexpr int appearMs() { return 250; }
-/// 整窗底（`Glass::Backdrop`）的主页风景正在淡入 / 淡出时，顶层窗口上挂着的这个属性为 true。
-/// 换页幕布据此每一帧重拍底板（底板里有风景那一层，定住的话淡变会在内容区卡住、收尾跳一下）。
-inline constexpr const char *kBackdropFadingProperty = "wtfmlBackdropFading";
 /// 整块覆盖那一层（`OverlayHost`）淡进来那一下。**和换页同一个量级**（同一类转场）。
 constexpr int overlayMs() { return 250; }
 /// 底栏上拉面板滑上来那一下。
@@ -198,6 +195,13 @@ void pageAppear(QWidget *widget);
 /// 把 `widget` 上正在跑的那一发 `pageAppear()` 立即收到终点（幕布收起，露出真页面）。
 /// 换页半路要拍底图（提示弹出来）时先调它，否则拍进去的是半透明的中间帧。
 void finishPageAppear(QWidget *widget);
+
+/// 开程序「雾散开」：@p widget 先保持全透明 @p delayMs，再用 @p ms 淡入并从下面浮上 @p rise（位置弱回弹）。
+/// 复用换页那块幕布（`PageCurtain`）：底板随主页风景淡入每帧重拍；幕布不吃鼠标，动画中真控件照常可点。
+/// 调用方先把 @p widget 藏起来（保留占位），这里会把它显示出来。
+void riseIn(QWidget *widget, int delayMs, int ms, qreal rise);
+/// 关程序：整窗内容在 @p ms 内淡进磨砂底并下沉 @p sink，最后一帧只剩磨砂，然后调 @p done。
+void fogClose(QWidget *window, int ms, qreal sink, const std::function<void()> &done);
 
 /// 整块覆盖的那一层（`OverlayHost`）淡进来。**只淡、不抬** —— 它是"整块盖住内容区"的，
 /// 抬起来会在边上露出一条没盖住的缝。

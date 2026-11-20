@@ -4,6 +4,7 @@
  */
 
 #include "Animations.hpp"
+#include "Glass.hpp"
 
 #include <QAbstractAnimation>
 #include <QAbstractButton>
@@ -227,6 +228,17 @@ public:
         m_content = QImage();   // 这一发重新照一张
         m_plate = QImage();
         m_snapshotSize = QSize();
+        // 主页风景正在淡入 / 淡出（`Glass::Backdrop`）：底板里就有那一层，风景每变一拍就跟着重拍一次。
+        // 挂在风景自己的信号上而不是幕布的节拍上 —— 幕布那一拍可能先走，拍到的是上一拍的风景，
+        // 整块比四周慢一拍（亚克力 / 云母下没有糊风景垫着，看得出一个暗框）。内容那张照旧定住。
+        QObject::disconnect(m_heroLink);
+        Glass::Backdrop *backdrop = underlay ? window()->findChild<Glass::Backdrop *>() : nullptr;
+        if (backdrop != nullptr)
+            m_heroLink = connect(backdrop, &Glass::Backdrop::heroOpacityChanged, this, [this]() {
+                if (m_target == nullptr || m_grabbing || !isVisible()) return;
+                m_plate = underlayOf(m_target);
+                update();
+            });
         if (target != nullptr && parentWidget() != nullptr) {
             setGeometry(QRect(target->mapTo(parentWidget(), QPoint(0, 0)), target->size()));
         }
@@ -243,11 +255,6 @@ public:
         // 目标中间改了尺寸（第一拍迟到、摆版还没落定的那一下）就在这儿补照：每一拍都在
         // paint 外面，是唯一安全的补照时机。尺寸没变时它只是一句比较，一个像素都不抓。
         ensureSnapshot();
-        // 主页风景正在淡入 / 淡出（`Glass::Backdrop`）：底板里就有那一层，每一拍重拍一次，
-        // 淡完的那一拍再拍一次落到终值。内容那张照旧定住。
-        const bool fading = m_underlay && window()->property(Anim::kBackdropFadingProperty).toBool();
-        if (m_target != nullptr && (fading || m_plateFading)) m_plate = underlayOf(m_target);
-        m_plateFading = fading;
         update();   // ★ 普通控件，这一句就是"这一帧真的会重画"的唯一出处
     }
 
@@ -291,7 +298,7 @@ protected:
         // （150% 缩放下 1 逻辑 px = 1.5 设备 px —— 不吸的话内容每一拍都停在半像素上，
         // 文字会发虚）。
         const qreal dpr = m_content.devicePixelRatio() > 0.0 ? m_content.devicePixelRatio() : 1.0;
-        const qreal shift = m_shift > 0.0 ? qRound(m_shift * dpr) / dpr : 0.0;
+        const qreal shift = qRound(m_shift * dpr) / dpr;
         painter.drawImage(QPointF(inMe.topLeft()) + QPointF(0.0, shift), m_content);
     }
 
@@ -368,7 +375,7 @@ private:
     qreal m_shift = 0.0;
     qreal m_opacity = 1.0;
     bool m_grabbing = false;      ///< 正在照那一张（照的时候自己别画）。
-    bool m_plateFading = false;   ///< 上一拍风景还在淡变（这一拍要再重拍一次底板）。
+    QMetaObject::Connection m_heroLink;   ///< 风景淡变 → 重拍底板（见 `start()`）。
 };
 
 /// 定时器只决定采样频率，动画进度始终按真实经过的时间推进。
@@ -841,6 +848,127 @@ void vanishWidget(QWidget *widget, const std::function<void()> &done) {
                     finish();
                 },
                 [curtain, rise](qreal t) { curtain->setFrame(rise * t, 1.0 - t); });
+}
+
+void riseIn(QWidget *widget, int delayMs, int ms, qreal rise) {
+    QWidget *host = widget != nullptr ? widget->parentWidget() : nullptr;
+    if (widget == nullptr) return;
+    widget->show();
+    if (host == nullptr || !enabled()) return;
+    auto *curtain = new PageCurtain(host);
+    curtain->start(widget, true);
+    curtain->setFrame(rise, 0.0);
+    // 一条线性时钟走完「等 + 浮」：等的那一段也每帧 setFrame，底板跟着雾重拍。
+    auto *run = new QVariantAnimation(curtain);
+    const int total = qMax(1, delayMs + ms);
+    run->setDuration(total);
+    run->setStartValue(0.0);
+    run->setEndValue(1.0);
+    QEasingCurve lift(QEasingCurve::OutBack);
+    lift.setOvershoot(1.2);  // 约 6% 过冲：18 px 上浮多走 1 px 再落回，看得出「落定」，不弹
+    const QEasingCurve fade(QEasingCurve::OutQuad);
+    QObject::connect(run, &QVariantAnimation::valueChanged, curtain, [=](const QVariant &value) {
+        const qreal local = qBound(0.0, (value.toReal() * total - delayMs) / qMax(1, ms), 1.0);
+        curtain->setFrame(rise * (1.0 - lift.valueForProgress(local)), fade.valueForProgress(qMin(1.0, local / 0.7)));
+    });
+    QObject::connect(run, &QVariantAnimation::finished, curtain, [c = QPointer<QWidget>(curtain)]() {
+        QTimer::singleShot(0, [c]() {
+            if (c != nullptr) { c->hide(); c->deleteLater(); }
+        });
+    });
+    run->start(QAbstractAnimation::DeleteWhenStopped);
+}
+
+namespace {
+/// 关程序那一层：起手照三张（风景层 / 纯磨砂 / 内容层），之后每帧只 blit。不透明控件，整窗只重画它自己。
+class FogCloseCurtain : public QWidget {
+public:
+    explicit FogCloseCurtain(QWidget *window) : QWidget(window) {
+        setAttribute(Qt::WA_TransparentForMouseEvents, true);
+        setAttribute(Qt::WA_OpaquePaintEvent, true);
+        setFocusPolicy(Qt::NoFocus);
+        setGeometry(window->rect());
+        const qreal dpr = window->devicePixelRatioF();
+        const auto blank = [&]() {
+            QImage image(window->size() * dpr, QImage::Format_ARGB32_Premultiplied);
+            image.setDevicePixelRatio(dpr);
+            image.fill(Qt::transparent);
+            return image;
+        };
+        m_scene = blank();
+        m_frost = blank();
+        m_content = blank();
+        Glass::Backdrop *backdrop = Glass::Backdrop::of(window->findChild<Glass::Backdrop *>());
+        if (backdrop != nullptr) {
+            QPainter scene(&m_scene);
+            backdrop->paintBase(scene, this, false, true);
+            QPainter frost(&m_frost);
+            backdrop->paintBase(frost, this, false, false);
+        } else {
+            m_scene.fill(window->palette().color(QPalette::Window));
+            m_frost = m_scene;
+        }
+        // 内容层：底那一层自己的一笔不要，只要铺在它上面的孩子（导航轨、页面、窗口按钮）和窗口级浮层。
+        QPainter content(&m_content);
+        QList<QWidget *> layers;
+        if (backdrop != nullptr) layers += backdrop->findChildren<QWidget *>(Qt::FindDirectChildrenOnly);
+        for (QWidget *child : window->findChildren<QWidget *>(Qt::FindDirectChildrenOnly))
+            if (child != backdrop && child != this) layers += child;
+        for (QWidget *child : std::as_const(layers)) {
+            if (!child->isVisible() || child->isWindow()) continue;
+            child->render(&content, child->mapTo(window, QPoint(0, 0)), QRegion(), QWidget::DrawChildren);
+        }
+    }
+    void setProgress(qreal t) { m_t = t; update(); }
+
+protected:
+    void paintEvent(QPaintEvent *) override {
+        QPainter painter(this);
+        // Source 连 alpha 写：亚克力 / 云母下这几张都是半透明着色，DWM 背板照常透上来，和换页幕布同一个写法。
+        painter.setCompositionMode(QPainter::CompositionMode_Source);
+        painter.drawImage(0, 0, m_scene);
+        painter.setOpacity(m_t);            // Source + 不透明度 = 按 t 线性插值到纯磨砂（含 alpha）
+        painter.drawImage(0, 0, m_frost);
+        painter.setCompositionMode(QPainter::CompositionMode_SourceOver);
+        const qreal ink = 1.0 - qMin(1.0, m_t * 1.25);  // 内容先走完（80% 处没了），最后一截只剩雾在合
+        if (ink > 0.0) {
+            painter.setOpacity(ink);
+            const qreal dpr = m_content.devicePixelRatio();
+            painter.drawImage(QPointF(0.0, qRound(m_sink * m_t * dpr) / dpr), m_content);
+        }
+    }
+
+public:
+    qreal m_sink = 0.0;
+
+private:
+    QImage m_scene, m_frost, m_content;
+    qreal m_t = 0.0;
+};
+}  // namespace
+
+void fogClose(QWidget *window, int ms, qreal sink, const std::function<void()> &done) {
+    if (window == nullptr) return;
+    QElapsedTimer clock;
+    clock.start();
+    auto *curtain = new FogCloseCurtain(window);
+    curtain->m_sink = sink;
+    curtain->show();
+    curtain->raise();
+    qInfo() << "[UI timing] fog close snapshot" << clock.elapsed() << "ms";
+    auto *run = new QVariantAnimation(curtain);
+    run->setDuration(qMax(1, ms));
+    run->setStartValue(0.0);
+    run->setEndValue(1.0);
+    run->setEasingCurve(QEasingCurve::OutQuad);  // 一按就动，尾巴收住
+    QObject::connect(run, &QVariantAnimation::valueChanged, curtain,
+                     [curtain](const QVariant &value) { curtain->setProgress(value.toReal()); });
+    QObject::connect(run, &QVariantAnimation::finished, curtain, [curtain, done]() {
+        curtain->setProgress(1.0);
+        curtain->repaint();  // 最后一帧（只剩磨砂）同步上屏，再交给系统藏窗
+        QTimer::singleShot(0, curtain, [done]() { if (done) done(); });
+    });
+    run->start(QAbstractAnimation::DeleteWhenStopped);
 }
 
 void cancelLayoutTransition(QWidget *surface) {
