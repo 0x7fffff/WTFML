@@ -39,8 +39,8 @@
 #include <QVBoxLayout>
 
 namespace {
-constexpr int kInitialWidth = 980;
-constexpr int kInitialHeight = 460;
+constexpr int kInitialWidth = 1040;
+constexpr int kInitialHeight = 560;
 constexpr int kAccountRowHeight = 58;   // 设计稿 .acct-row：头像 32 + 上下 13
 constexpr int kAccountsWidth = 372;
 constexpr int kControlsWidth = 280;
@@ -420,7 +420,7 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     // ---------- 中：立绘（设计稿 .stage）----------
     m_viewer = new SkinViewer(this);
     m_viewer->setObjectName(viewerName());
-    m_viewer->setFixedSize(208, 312);
+    m_viewer->setFixedSize(288, 432);
     m_viewer->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
     // 一进来就有东西可看：没登录、还没取到、取不到，看到的都是这套默认外观。
     m_viewer->setSkin(SkinModel::defaultSteveSkin(), QImage(), false);
@@ -500,7 +500,8 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     m_capeList->setMovement(QListView::Static);
     m_capeList->setSpacing(0);
     m_capeList->setItemDelegate(new CapeCellDelegate(m_capeList));
-    m_capeList->setFixedHeight(kCapeCellHeight + kCapeGap + 4);
+    // 至少露出两排：披风多的时候不用先滚一下才知道下面还有。
+    m_capeList->setFixedHeight(2 * (kCapeCellHeight + kCapeGap) + 4);
     m_capeList->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     controls->addWidget(m_capeList);
     m_capeList->hide();  // 没有披风时不留一块空格子（setCapes() 按有没有再露出来）
@@ -622,7 +623,8 @@ void AccountSkinDialog::resizeEvent(QResizeEvent *event) {
     m_bodyLayout->setDirection(stacked ? QBoxLayout::TopToBottom : QBoxLayout::LeftToRight);
     m_accountsPanel->setMaximumWidth(stacked ? QWIDGETSIZE_MAX : kAccountsWidth);
     // 立绘 2:3。中宽时右栏 = 页宽 - 账号栏 - 栏距，左右各留 24 后撑满，封顶 288（再大就盖过左栏高度）。
-    const int viewerW = (wide || stacked) ? 208 : qBound(208, w - kAccountsWidth - 28 - 48, 288);
+    // 立绘给足面积：披风是挂在人物背后的，缩到 208 宽时只看得见一小条。
+    const int viewerW = (wide || stacked) ? 288 : qBound(208, w - kAccountsWidth - 28 - 48, 288);
     m_viewer->setFixedSize(viewerW, viewerW * 3 / 2);
 }
 
@@ -756,6 +758,7 @@ void AccountSkinDialog::setCapes(const QList<CapeRow> &capes) {
         item->setData(Qt::UserRole + 1, cape.active);
         item->setData(Qt::UserRole + 2, cape.url);
     }
+    m_capeList->setCurrentRow(-1);  // 别让第一格自动变成「已选中」；预览跟当前披风走
     m_capeList->setVisible(!capes.isEmpty());
     const bool wearing = std::any_of(capes.cbegin(), capes.cend(), [](const CapeRow &cape) { return cape.active; });
     (wearing ? m_applyCapeButton : m_hideCapeButton)->setChecked(true);
@@ -874,3 +877,9 @@ void AccountSkinDialog::refreshButtonStates() {
     m_offlineSkinButton->setEnabled(idle && m_offlineSkin);
     m_offlineSkinResetButton->setEnabled(idle && m_offlineSkin && m_hasCustomSkin);
 }
+
+
+
+
+
+
