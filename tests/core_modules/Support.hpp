@@ -37,8 +37,6 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QProcess>
-// 离线账号那张随机皮肤那节的掷骰子（ZE4）：只为了断言"骰子真的在动"，不是在赌两次不一样。
-#include <QRandomGenerator>
 #include <QRegularExpression>
 #include <QSemaphore>
 #include <QSet>
@@ -147,7 +145,6 @@
 #include "manage/PlayerSkinStore.hpp"
 // 离线账号「换一张」那条路上的数据层。见 ZFa 节。
 #include "manage/OfflineSkin.hpp"
-#include "manage/RandomSkinStore.hpp"
 #include "manage/VersionDisplay.hpp"
 #include "manage/VersionManager.hpp"
 // 体检那一层（plan / check / Report 三个纯值进出的口子）。见 ZN 节 —— 那一节全在一个临时
@@ -671,12 +668,6 @@ static QByteArray fakeSkinPng(quint32 width, quint32 height) {
 void runPlayerSkinTests(const QString &sandbox);
 
 
-/// 离线账号那张随机皮肤：地址怎么拼、列表怎么解、挑下标越界了怎么办、盘上那一行还算不算数。
-///
-/// NOTE: 这一节**一个请求都不发**。"那个端点今天还在不在"不是断言能钉住的东西，它归
-/// mw_check 里那条一次性探针（`random-skin-live`）。这里只钉**没有一行能靠肉眼
-/// 看准**的那几件事。
-void runRandomSkinTests(const QString &sandbox);
 
 // ---------------------------------------------------------------------------
 // ZF 节：离线账号**自己挑的**那张皮肤（「换一张」这条路的落点）

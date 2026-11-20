@@ -14,24 +14,17 @@
 #include "auth/AuthManager.hpp"
 #include "manage/DefaultSkin.hpp"
 #include "manage/OfflineSkin.hpp"
-#include "manage/RandomSkinStore.hpp"
 
 PlayerSkinController::PlayerSkinController(AuthManager *auth, PlayerSkinStore *store,
-                                           RandomSkinStore *randomStore, QObject *parent)
-    : QObject(parent), m_auth(auth), m_store(store), m_randomStore(randomStore) {
-    // 三个数据源都是主窗口那边的成员对象（它们的生命周期本来就比外观这一件事长得多），
+                                           QObject *parent)
+    : QObject(parent), m_auth(auth), m_store(store) {
+    // 数据源是主窗口那边的成员对象（它们的生命周期本来就比外观这一件事长得多），
     // 所以这里只接信号、不接管所有权 —— 认人靠的是它们自己。主窗口在构造里就把它们连上，
     // 见 MainWindow 的接线那一段。
     if (m_store != nullptr) {
         connect(m_store, &PlayerSkinStore::profileReady, this, &PlayerSkinController::onProfileReady);
         connect(m_store, &PlayerSkinStore::textureReady, this, &PlayerSkinController::onTextureReady);
         connect(m_store, &PlayerSkinStore::failed, this, &PlayerSkinController::onStoreFailed);
-    }
-    if (m_randomStore != nullptr) {
-        connect(m_randomStore, &RandomSkinStore::skinReady, this,
-                &PlayerSkinController::onRandomSkinReady);
-        connect(m_randomStore, &RandomSkinStore::failed, this,
-                &PlayerSkinController::onRandomStoreFailed);
     }
 }
 
@@ -86,12 +79,6 @@ QStringList PlayerSkinController::offlineDefaultSkinCacheVersions(
 }
 
 void PlayerSkinController::reload(const QString &versionId) {
-    // 记住"这一轮按哪个实例算" —— 那条随机皮肤过期后要**再问一次**（见 onRandomSkinReady
-    // 末尾），而那一刻手上没有任何"当前选中"可言：这一层看不见那两个下拉框。所以它只能是
-    // 最近一次让我重走的人的版本，语义就是"现在选中的那个实例"（每一处会让它变的地方都会
-    // 叫一次 reload()）。
-    m_versionId = versionId;
-
     // 先摆默认外观。**这一步之后，右栏那个小人任何时候都不是空白的** —— 未登录、
     // 还没取到、取不到，看到的都是它。默认外观是内置的自绘默认皮肤（见
     // SkinModel::defaultSteveSkin()），不是把官方那张 Steve 贴图打进仓库。
@@ -104,7 +91,7 @@ void PlayerSkinController::reload(const QString &versionId) {
     m_offlineDefaultSkinVersion.clear();
     m_offlineCustomSkin = false;
 
-    // ---------- 离线账号那一档：手动挑的 → 算出来的 → 随机挑的 ----------
+    // ---------- 离线账号那一档：手动挑的 → 算出来的 → 内置 Steve ----------
     //
     // 这一档必须在下面 !loggedIn() **之前**：离线账号必然同时是"没有登录态"
     // （AuthManager::setOfflinePlayer() 把 uuid 和令牌一起清了，见 AuthManager.cpp），
@@ -160,32 +147,9 @@ void PlayerSkinController::reload(const QString &versionId) {
             emit logMessage(tr("算离线默认皮肤失败：%1").arg(defaultReason));
         }
 
-        // ② 算不出来才走"随机挑一张"。
-        //
-        // 身份用的是上面那个 accountUuid（AccountStore 里那个），**不是** m_auth->playerUuid()
-        // —— 后者对离线账号返回空串（它的 m_uuid 被清掉了）。离线账号的 uuid 是
-        // md5("OfflinePlayer:" + 名字)，同名就是同一个 uuid，所以同一个人换不掉那张脸。
-        const QString chosen = RandomSkinStore::loadChosenSkinUrl(accountUuid);
-        if (chosen.isEmpty()) {
-            // 还没挑过（第一次用这个账号）→ 要一页去。回来之后 onRandomSkinReady()
-            // 接着走下面这段。这一格点亮是为了让那句话说"正在获取"。
-            m_skinFetchInFlight = true;
-            // 把**发请求时这位是谁**记下来。回来的时候用户可能已经切到另一个
-            // 离线账号了，而那两个都是"离线身份" —— 只判 offlineIdentity() 分不出来，
-            // 详见 onRandomSkinReady() 里那段。
-            // NOTE: 只在**真的发出去了**的时候才记（fetchRandomSkin() 那个返回值）。已经有
-            // 一趟在飞时这一趟什么都没开始，改掉这一位等于把上一趟的结果认到这一位
-            // 名下 —— 那正是要防的那个错（切账号时这条路必被走到）。
-            if (m_randomStore->fetchRandomSkin()) {
-                m_randomSkinRequestUuid = accountUuid;
-            }
-        } else {
-            // 挑过了，还是那一张。**当成一份档案用** —— 于是下不下得来、存哪、怎么画
-            // 全是现成那条路（requestTexture → fetchTexture → onTextureReady）。
-            // 离线账号没有披风，所以 capeUrl 留空。
-            m_skinProfile = PlayerSkinProfile{chosen, QString(), QStringLiteral("classic")};
-            requestTexture(chosen, /*allowDownload=*/true);
-        }
+        // ② 算不出来（没选实例，或加载器实例的 JAR 里没有原版贴图）就留着开头摆好的内置 Steve：
+        // 游戏里是按名字分配默认皮肤的，预览不再随机抽一张，免得和游戏里不一样。
+        m_skinFetchInFlight = false;
         emit hintChanged();
         return;
     }
@@ -247,9 +211,6 @@ void PlayerSkinController::onProfileReady(const QString &uuid, const PlayerSkinP
     // 会把 A 的脸写进 profile-<B>.json（那份文件跨重启生效：下次开窗先按它画出 A 的
     // 外观，直到下一次刷新成功才纠正），照着它画就是"切了账号，脸还是上一个人的"。
     //
-    // NOTE: 和 onRandomSkinReady() 那道判据是同一件事 —— 都是"发请求时那位 == 现在这位"。
-    // 区别在判据从哪来：这条是信号自己带着身份回来的（uuid 就在形参里），随机皮肤
-    // 那条没有，只好在发请求时自己记一份（m_randomSkinRequestUuid）。
     // 判据取 uuidKey()：它和 refreshForUuid() 里用的是同一个规整函数，所以"带不带横线"
     // 不会让这一比较失败。
     if (uuid.isEmpty() || uuid != PlayerSkinStore::uuidKey(m_auth->playerUuid())) {
@@ -300,22 +261,6 @@ void PlayerSkinController::onTextureReady(const QString &url, const QString &pat
         // 皮肤到手了：不再是"正在获取"。就算这张图后面载不进来，也该由那句
         // "取不到…"来说，而不是一直停在"正在获取"。
         m_skinFetchInFlight = false;
-        // 随机挑的那一张**到这里才记账**：能走到这一句就说明字节已经在
-        // 盘上了（这个信号的契约就是"本地就绪"，fetchTexture() 里那几条失败路一条都不发它），
-        // 而那条记录是永不失效的 —— 记一条"图上没有"的地址，等于把这个账号钉死在重下同
-        // 一个失败地址上。挑的那一刻只把它放进了 m_pendingRandomSkin*，见 onRandomSkinReady()。
-        // NOTE: 记的是**挑的时候那个账号**（不是当下这个）：用户在这几百毫秒里换了账号时，
-        // 这张图仍然是那个人挑的那一张，记在他名下才对（记错人就没用了 —— 下次
-        // 没人会去读它）。两个都对得上才记，所以中途切过账号的情况这里天然放过。
-        if (!m_pendingRandomSkinUrl.isEmpty() && url == m_pendingRandomSkinUrl) {
-            QString error;
-            if (!RandomSkinStore::saveChosenSkinUrl(m_pendingRandomSkinUuid, url, &error)) {
-                // 记不下来不影响这一次显示（这一趟照样画得出来），只是下次开启动器会重挑一张。
-                emit logMessage(tr("记下随机皮肤失败：%1").arg(error));
-            }
-            m_pendingRandomSkinUrl.clear();
-            m_pendingRandomSkinUuid.clear();
-        }
         applyPlayerSkin(path, m_capePath, slim);
         return;
     }
@@ -353,66 +298,6 @@ void PlayerSkinController::onTextureReady(const QString &url, const QString &pat
     // 等于把上一个账号的皮肤画回来。
 }
 
-void PlayerSkinController::onRandomSkinReady(const QString &skinUrl) {
-    // 回来的时候身份可能已经变了：用户在这几百毫秒里换了账号、删掉了那个离线账号，
-    // 或者干脆登录成正式账号了。**不是同一个离线身份就丢掉** —— 记下去等于把 A 的脸
-    // 记到 B 名下，而且再也不会有人来纠正它（那份记录是"永不失效"的）。
-    //
-    // 判据是"发请求时那位 == 现在这位"：只看 `!offlineIdentity()` 不够，它回答的
-    // 是"现在这位**是不是**离线账号"，**不是**"是不是**刚才那一位**" —— 从离线 A 切到
-    // 离线 B 之后，A 那一趟的结果照样走得下去：
-    // · m_pendingRandomSkinUuid 被写成 **B**（下面那句读的是"当下"），
-    // · 贴图到了以后 onTextureReady() 就把 A 挑的那张记进 `random-<B>.txt`；
-    // · 而 A 名下永远不会有记录 ⇒ A 每次开启动器都重挑一张、脸一直变（那份记录存在的
-    // 全部意义正是"挑一次就定住"）。
-    // `m_randomSkinRequestUuid` 是发请求那一刻写的
-    // （见 reload() 里那一句），两个都是 AccountStore 给的同一个规整 uuid，直接比字符串
-    // 就行。
-    //
-    // NOTE: **没记过账的那一趟（这一位跑到现在一个请求都没发过）按当下这位收下**。
-    // 两种收法是"当下这位"和"发请求时那位"的差别，而没有记账就没有"发请求时那位"
-    // 可言 —— 那一趟的来路只能是"盘上已经记着一行，于是这一位从没挑过"（见
-    // reload()：有记录就走那条路，一个请求都不发），这时候它跟"当下这位"本来就
-    // 是同一位。生产里回不来"没记账却有结果"这种组合（信号只有 fetchRandomSkin()
-    // 会发，而它一发就把那一位记上了），所以这一条不放松任何东西 —— 它挡的只是
-    // "把空串当成一个身份去比"。mw_check 的 AF5/AF6/AF7 就是直接踢这个槽函数来演
-    // "挑好的那张回来了"，那几趟正落在这个组合上。
-    const bool requesterKnown = !m_randomSkinRequestUuid.isEmpty();
-    if (!offlineIdentity() ||
-        (requesterKnown && AccountStore::activeUuid() != m_randomSkinRequestUuid)) {
-        // 丢掉之后**再问一次**。这一趟是替上一位挑的，而当下这一位（离线）
-        // 可能正等着自己那一张 —— 切账号时外面那一趟确实发出去了，但再切一次就会被
-        // RandomSkinStore::fetchRandomSkin() 的 m_inFlight 挡回来（那一趟返回 false，
-        // 所以 m_randomSkinRequestUuid 没被改写，这里才认得出"过期"）。此刻 m_inFlight
-        // 已经落回 false（reply 的回调第一句就清掉了，而这里是它直接发信号叫进来的），
-        // 所以这一句能真的发出去。
-        // NOTE: 只在**现在这位是离线账号**时才补 —— 正版账号的皮肤走官方那条路，
-        // 切过去的时候已经有另一条路在刷了，不该由这里再捅一次。
-        // NOTE: 重叫的是 reload()，参数取 m_versionId —— 那一位就是"最近一次让我
-        // 重走时选中的那个实例"，和下拉框当下选中的那一项是同一个。
-        if (offlineIdentity()) {
-            reload(m_versionId);
-        }
-        return;
-    }
-    // 挑中的这一张**先记在内存里**，等贴图真的落在盘上再写那行记录（见
-    // onTextureReady 里那一段）。在这里就写的话，这一句之前图一个字节都还没到：
-    // requestTexture() 会因为超时、非 200、或者"不是一张 64 宽的皮肤 PNG"
-    // （PlayerSkinStore::fetchTexture）**一个字节都不落盘**，而记录已经写下了 —— 那条记录
-    // 是永不失效的，于是这个账号从此每次都去重下同一条永远失败的地址、永远停在默认外观，
-    // 而且**这条随机记录没有界面入口**（要手动删 skins/random-<uuid>.txt —— 注意「恢复默认
-    // 外观」那颗按钮清的是 manual-<uuid>.png，见 OfflineSkin，不是这一行）。记账的语义本来是
-    // "这个人挑过哪一张、那张是好的"，那就该等它好。
-    m_pendingRandomSkinUrl = skinUrl;
-    m_pendingRandomSkinUuid = AccountStore::activeUuid();
-    m_skinProfile = PlayerSkinProfile{skinUrl, QString(), QStringLiteral("classic")};
-    // 走那条公用的路。**缓存命中时它是同步的**（fetchTexture 命中就同步发 textureReady），
-    // 所以挑第二张的时候这一句之后屏幕上就已经换好了；真要下的时候它会自己把
-    // m_skinFetchInFlight 点起来。
-    requestTexture(skinUrl, /*allowDownload=*/true);
-    emit hintChanged();
-}
-
 void PlayerSkinController::onStoreFailed(const QString &message) {
     // 外观是**装饰**：取不到就静默退回默认外观。这是全仓唯一一处不弹窗的错误，
     // 理由（别的错误都让用户做不成他想做的事，而这个只是不好看）写在
@@ -424,14 +309,6 @@ void PlayerSkinController::onStoreFailed(const QString &message) {
         // 好了），这时候说"取不到皮肤"是错的。
         emit hintChanged();
     }
-}
-
-void PlayerSkinController::onRandomStoreFailed(const QString &message) {
-    // 「挑一张」没挑到（见 RandomSkinStore）。和上面那条分开：这一条失败的是"挑一张"
-    // 这件事，跟某个人的档案无关，所以那句话的前缀是"取随机皮肤失败"。
-    emit logMessage(tr("取随机皮肤失败：%1").arg(message));
-    m_skinFetchInFlight = false;
-    emit hintChanged();
 }
 
 void PlayerSkinController::applyPlayerSkin(const QString &skinPath, const QString &capePath,

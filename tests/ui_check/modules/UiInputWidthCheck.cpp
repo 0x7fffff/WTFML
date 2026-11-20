@@ -224,7 +224,7 @@ int UiInputWidthCheck(QApplication &app) {
                 AccountSkinDialog account;
                 inOverlay(
                     &account, AccountSkinDialog::windowTitle(), QStringLiteral("账号与外观"),
-                    [&account] { account.showAccountKind(true); },  // 切到「离线」页签，名字框才露出来
+                    [&account] { account.showOfflineAddRow(); },  // 展开离线输入行，名字框才露出来
                     [&account, &tag] {
                         // 用户原话：离线账号名字最多 16 个字符，框不该横跨整个内容区；「添加」紧跟在框后面。
                         auto *edit = account.findChild<QLineEdit *>(AccountSkinDialog::offlineNameEditName());

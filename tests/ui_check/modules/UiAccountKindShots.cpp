@@ -1,4 +1,4 @@
-// 账号页离线页签的离屏样张（没配应用 ID 的状态）：深色 / 翡翠 × 902x801（真机默认窗，中宽两栏）与
+// 账号页添加离线账号的离屏样张（没配应用 ID 的状态）：深色 / 翡翠 × 902x801（真机默认窗，中宽两栏）与
 // 1280x800（三栏）× 未登录 / 两个离线账号。整页照真窗口那样经 OverlayHost::showPage 摆在主窗口上，另拼一张总览 contact.png。
 // 用法：QT_QPA_PLATFORM=offscreen ui_check_account_kind_shots <输出目录>
 // 不进 ctest：只出图，不做断言（断言在 UiAccountSkinChecks）。
@@ -74,7 +74,7 @@ int UiAccountKindShots(QApplication &app) {
                     }
                     dialog->setOfflineSkinState(withAccounts, false);
                     dialog->setOnlineLoginUnavailable(unavailable);
-                    dialog->showAccountKind(offline);
+                    if (offline) dialog->showOfflineAddRow();
                     ui.overlay()->showPage(dialog, AccountSkinDialog::windowTitle());
                     settle();
                     const QImage shot = window.grab().toImage();
@@ -87,11 +87,8 @@ int UiAccountKindShots(QApplication &app) {
                     if (shot.save(file)) ++saved;
                     // 量几个数，交回里好说清：账号栏多宽、正版说明几行、名字框多宽。
                     const auto *pane = dialog->findChild<QWidget *>(QStringLiteral("accountManagementPane"));
-                    const auto *note = dialog->findChild<QLabel *>(AccountSkinDialog::onlineUnavailableLabelName());
                     const auto *edit = dialog->findChild<QLineEdit *>(AccountSkinDialog::offlineNameEditName());
-                    const int noteLines = note != nullptr && note->isVisible()
-                                              ? note->height() / qMax(1, note->fontMetrics().lineSpacing())
-                                              : 0;
+                    const int noteLines = 0;
                     const auto *looks = dialog->findChild<QWidget *>(QStringLiteral("accountLooksPane"));
                     const auto *viewer = dialog->findChild<QWidget *>(AccountSkinDialog::viewerName());
                     const QScrollArea *scroll = nullptr;  // 页面自己那一个（主页上也有滚动区）
@@ -127,7 +124,7 @@ int UiAccountKindShots(QApplication &app) {
         auto *dialog = new AccountSkinDialog(&window);
         const auto keyRects = [dialog] {
             QList<QRect> rects;
-            for (const QString &name : {QStringLiteral("accountKindSegment"), AccountSkinDialog::offlineNameEditName(),
+            for (const QString &name : {AccountSkinDialog::addAccountButtonName(), AccountSkinDialog::offlineNameEditName(),
                                         AccountSkinDialog::viewerName(), AccountSkinDialog::variantComboName()}) {
                 const auto *w = dialog->findChild<QWidget *>(name);
                 rects << (w != nullptr ? QRect(w->mapTo(dialog, QPoint()), w->size()) : QRect());
@@ -137,7 +134,7 @@ int UiAccountKindShots(QApplication &app) {
         for (const QString &pass : {QStringLiteral("first"), QStringLiteral("again")}) {
             dialog->setOfflineSkinState(false, false);
             dialog->setOnlineLoginUnavailable(unavailable);
-            dialog->showAccountKind(true);
+            dialog->showOfflineAddRow();
             ui.overlay()->showPage(dialog, AccountSkinDialog::windowTitle());
             const QList<QRect> atOpen = keyRects();
             QImage first = window.grab().toImage();

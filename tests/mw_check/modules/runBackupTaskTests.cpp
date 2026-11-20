@@ -62,7 +62,6 @@ void runBackupTaskTests() {
     TokenStore::clear(TokenStore::accountsKey());
     TokenStore::clear(TokenStore::currentUuidKey());
     const QString accountName = QStringLiteral("T35User");
-    seedOfflineRandomSkin(accountName, kSeededSkinUrl, QColor(0x60, 0xA0, 0x40));
     QString offlineError;
     check(AccountStore::addOffline(accountName, &offlineError),
           "T35.0 建一个离线账号并设成当前身份", offlineError);

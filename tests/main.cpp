@@ -1488,9 +1488,6 @@ runJavaReleaseParseTests();
 runPlayerSkinTests(sandbox);
 #endif
 
-#ifndef WTFML_CORE_BASELINE
-runRandomSkinTests(sandbox);
-#endif
     // 紧挨着它：这一节管的是"离线账号那张脸"的另一半 —— 能算出游戏会给哪一张时，
     // 就用那一张（随机那张是退路）。两节验的东西不同，别合并。
 

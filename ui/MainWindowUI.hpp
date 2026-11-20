@@ -3307,10 +3307,10 @@ public:
     static QString skinHintNotLoggedInText() {
         return QCoreApplication::translate("MainWindowUI", "未登录（默认外观）");
     }
-    /// 离线账号要到了一张随机外观。
+    /// 离线账号取不到默认皮肤，显示的是内置 Steve。
     ///
     /// NOTE: 这一句非有不可：上面那两句都不对 —— skinHintLoadedText() 说的是「正版外观」，
-    /// 而这张图跟正版没有任何关系（它是随机挑的）；skinHintNotLoggedInText() 说的是
+    /// 而这张图跟正版没有任何关系；skinHintNotLoggedInText() 说的是
     /// 「显示的是默认外观」，而这时候屏幕上恰恰不是那张默认外观。
     /// 后面那半句也不是废话：这张图**只在启动器里**显示，游戏里那张脸是游戏自己定的。
     static QString skinHintOfflineLoadedText(const QString &name) {

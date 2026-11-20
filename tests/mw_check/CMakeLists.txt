@@ -256,8 +256,6 @@ set(SOURCE_FILES
 
     ${REPO_ROOT}/src/manage/InstanceGroupStore.cpp
     ${REPO_ROOT}/src/manage/PlayerSkinStore.cpp
-    # 离线账号那张随机皮肤：AF 段要拿它预置"已经挑好的一张"，还要读它记在哪儿。
-    ${REPO_ROOT}/src/manage/RandomSkinStore.cpp
     # 离线账号**自己挑的**那张（「换一张…」）：MainWindow / PlayerSkinController 直接调它，
     # 少了这一个文件会在链接那一步报一串 `OfflineSkin::…` 的 undefined reference。
     ${REPO_ROOT}/src/manage/OfflineSkin.cpp

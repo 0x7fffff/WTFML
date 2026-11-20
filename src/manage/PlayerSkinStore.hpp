@@ -218,8 +218,8 @@ signals:
     /// NOTE: 信号必须**带上身份**。只带一份 profile 的话，调用方只能拿"当下
     /// 那个账号"去落盘 —— 于是"刷新还在飞的时候切了账号"这条路会把 A 的档案
     /// 写进 `profile-<B>.json`（那份文件是**跨重启**的：下次开窗先按它画出 A 的
-    /// 脸，直到下一次刷新成功才纠正）。MainWindow::onRandomSkinReady() 那句
-    /// `if (!offlineIdentity()) return;` 防的也是这件事。
+    /// 脸，直到下一次刷新成功才纠正）。PlayerSkinController::onProfileReady() 开头
+    /// 那道身份判断防的就是这件事。
     void profileReady(const QString &uuid, const PlayerSkinProfile &profile);
     /// 一张贴图在本地就绪了。@param path 本地文件路径 —— 界面自己去读成 QImage。
     void textureReady(const QString &url, const QString &path);

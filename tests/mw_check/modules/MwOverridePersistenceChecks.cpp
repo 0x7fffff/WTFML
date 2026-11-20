@@ -23,14 +23,6 @@ int MwOverridePersistenceChecks(const QDir &root, const QString &settingsDir, co
         // 所以这里照产品那条路摆一次现场（MainWindow::onOfflineAccountRequested 落到的
         // 就是 AccountStore::addOffline），整段都在离线身份下跑 —— 不联网、不要凭据。
         // 收拾的事不用管：Z 段一开头就把这几个键清干净了。
-        //
-        // NOTE: 从这一句起直到 Z 段把账号清掉，**每一个 `MainWindow w;` 都是在离线身份下
-        // 起来的**，构造函数末尾那句 startPlayerSkinLoad() 会走"离线账号要随机皮肤"
-        // 那条路。所以外观必须在建账号**之前**预置好（预置 = 盘上记一张 + 缓存里有
-        // 图本体 → 那一路变成同步命中，一个包都不发）。否则这里会真去问 MineSkin，
-        // 而且回来的东西会写日志、换掉屏幕上的脸 —— 见 seedOfflineRandomSkin 那段。
-        seedOfflineRandomSkin(QStringLiteral("mwcheck"), kSeededSkinUrl,
-                              QColor(0x30, 0x90, 0xD0));
         {
             QString offlineError;
             check(AccountStore::addOffline(QStringLiteral("mwcheck"), &offlineError),
