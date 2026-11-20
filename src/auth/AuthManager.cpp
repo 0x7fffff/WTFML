@@ -70,6 +70,44 @@ static constexpr int kLoginTimeoutMinutes = 5;
 // 谁都不该 include 对方 —— 改的时候一起改。
 static constexpr const char kDefaultPlayerName[] = "Player";
 
+AuthManager::EndpointOverrides g_endpointOverrides;
+
+QString effectiveClientId() {
+    return g_endpointOverrides.clientId.trimmed().isEmpty()
+               ? QString::fromLatin1(kClientId)
+               : g_endpointOverrides.clientId.trimmed();
+}
+
+QString effectiveOAuthTokenUrl() {
+    return g_endpointOverrides.oauthTokenUrl.trimmed().isEmpty()
+               ? QString::fromLatin1(kOAuthTokenUrl)
+               : g_endpointOverrides.oauthTokenUrl.trimmed();
+}
+
+QString effectiveXboxLiveAuthUrl() {
+    return g_endpointOverrides.xboxLiveAuthUrl.trimmed().isEmpty()
+               ? QString::fromLatin1(kXboxLiveAuthUrl)
+               : g_endpointOverrides.xboxLiveAuthUrl.trimmed();
+}
+
+QString effectiveXstsAuthUrl() {
+    return g_endpointOverrides.xstsAuthUrl.trimmed().isEmpty()
+               ? QString::fromLatin1(kXstsAuthUrl)
+               : g_endpointOverrides.xstsAuthUrl.trimmed();
+}
+
+QString effectiveMinecraftLoginUrl() {
+    return g_endpointOverrides.minecraftLoginUrl.trimmed().isEmpty()
+               ? QString::fromLatin1(kMinecraftLoginUrl)
+               : g_endpointOverrides.minecraftLoginUrl.trimmed();
+}
+
+QString effectiveMinecraftProfileUrl() {
+    return g_endpointOverrides.minecraftProfileUrl.trimmed().isEmpty()
+               ? QString::fromLatin1(kMinecraftProfileUrl)
+               : g_endpointOverrides.minecraftProfileUrl.trimmed();
+}
+
 /// NOTE: 这里只剩个**名字**：真正的结构在 HttpClient.hpp（那条同步请求的规矩、含"超时了
 /// 要 abort、abort 之后别读正文"那一串）只有一份，登录链和皮肤接口共用。留这行别名
 /// 是为了让下面那几十处调用点一个都不用动 —— 搬家的改动越小越不容易搬出 bug。
@@ -156,7 +194,9 @@ AuthManager::AuthManager(QObject *parent)
     // 这一句**不碰网络**（loadMinecraftTokenData() 只读一遍 QSettings、再解一层
     // DPAPI，见 TokenStore），
     // 所以放构造函数里是安全的 —— 要换令牌得走 loadSavedToken()，那会发请求。
-    applyMinecraftTokenData(loadMinecraftTokenData());
+    if (applyMinecraftTokenData(loadMinecraftTokenData())) {
+        m_needsRelogin = AccountStore::needsRelogin(m_uuid);
+    }
 }
 
 // 两句写给玩家：账号页「正版」页签事先摆的就是它，刷新正版账号失败时也弹它。
@@ -256,9 +296,11 @@ QString AuthManager::loadSavedToken(QString *errorMessage) {
         return QString();
     };
 
-    // 盘上那份还在有效期内就直接用：启动游戏不该每次都先绕一圈微软（要好几秒，还得联网）。
-    if (applyMinecraftTokenData(loadMinecraftTokenData()) && m_tokenExpiry.isValid() &&
-        QDateTime::currentDateTimeUtc() < m_tokenExpiry) {
+    // 统一按 6 小时窗口：盘上令牌剩余有效期 >= 6 小时才直接用，不足 6 小时或已过期就刷新。
+    // 先 reloadStoredAccount() 确保内存与盘上一致（即使后面刷新失败，本地档案与现有令牌仍保留）。
+    reloadStoredAccount();
+    if (m_tokenExpiry.isValid() && tokenSecondsLeft() >= tokenRefreshWindowSecs) {
+        m_lastRefreshFailureKind = RefreshFailureKind::None;
         return m_accessToken;
     }
 
@@ -267,6 +309,37 @@ QString AuthManager::loadSavedToken(QString *errorMessage) {
         return fail(failure);
     }
     return m_accessToken;
+}
+
+AuthManager::RefreshFailureKind AuthManager::classifyRefreshFailure(
+    int status, const QString &networkError, const QString &oauthError) {
+    if (!networkError.isEmpty() || status <= 0) {
+        return RefreshFailureKind::Network;
+    }
+    if (status == HttpClient::kStatusTooManyRequests || status >= 500) {
+        return RefreshFailureKind::Network;
+    }
+    const QString code = oauthError.trimmed().toLower();
+    if (code == QLatin1String("temporarily_unavailable") ||
+        code == QLatin1String("server_error")) {
+        return RefreshFailureKind::Network;
+    }
+    if (code == QLatin1String("invalid_grant") ||
+        code == QLatin1String("interaction_required") ||
+        code == QLatin1String("login_required") ||
+        code == QLatin1String("consent_required") ||
+        code == QLatin1String("unauthorized_client") ||
+        code == QLatin1String("invalid_client")) {
+        return RefreshFailureKind::ReloginRequired;
+    }
+    if (status == 401) {
+        return RefreshFailureKind::ReloginRequired;
+    }
+    return RefreshFailureKind::Other;
+}
+
+void AuthManager::setEndpointOverridesForTest(const EndpointOverrides &overrides) {
+    g_endpointOverrides = overrides;
 }
 
 int AuthManager::tokenSecondsLeft() const {
@@ -293,22 +366,42 @@ bool AuthManager::refreshMinecraftToken(QString *errorMessage) {
         return false;
     };
 
+    m_lastRefreshFailureKind = RefreshFailureKind::None;
     const QString refreshToken = loadMicrosoftTokenData().value("refresh_token").toString();
     SecretRedactor::remember(refreshToken);
+    const QString refreshUuid = AccountStore::activeUuid();
     if (refreshToken.isEmpty()) {
+        m_lastRefreshFailureKind = RefreshFailureKind::ReloginRequired;
+        const QString targetUuid = !refreshUuid.isEmpty() ? refreshUuid : m_uuid;
+        if (!targetUuid.isEmpty() && !AccountStore::isOffline(targetUuid)) {
+            m_needsRelogin = true;
+            AccountStore::setNeedsRelogin(targetUuid, true);
+        }
         return fail(tr("未找到完整的登录信息，请重新登录。"));
     }
-    const QString refreshUuid = AccountStore::activeUuid();
 
     QString microsoftToken;
     QString failure;
-    if (!requestMicrosoftTokenRefresh(refreshToken, &microsoftToken, &failure, refreshUuid) ||
-        !runMinecraftChain(microsoftToken, &failure, refreshUuid)) {
+    RefreshFailureKind failureKind = RefreshFailureKind::Other;
+    if (!requestMicrosoftTokenRefresh(refreshToken, &microsoftToken, &failure, refreshUuid,
+                                      &failureKind) ||
+        !runMinecraftChain(microsoftToken, &failure, refreshUuid, &failureKind)) {
+        m_lastRefreshFailureKind = failureKind;
+        if (failureKind == RefreshFailureKind::ReloginRequired) {
+            const QString targetUuid = !refreshUuid.isEmpty() ? refreshUuid : m_uuid;
+            m_needsRelogin = true;
+            if (!targetUuid.isEmpty() && !AccountStore::isOffline(targetUuid)) {
+                AccountStore::setNeedsRelogin(targetUuid, true);
+            }
+        }
         // 走到这儿的原因多数是网络或者账户本身的问题，写一行给命令行看
         // （用户那边由调用方弹窗，见 loadSavedToken() 的 errorMessage）。
         qWarning().noquote() << "刷新登录失败：" << failure;
         return fail(failure);
     }
+
+    m_lastRefreshFailureKind = RefreshFailureKind::None;
+    m_needsRelogin = false;
 
     // 刷新出来的新令牌**要写回列表里那份副本**。
     // 列表里那份是"切回这个账号"时的唯一来路（见 AccountStore 文件头那种两栏结构）；
@@ -333,6 +426,7 @@ bool AuthManager::refreshMinecraftToken(QString *errorMessage) {
 }
 
 void AuthManager::reloadStoredAccount() {
+    m_lastRefreshFailureKind = RefreshFailureKind::None;
     // applyMinecraftTokenData() 认不下来（凭据缺字段）时**什么都不改** —— 那是"没读到"
     // 而不是"读到一份空的"，所以上一个人的名字得自己清掉，否则底栏会继续显示一个
     // 已经没有凭据的账号。
@@ -341,6 +435,9 @@ void AuthManager::reloadStoredAccount() {
         m_tokenExpiry = QDateTime();
         m_uuid.clear();
         m_playerName = QString::fromLatin1(kDefaultPlayerName);
+        m_needsRelogin = false;
+    } else {
+        m_needsRelogin = AccountStore::needsRelogin(m_uuid);
     }
 }
 
@@ -351,6 +448,8 @@ void AuthManager::setOfflinePlayer(const QString &name) {
     m_tokenExpiry = QDateTime();
     m_uuid.clear();
     m_playerName = name.isEmpty() ? QString::fromLatin1(kDefaultPlayerName) : name;
+    m_lastRefreshFailureKind = RefreshFailureKind::None;
+    m_needsRelogin = false;
 }
 
 bool AuthManager::loggedIn() const { return !m_uuid.isEmpty(); }
@@ -724,30 +823,38 @@ bool AuthManager::exchangeAuthorizationCode(const QString &code, QString *access
 
 bool AuthManager::requestMicrosoftTokenRefresh(const QString &refreshToken, QString *accessToken,
                                                QString *errorMessage,
-                                               const QString &expectedActiveUuid) {
-    const QString configError = loginConfigurationError();
-    if (!configError.isEmpty()) {
-        if (errorMessage) *errorMessage = configError;
+                                               const QString &expectedActiveUuid,
+                                               RefreshFailureKind *failureKind) {
+    const QString clientId = effectiveClientId();
+    if (clientId.isEmpty()) {
+        if (errorMessage) *errorMessage = loginConfigurationError();
+        if (failureKind) *failureKind = RefreshFailureKind::Other;
         return false;
     }
     SecretRedactor::remember(refreshToken);
     if (refreshToken.isEmpty()) {
         *errorMessage = tr("登录凭据无法续期，请重新登录。");
+        if (failureKind) *failureKind = RefreshFailureKind::ReloginRequired;
         return false;
     }
 
     QUrlQuery body;
-    body.addQueryItem(QStringLiteral("client_id"), kClientId);
+    body.addQueryItem(QStringLiteral("client_id"), clientId);
     body.addQueryItem(QStringLiteral("refresh_token"), refreshToken);
     body.addQueryItem(QStringLiteral("grant_type"), QStringLiteral("refresh_token"));
     body.addQueryItem(QStringLiteral("scope"), kOAuthScope);
 
     const HttpResult result =
-        sendJson(m_networkManager, QUrl(kOAuthTokenUrl), true,
+        sendJson(m_networkManager, QUrl(effectiveOAuthTokenUrl()), true,
                  body.query(QUrl::FullyEncoded).toUtf8(), "application/x-www-form-urlencoded",
                  QByteArray());
     if (!result.ok()) {
         *errorMessage = oauthFailureText(result, tr("刷新微软令牌失败"));
+        if (failureKind) {
+            *failureKind = classifyRefreshFailure(
+                result.status, result.networkError,
+                result.json.value(QStringLiteral("error")).toString());
+        }
         return false;
     }
 
@@ -759,61 +866,70 @@ bool AuthManager::requestMicrosoftTokenRefresh(const QString &refreshToken, QStr
     }
     if (!expectedActiveUuid.isEmpty() && AccountStore::activeUuid() != expectedActiveUuid) {
         *errorMessage = tr("刷新期间切换了账号，已取消刷新，原有登录信息已保留。");
+        if (failureKind) *failureKind = RefreshFailureKind::Other;
         return false;
     }
     if (!storeMicrosoftTokenData(tokenData)) {
         *errorMessage = tr("无法写入启动器设置，登录信息未保存。");
+        if (failureKind) *failureKind = RefreshFailureKind::Other;
         return false;
     }
 
     *accessToken = tokenData.value("access_token").toString();
     if (accessToken->isEmpty()) {
         *errorMessage = tr("微软登录服务未返回令牌。");
+        if (failureKind) *failureKind = RefreshFailureKind::Network;
         return false;
     }
     return true;
 }
 
 bool AuthManager::runMinecraftChain(const QString &microsoftAccessToken, QString *errorMessage,
-                                    const QString &expectedActiveUuid) {
+                                    const QString &expectedActiveUuid,
+                                    RefreshFailureKind *failureKind) {
     QString xblToken;
     QString userHash;
-    if (!requestXboxLiveToken(microsoftAccessToken, &xblToken, &userHash, errorMessage)) {
+    if (!requestXboxLiveToken(microsoftAccessToken, &xblToken, &userHash, errorMessage,
+                              failureKind)) {
         return false;
     }
 
     QString xstsToken;
     // XSTS 的响应里也会带一遍 uhs，以它为准（XBL 那步的 uhs 是同一个账户，但 XSTS 是
     // 真正授权给 Minecraft 的那一步，用它给的更稳妥）
-    if (!requestXstsToken(xblToken, &xstsToken, &userHash, errorMessage)) {
+    if (!requestXstsToken(xblToken, &xstsToken, &userHash, errorMessage, failureKind)) {
         return false;
     }
 
     QString mcToken;
     int expiresIn = 0;
-    if (!requestMinecraftToken(userHash, xstsToken, &mcToken, &expiresIn, errorMessage)) {
+    if (!requestMinecraftToken(userHash, xstsToken, &mcToken, &expiresIn, errorMessage,
+                               failureKind)) {
         return false;
     }
 
     QString name;
     QString uuid;
-    if (!fetchPlayerProfile(mcToken, &name, &uuid, errorMessage)) {
+    if (!fetchPlayerProfile(mcToken, &name, &uuid, errorMessage, failureKind)) {
         return false;
     }
 
     if (!expectedActiveUuid.isEmpty() && AccountStore::activeUuid() != expectedActiveUuid) {
         *errorMessage = tr("刷新期间切换了账号，已取消刷新，原有登录信息已保留。");
+        if (failureKind) *failureKind = RefreshFailureKind::Other;
         return false;
     }
     if (!storeMinecraftTokenData(mcToken, expiresIn, name, uuid)) {
         *errorMessage = tr("无法写入启动器设置，登录信息未保存。");
+        if (failureKind) *failureKind = RefreshFailureKind::Other;
         return false;
     }
     return true;
 }
 
 bool AuthManager::requestXboxLiveToken(const QString &microsoftAccessToken, QString *xblToken,
-                                       QString *userHash, QString *errorMessage) {
+                                       QString *userHash, QString *errorMessage,
+                                       RefreshFailureKind *failureKind) {
     QJsonObject properties;
     properties.insert(QStringLiteral("AuthMethod"), QStringLiteral("RPS"));
     properties.insert(QStringLiteral("SiteName"), QStringLiteral("user.auth.xboxlive.com"));
@@ -828,12 +944,15 @@ bool AuthManager::requestXboxLiveToken(const QString &microsoftAccessToken, QStr
     body.insert(QStringLiteral("TokenType"), QStringLiteral("JWT"));
 
     const HttpResult result =
-        sendJson(m_networkManager, QUrl(kXboxLiveAuthUrl), true,
+        sendJson(m_networkManager, QUrl(effectiveXboxLiveAuthUrl()), true,
                  QJsonDocument(body).toJson(QJsonDocument::Compact), "application/json",
                  QByteArray());
 
     if (!result.ok()) {
         *errorMessage = httpFailureText(result, tr("Xbox Live 认证失败"));
+        if (failureKind) {
+            *failureKind = classifyRefreshFailure(result.status, result.networkError);
+        }
         return false;
     }
 
@@ -841,13 +960,14 @@ bool AuthManager::requestXboxLiveToken(const QString &microsoftAccessToken, QStr
     *userHash = firstUserHash(result.json);
     if (xblToken->isEmpty() || userHash->isEmpty()) {
         *errorMessage = tr("Xbox Live 未返回认证令牌。");
+        if (failureKind) *failureKind = RefreshFailureKind::Network;
         return false;
     }
     return true;
 }
 
 bool AuthManager::requestXstsToken(const QString &xblToken, QString *xstsToken, QString *userHash,
-                                   QString *errorMessage) {
+                                   QString *errorMessage, RefreshFailureKind *failureKind) {
     QJsonObject properties;
     properties.insert(QStringLiteral("SandboxId"), QStringLiteral("RETAIL"));
     properties.insert(QStringLiteral("UserTokens"), QJsonArray{xblToken});
@@ -858,7 +978,7 @@ bool AuthManager::requestXstsToken(const QString &xblToken, QString *xstsToken, 
     body.insert(QStringLiteral("TokenType"), QStringLiteral("JWT"));
 
     const HttpResult result =
-        sendJson(m_networkManager, QUrl(kXstsAuthUrl), true,
+        sendJson(m_networkManager, QUrl(effectiveXstsAuthUrl()), true,
                  QJsonDocument(body).toJson(QJsonDocument::Compact), "application/json",
                  QByteArray());
 
@@ -869,6 +989,10 @@ bool AuthManager::requestXstsToken(const QString &xblToken, QString *xstsToken, 
             result.json.value(QStringLiteral("XErr")).toVariant().toLongLong();
         *errorMessage = xerr != 0 ? xstsErrorMessage(xerr)
                                   : httpFailureText(result, tr("XSTS 授权失败"));
+        if (failureKind) {
+            *failureKind = xerr != 0 ? RefreshFailureKind::Other
+                                     : classifyRefreshFailure(result.status, result.networkError);
+        }
         return false;
     }
 
@@ -879,20 +1003,22 @@ bool AuthManager::requestXstsToken(const QString &xblToken, QString *xstsToken, 
     }
     if (xstsToken->isEmpty() || userHash->isEmpty()) {
         *errorMessage = tr("Xbox 未返回 XSTS 授权令牌。");
+        if (failureKind) *failureKind = RefreshFailureKind::Network;
         return false;
     }
     return true;
 }
 
 bool AuthManager::requestMinecraftToken(const QString &userHash, const QString &xstsToken,
-                                        QString *mcToken, int *expiresIn, QString *errorMessage) {
+                                        QString *mcToken, int *expiresIn, QString *errorMessage,
+                                        RefreshFailureKind *failureKind) {
     QJsonObject body;
     // 固定写法：XBL3.0 x=<user hash>;<XSTS 令牌>
     body.insert(QStringLiteral("identityToken"),
                 QStringLiteral("XBL3.0 x=%1;%2").arg(userHash, xstsToken));
 
     const HttpResult result =
-        sendJson(m_networkManager, QUrl(kMinecraftLoginUrl), true,
+        sendJson(m_networkManager, QUrl(effectiveMinecraftLoginUrl()), true,
                  QJsonDocument(body).toJson(QJsonDocument::Compact), "application/json",
                  QByteArray());
 
@@ -903,6 +1029,11 @@ bool AuthManager::requestMinecraftToken(const QString &userHash, const QString &
             appRegistrationHint(result.json.value(QStringLiteral("errorMessage")).toString());
         *errorMessage =
             hint.isEmpty() ? httpFailureText(result, tr("登录 Minecraft 服务失败")) : hint;
+        if (failureKind) {
+            *failureKind = !hint.isEmpty()
+                               ? RefreshFailureKind::Other
+                               : classifyRefreshFailure(result.status, result.networkError);
+        }
         return false;
     }
 
@@ -910,24 +1041,29 @@ bool AuthManager::requestMinecraftToken(const QString &userHash, const QString &
     *expiresIn = result.json.value(QStringLiteral("expires_in")).toInt(0);
     if (mcToken->isEmpty()) {
         *errorMessage = tr("Minecraft 登录服务未返回令牌。");
+        if (failureKind) *failureKind = RefreshFailureKind::Network;
         return false;
     }
     return true;
 }
 
 bool AuthManager::fetchPlayerProfile(const QString &mcToken, QString *name, QString *uuid,
-                                     QString *errorMessage) {
-    const HttpResult result = sendJson(m_networkManager, QUrl(kMinecraftProfileUrl), false,
+                                     QString *errorMessage, RefreshFailureKind *failureKind) {
+    const HttpResult result = sendJson(m_networkManager, QUrl(effectiveMinecraftProfileUrl()), false,
                                        QByteArray(), QByteArray(), mcToken.toUtf8());
 
     // 404 在这一步的意思很具体：令牌是好的，但这个账户没买过 Minecraft（或者买游戏的是
     // 另一个账户）。这条要单独说 —— 否则用户看到的是"登录失败"，会以为是密码或者网络问题。
     if (result.status == 404) {
         *errorMessage = tr("此微软账号没有 Minecraft 游戏档案。\n请使用已购买游戏且已创建档案的账号登录。");
+        if (failureKind) *failureKind = RefreshFailureKind::Other;
         return false;
     }
     if (!result.ok()) {
         *errorMessage = httpFailureText(result, tr("读取游戏档案失败"));
+        if (failureKind) {
+            *failureKind = classifyRefreshFailure(result.status, result.networkError);
+        }
         return false;
     }
 
@@ -935,6 +1071,7 @@ bool AuthManager::fetchPlayerProfile(const QString &mcToken, QString *name, QStr
     *uuid = result.json.value(QStringLiteral("id")).toString();
     if (name->isEmpty() || uuid->isEmpty()) {
         *errorMessage = tr("Minecraft 游戏档案缺少玩家名称。");
+        if (failureKind) *failureKind = RefreshFailureKind::Network;
         return false;
     }
     return true;
@@ -982,6 +1119,9 @@ bool AuthManager::storeMinecraftTokenData(const QString &mcToken, int expiresIn,
         qWarning().noquote() << "Minecraft 令牌写盘失败：" << failure;
         return false;
     }
+    m_needsRelogin = false;
+    m_lastRefreshFailureKind = RefreshFailureKind::None;
+    AccountStore::setNeedsRelogin(uuid, false);
     return true;
 }
 

@@ -952,12 +952,12 @@ void runBottomBarPanelTests() {
                       accountRow(panel, 1) != nullptr && accountRow(panel, 1)->isEnabled(),
                   "AH7 别人那两行整行可点（不再是行尾一颗「登录」/「选择」）");
 
-            // ---- AH8 点一个**过期**的正版账号：切过去 + 令牌换不出来要说清楚 ----
+            // ---- AH8 点一个令牌不足 6 小时的正版账号：只切号、不触发刷新、不弹窗 ----
             QAbstractButton *carolButton = accountRow(panel, 1);
             dismissNextPrompt();
             clickRow(carolButton);
             check(AccountStore::activeUuid() == carolUuid,
-                  "AH8 切到那个账号了（令牌没换到也不该把这次切换一起作废）",
+                  "AH8 切到那个账号了",
                   AccountStore::activeUuid());
             {
                 QLabel *pillName = w.findChild<QLabel *>(QStringLiteral("homeAccountLabel"));
@@ -972,19 +972,15 @@ void runBottomBarPanelTests() {
                 check(title != nullptr && title->text().endsWith(QStringLiteral(" Carol")),
                       "AH8 主页大标题问候跟着换成 Carol", title != nullptr ? title->text() : QString());
             }
-            check(g_modalTitle == QStringLiteral("登录凭据刷新失败") && g_modalWasWarning,
-                  "AH8 令牌换不出来**要弹窗**（产品级约束：错误要弹窗，不能只写日志）",
+            check(g_modalTitle.isEmpty(),
+                  "AH8 切号不再刷新令牌，也不弹任何错误框",
                   g_modalTitle + QStringLiteral(" / ") + g_modalText);
-            check(g_modalText.contains(QStringLiteral("已切换至「Carol」")) &&
-                      g_modalText.contains(QStringLiteral("重新登录")),
-                  "AH8 弹窗把「切过去了」和「令牌没换到」分开说，并指出下一步", g_modalText);
             check(countOccurrences(messagesSnapshot(), QStringLiteral("无法刷新「")) ==
-                      refreshFailedBefore + 1,
-                  "AH8 日志里也留了一行（命令行那一路看得见）");
+                      refreshFailedBefore,
+                  "AH8 日志里没有「无法刷新」");
             check(countOccurrences(messagesSnapshot(), QStringLiteral("已自动更新")) ==
                       refreshedOnceBefore,
-                  "AH8 这一发**没有**刷新成功（Carol 那份微软 payload 里没有 refresh_token，"
-                  "第一道判据就拦下了，一个包都没发）");
+                  "AH8 日志里也没有「已自动更新」（切号不刷新）");
         }
     }
 
@@ -1076,9 +1072,10 @@ void runBottomBarPanelTests() {
                   TokenStore::writeJson(TokenStore::microsoftKey(), noRefreshMicrosoft),
               "AH11 活动槽换成「Bob 的令牌只剩不到 6 小时」（微软那份没有 refresh_token）");
         // 内存里那一份也得跟着换 —— tokenSecondsLeft() 读的是它，不是盘上。
-        QString reloadReason;
-        check(!auth->loadSavedToken(&reloadReason).isEmpty(),
-              "AH11 这一份按产品那条路读回内存", reloadReason);
+        // 用 reloadStoredAccount() 纯本地读盘，不触发网络刷新。
+        auth->reloadStoredAccount();
+        check(!auth->savedAccessToken().isEmpty(),
+              "AH11 这一份按产品那条路读回内存");
         // NOTE: 认人用 playerName() 而**不是** playerUuid()：后者是带连字符的那个形状
         // （dashedUuid()），和列表里那个 32 位十六进制不是一串字。
         check(auth->playerName() == QStringLiteral("Bob") &&
@@ -1331,6 +1328,236 @@ void runBottomBarPanelTests() {
                       "AH12b 那句话也跟着换成离线那一档", hint->text());
             }
         }
+    }
+
+    // ---- AH13 切号/开页不刷新 + 嵌套循环界面响应实测 + 启动网络失败三选（#67） ----
+    {
+        auto *activity = w.findChild<ActivityCenterController *>();
+        check(activity != nullptr, "AH13 前提：ActivityCenterController 找得到");
+
+        // 本地模拟服务端：可统计请求数，也可制造慢响应 / 断网
+        QTcpServer mockAuth;
+        check(mockAuth.listen(QHostAddress::LocalHost, 0), "AH13 模拟认证服务器监听成功");
+        int mockHits = 0;
+        int delayMs = 0;
+        QObject::connect(&mockAuth, &QTcpServer::newConnection, &mockAuth, [&] {
+            while (auto *sock = mockAuth.nextPendingConnection()) {
+                QObject::connect(sock, &QTcpSocket::disconnected, sock, &QTcpSocket::deleteLater);
+                QObject::connect(sock, &QTcpSocket::readyRead, sock, [&, sock] {
+                    QByteArray buf = sock->property("buf").toByteArray() + sock->readAll();
+                    sock->setProperty("buf", buf);
+                    const qsizetype hdrEnd = buf.indexOf("\r\n\r\n");
+                    if (hdrEnd < 0) return;
+                    int contentLen = 0;
+                    for (const QByteArray &line : buf.left(hdrEnd).split('\n')) {
+                        if (line.trimmed().toLower().startsWith("content-length:")) {
+                            contentLen = line.trimmed().mid(15).trimmed().toInt();
+                        }
+                    }
+                    if (buf.size() < hdrEnd + 4 + contentLen) return;
+                    const QByteArray path = buf.left(buf.indexOf("\r\n")).split(' ').value(1);
+                    ++mockHits;
+                    const auto respond = [sock, path, bobUuid] {
+                        if (!sock || sock->state() != QAbstractSocket::ConnectedState) return;
+                        QByteArray body = QByteArrayLiteral("{}");
+                        if (path == "/token") {
+                            body = QByteArrayLiteral("{\"access_token\":\"ms-2\",\"refresh_token\":\"rt-2\"}");
+                        } else if (path == "/xbl" || path == "/xsts") {
+                            body = QByteArrayLiteral("{\"Token\":\"t\",\"DisplayClaims\":{\"xui\":[{\"uhs\":\"u\"}]}}");
+                        } else if (path == "/mc") {
+                            body = QByteArrayLiteral("{\"access_token\":\"mc-ok-67\",\"expires_in\":86400}");
+                        } else if (path == "/profile") {
+                            body = QStringLiteral("{\"id\":\"%1\",\"name\":\"Bob\"}").arg(bobUuid).toUtf8();
+                        }
+                        sock->write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " +
+                                    QByteArray::number(body.size()) + "\r\nConnection: close\r\n\r\n");
+                        sock->write(body);
+                        sock->disconnectFromHost();
+                    };
+                    if (delayMs > 0) {
+                        QTimer::singleShot(delayMs, sock, respond);
+                    } else {
+                        respond();
+                    }
+                });
+            }
+        });
+
+        const QString base = QStringLiteral("http://127.0.0.1:%1").arg(mockAuth.serverPort());
+        AuthManager::EndpointOverrides overrides;
+        overrides.oauthTokenUrl = base + QStringLiteral("/token");
+        overrides.xboxLiveAuthUrl = base + QStringLiteral("/xbl");
+        overrides.xstsAuthUrl = base + QStringLiteral("/xsts");
+        overrides.minecraftLoginUrl = base + QStringLiteral("/mc");
+        overrides.minecraftProfileUrl = base + QStringLiteral("/profile");
+        overrides.clientId = QStringLiteral("test-client-id");
+        AuthManager::setEndpointOverridesForTest(overrides);
+
+        // 写入一个剩余 1 小时（< 6h）且有 refresh_token 的账号 Bob，再切去离线账号 Alex
+        {
+            QJsonObject ms{{QStringLiteral("access_token"), QStringLiteral("ms-bob")},
+                           {QStringLiteral("refresh_token"), QStringLiteral("rt-bob")}};
+            QJsonObject mc{{QStringLiteral("access_token"), QStringLiteral("mc-bob-1h")},
+                           {QStringLiteral("expires_at"),
+                            QDateTime::currentDateTimeUtc().addSecs(3600).toString(Qt::ISODate)},
+                           {QStringLiteral("name"), QStringLiteral("Bob")},
+                           {QStringLiteral("uuid"), bobUuid}};
+            check(TokenStore::writeJson(TokenStore::microsoftKey(), ms) &&
+                      TokenStore::writeJson(TokenStore::minecraftKey(), mc) &&
+                      AccountStore::captureActive(),
+                  "AH13 准备不足 6h 的账号 Bob");
+            check(AccountStore::addOffline(alexName), "AH13 先切回 Alex");
+            auth->setOfflinePlayer(alexName);
+        }
+
+        // 1) 切号 & 打开账号页都不触发刷新
+        mockHits = 0;
+        {
+            QWidget *panel = openPanel(accountsButton);
+            const int bobRow = rowIndexOf(panel, QStringLiteral("Bob"));
+            QAbstractButton *bobBtn = bobRow >= 0 ? accountRow(panel, bobRow) : nullptr;
+            check(bobBtn != nullptr, "AH13 账号弹层找得到 Bob");
+            if (bobBtn != nullptr) {
+                dismissNextPrompt();
+                clickRow(bobBtn);
+            }
+        }
+        check(AccountStore::activeUuid() == bobUuid && mockHits == 0,
+              "AH13 切到剩余 < 6h 的 Bob 不发刷新请求",
+              QStringLiteral("active=%1 hits=%2").arg(AccountStore::activeUuid()).arg(mockHits));
+
+        QMetaObject::invokeMethod(&w, "onAccountSkinButtonClicked", Qt::DirectConnection);
+        QApplication::processEvents();
+        // 即使账号页已打开时切到别的号再切回，也不触发刷新
+        QMetaObject::invokeMethod(&w, "onAccountSwitchRequested", Qt::DirectConnection, Q_ARG(QString, alexUuid));
+        QApplication::processEvents();
+        QMetaObject::invokeMethod(&w, "onAccountSwitchRequested", Qt::DirectConnection, Q_ARG(QString, bobUuid));
+        QApplication::processEvents();
+        if (w.ui() != nullptr && w.ui()->overlay() != nullptr && w.ui()->overlay()->isOpen()) {
+            w.ui()->overlay()->closeOverlay();
+            QApplication::processEvents();
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        }
+        check(AccountStore::activeUuid() == bobUuid && mockHits == 0,
+              "AH13 打开账号页及在页内切号均不发刷新请求", QString::number(mockHits));
+
+        // 2) 实测嵌套事件循环等待网络响应期间窗口事件/重绘/定时器照常响应
+        delayMs = 250;
+        mockHits = 0;
+        int timerTicks = 0;
+        int paintEvents = 0;
+        struct PaintCounter : QObject {
+            int *count = nullptr;
+            bool eventFilter(QObject *, QEvent *event) override {
+                if (event->type() == QEvent::Paint && count != nullptr) ++(*count);
+                return false;
+            }
+        } paintCounter;
+        paintCounter.count = &paintEvents;
+        w.installEventFilter(&paintCounter);
+        QTimer uiPulse;
+        uiPulse.setInterval(30);
+        QObject::connect(&uiPulse, &QTimer::timeout, &w, [&] {
+            ++timerTicks;
+            w.update();
+        });
+        uiPulse.start();
+        QString slowErr;
+        const QString slowTok = auth->loadSavedToken(&slowErr);
+        uiPulse.stop();
+        w.removeEventFilter(&paintCounter);
+        delayMs = 0;
+        check(slowTok == QStringLiteral("mc-ok-67") && timerTicks >= 3 && paintEvents >= 1,
+              "AH13 实测嵌套事件循环等待网络期间 UI 定时器与窗口重绘照常响应",
+              QStringLiteral("ticks=%1 paints=%2 err=%3").arg(timerTicks).arg(paintEvents).arg(slowErr));
+
+        // 3) 断网（关闭端口）启动：弹出三选（「重试」「离线游玩」「取消」）
+        // 先把 Bob 的令牌设为已过期，但保留有效本地档案和 access_token
+        {
+            QJsonObject ms{{QStringLiteral("access_token"), QStringLiteral("ms-bob")},
+                           {QStringLiteral("refresh_token"), QStringLiteral("rt-bob")}};
+            QJsonObject mc{{QStringLiteral("access_token"), QStringLiteral("mc-offline-kept")},
+                           {QStringLiteral("expires_at"),
+                            QDateTime::currentDateTimeUtc().addSecs(-3600).toString(Qt::ISODate)},
+                           {QStringLiteral("name"), QStringLiteral("Bob")},
+                           {QStringLiteral("uuid"), bobUuid}};
+            check(TokenStore::writeJson(TokenStore::microsoftKey(), ms) &&
+                      TokenStore::writeJson(TokenStore::minecraftKey(), mc) &&
+                      AccountStore::captureActive(),
+                  "AH13 准备已过期正版账号 Bob");
+            auth->reloadStoredAccount();
+        }
+        mockAuth.close();
+        QTcpServer closedProbe;
+        check(closedProbe.listen(QHostAddress::LocalHost, 0), "AH13 分配关闭端口模拟断网");
+        const quint16 deadPort = closedProbe.serverPort();
+        closedProbe.close();
+        overrides.oauthTokenUrl = QStringLiteral("http://127.0.0.1:%1/token").arg(deadPort);
+        AuthManager::setEndpointOverridesForTest(overrides);
+
+        // 确保版本下拉框选中 releaseId
+        if (QComboBox *combo = w.ui()->getInstalledVersionCombo()) {
+            const int idx = combo->findData(releaseId);
+            if (idx >= 0) combo->setCurrentIndex(idx);
+        }
+
+        // 3a) 点「取消」（下标 2）：任务记「已取消」、不清理正版身份
+        {
+            const int tasksBefore = activity ? activity->tasks()->all().size() : 0;
+            PromptAnswerer answerer({2});
+            answerer.start();
+            QMetaObject::invokeMethod(&w, "onStartButtonClicked", Qt::DirectConnection);
+            pumpUntil([&] { return !answerer.answered.isEmpty(); }, 5000);
+            answerer.stop();
+            check(!answerer.answered.isEmpty() &&
+                      answerer.answered.at(0).title == QStringLiteral("无法刷新登录凭据") &&
+                      answerer.answered.at(0).text.contains(QStringLiteral("无法刷新登录凭据：")) &&
+                      answerer.answered.at(0).text.contains(QStringLiteral("以离线方式进入游戏（无法加入正版服务器）")) &&
+                      answerer.answered.at(0).buttons == QStringList({QStringLiteral("重试"), QStringLiteral("离线游玩"), QStringLiteral("取消")}),
+                  "AH13 断网启动弹出「重试」「离线游玩」「取消」三选及规定文案",
+                  answerer.answered.isEmpty() ? QStringLiteral("未弹框")
+                                              : answerer.answered.at(0).buttons.join(QStringLiteral(",")));
+            const auto allSnaps = activity ? activity->tasks()->all() : QList<Tasks::TaskSnapshot>{};
+            const auto finishedSnaps = activity ? activity->tasks()->finished() : QList<Tasks::TaskSnapshot>{};
+            check(allSnaps.size() == tasksBefore + 1 && !finishedSnaps.isEmpty() &&
+                      finishedSnaps.first().state == Tasks::TaskState::Cancelled,
+                  "AH13 点「取消」后任务中心将启动任务记为「已取消」",
+                  finishedSnaps.isEmpty() ? QString() : QString::number(int(finishedSnaps.first().state)));
+            check(AccountStore::activeUuid() == bobUuid && !AccountStore::isOffline(bobUuid) &&
+                      auth->loggedIn(),
+                  "AH13 取消后保留正版账号身份");
+        }
+
+        // 3b) 先点「重试」（下标 0），再点「离线游玩」（下标 1）：步骤 0 完成（离线游玩），继续用本地正版档案推进启动
+        {
+            const int tasksBefore = activity ? activity->tasks()->all().size() : 0;
+            // 第1次弹三选点「重试」(0)；第2次弹三选点「离线游玩」(1)；后续 pre-launch「无法启动」点确定(0)
+            PromptAnswerer answerer({0, 1, 0});
+            answerer.start();
+            QMetaObject::invokeMethod(&w, "onStartButtonClicked", Qt::DirectConnection);
+            pumpUntil([&] { return answerer.answered.size() >= 3; }, 5000);
+            answerer.stop();
+            check(answerer.answered.size() >= 3 &&
+                      answerer.answered.at(0).title == QStringLiteral("无法刷新登录凭据") &&
+                      answerer.answered.at(1).title == QStringLiteral("无法刷新登录凭据") &&
+                      answerer.answered.at(2).title == QStringLiteral("版本信息缺失"),
+                  "AH13 先「重试」再「离线游玩」后进入后续启动检查（不再卡在认证）",
+                  answerer.answered.size() >= 3 ? answerer.answered.at(2).title : QStringLiteral("数量不足"));
+            const auto allSnaps = activity ? activity->tasks()->all() : QList<Tasks::TaskSnapshot>{};
+            const auto finishedSnaps = activity ? activity->tasks()->finished() : QList<Tasks::TaskSnapshot>{};
+            check(allSnaps.size() == tasksBefore + 1 && !finishedSnaps.isEmpty() &&
+                      !finishedSnaps.first().steps.isEmpty() &&
+                      finishedSnaps.first().steps.at(0).state == Tasks::TaskStepState::Done &&
+                      finishedSnaps.first().steps.at(0).note.contains(QStringLiteral("离线游玩")),
+                  "AH13 离线游玩通过校验登录步骤并记录本地档案方式启动");
+            check(AccountStore::activeUuid() == bobUuid && !AccountStore::isOffline(bobUuid) &&
+                      auth->loggedIn() && auth->playerName() == QStringLiteral("Bob") &&
+                      auth->playerUuid() == AuthManager::dashedUuid(bobUuid) &&
+                      auth->savedAccessToken() == QStringLiteral("mc-offline-kept"),
+                  "AH13 离线游玩不清掉正版身份，保留本地名字、UUID 和现有令牌");
+        }
+
+        AuthManager::setEndpointOverridesForTest({});
     }
 
     // ---- AH12 收尾：会话一份不剩、账号清掉、目录换回来 ----

@@ -49,6 +49,8 @@ struct SavedAccount {
     /// 身份的来源不一样：同一个名字在哪台机器上推出来都是同一个 uuid，重装启动器、
     /// 换台电脑，切过去还是同一个人。
     bool offline = false;
+    /// 刷新令牌是否已失效、必须重新登录（如微软返回 invalid_grant）。离线账号恒为 false。
+    bool needsRelogin = false;
 };
 
 class AccountStore {
@@ -138,6 +140,12 @@ public:
 
     /// 列表里那一项。找不到返回 false，*out 不动。
     static bool find(const QString &uuid, SavedAccount *out);
+
+    /// 查询该正版账号是否已被标记为「需要重新登录」（刷新令牌失效）。离线账号或未找到返回 false。
+    static bool needsRelogin(const QString &uuid);
+
+    /// 更新列表里该正版账号的「需要重新登录」标记。找不到或离线账号时返回 false。
+    static bool setNeedsRelogin(const QString &uuid, bool required, QString *errorOut = nullptr);
 
     /// 从名字推出来的离线 uuid（32 位小写十六进制，不带横线）。
     ///
