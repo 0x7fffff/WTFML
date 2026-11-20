@@ -128,6 +128,8 @@ int UiInstanceRowPaintingChecks() {
         auto *copyButton = page.findChild<QPushButton *>(ResourceDetailPage::copyNameButtonName());
         check(openButton != nullptr && mcmodButton != nullptr && copyButton != nullptr,
               "Z14 头卡上那三颗按钮都在（按 objectName 找得到）");
+        check(mcmodButton != nullptr && mcmodButton->text() == QStringLiteral("在 MC 百科搜索"),
+              "Z14 MC 百科那一颗写的是「在 MC 百科搜索」", mcmodButton ? mcmodButton->text() : QString());
         check(openButton != nullptr && openButton->isVisible() && mcmodButton != nullptr &&
                   mcmodButton->isVisible() && copyButton != nullptr && copyButton->isVisible(),
               "Z14 地址拼得出、名字拿得到 ⇒ 三颗都画出来");
@@ -796,5 +798,6 @@ int UiInstanceRowPaintingChecks() {
     }
     return 0;
 }
+
 
 
