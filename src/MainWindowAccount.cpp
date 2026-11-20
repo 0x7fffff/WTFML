@@ -79,8 +79,8 @@ void MainWindow::onAccountSkinButtonClicked() {
         // —— 页面还没画出来，那个请求已经在跑了，用户只会以为按钮点坏了。
         // 这里排一发队：开页是**非阻塞**的（`OverlayHost::showPage()`），返回之后主循环照常
         // 转，这一发就排在"页面已经在屏幕上"之后跑。
-        // NOTE: 打开账号页不刷新令牌、不拉披风列表（只刷新本地列表、状态行与 3D 预览）；
-        // 需要拉披风列表时由用户点「刷新外观」触发。
+        // NOTE: 打开账号页不刷新令牌：当前令牌未过期时直接用本地令牌拉披风列表，
+        // 已过期则在失败行提示「登录凭据已过期，披风列表未更新。」。
         QMetaObject::invokeMethod(this, [this] { refreshAccountSkin(false); }, Qt::QueuedConnection);
         // 那一发刷新排在页面摆上来之后；先把「皮肤」那一行摆对，免得开页的第一帧
         // 露的是正版才有的「上传皮肤…」（离线账号按下去只会失败）。
@@ -148,7 +148,7 @@ QString MainWindow::accountSkinStatusText() const {
     return AccountSkinDialog::identityText(m_authManager->playerName());
 }
 
-void MainWindow::refreshAccountSkin(bool fetchCapes) {
+void MainWindow::refreshAccountSkin(bool allowTokenRefresh) {
     // NOTE: **这一句只挡窗里那些东西**（账号列表 / 状态行 / 披风），预览那一份照刷 ——
     // 主页那个小人、底栏头像、那个窗里的 3D 预览**都只在
     // startPlayerSkinLoad() → applyPlayerSkin() 里更新**，这一句 return 若把预览也挡掉，
@@ -218,20 +218,9 @@ void MainWindow::refreshAccountSkin(bool fetchCapes) {
     // NOTE: 上半截（账号列表 / 状态行 / 3D 预览）**照样刷了** —— 那些不联网。披风列表会在
     // 用户真的打开这一页时补上：开页那条路必走一次本函数（见 onAccountSkinButtonClicked），
     // 而那时页面已经在屏幕上了。
-    if (!fetchCapes || !m_accountSkinDialog->isVisible()) {
+    if (!m_accountSkinDialog->isVisible()) {
         return;
     }
-    // 下面这两下是**同步**的（补忙态）：loadSavedToken() 可能要真去换一次令牌、
-    // fetchOwnedCapes() 一定发一次 GET —— 两个函数都是"调完才返回"，于是点「刷新」之后的
-    // 这几秒钟里 UI 线程一直在这两行里面出不来：窗不重绘、什么都按不动，Windows 过一会儿
-    // 还会给标题挂上"(无响应)"。
-    //
-    // NOTE: 到这儿必须先把忙态点起来并 processEvents 一次：第 2 步的 setBusy(false)
-    // 之后到这里谁也没把忙态点起来的话，用户看到的是一个画着旧内容、点什么都没反应的窗。
-    // 忙态 + 一次 processEvents（排掉用户输入）和 enterSyncWait() 是同一个手法：
-    // 进去之前先把话说出来。下面每条返回路上都要松开它。
-    m_accountSkinDialog->setBusy(true, tr("正在获取披风列表…"));
-    QApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
 
     // 失败时的收尾：「已登录为…」那一句保持不变，原因另起一行（后面跟「重试」）；披风列表留着上次
     // 取到的内容，只有它属于另一个账号时才清掉（不能让用户在 B 账号下看到 A 的披风）。
@@ -247,11 +236,40 @@ void MainWindow::refreshAccountSkin(bool fetchCapes) {
     };
 
     QString error;
-    const QString token = m_authManager->loadSavedToken(&error);
-    if (token.isEmpty()) {
-        // 没登录（或者令牌换不出来）。
-        failRefresh(error);
-        return;
+    QString token;
+    if (!allowTokenRefresh) {
+        if (!m_authManager->loggedIn()) {
+            m_accountSkinDialog->setCapes({});
+            m_accountSkinDialog->setCapesOwner(QString());
+            return;
+        }
+        // 开页与切号：不触发令牌刷新。令牌尚未过期就用现有令牌直接拉披风，已过期则在失败行提示。
+        if (m_authManager->tokenSecondsLeft() <= 0 || m_authManager->savedAccessToken().isEmpty()) {
+            failRefresh(tr("登录凭据已过期，披风列表未更新。"));
+            return;
+        }
+        token = m_authManager->savedAccessToken();
+    }
+
+    // 下面这两下是**同步**的（补忙态）：loadSavedToken() 可能要真去换一次令牌、
+    // fetchOwnedCapes() 一定发一次 GET —— 两个函数都是"调完才返回"，于是点「刷新」之后的
+    // 这几秒钟里 UI 线程一直在这两行里面出不来：窗不重绘、什么都按不动，Windows 过一会儿
+    // 还会给标题挂上"(无响应)"。
+    //
+    // NOTE: 到这儿必须先把忙态点起来并 processEvents 一次：第 2 步的 setBusy(false)
+    // 之后到这里谁也没把忙态点起来的话，用户看到的是一个画着旧内容、点什么都没反应的窗。
+    // 忙态 + 一次 processEvents（排掉用户输入）和 enterSyncWait() 是同一个手法：
+    // 进去之前先把话说出来。下面每条返回路上都要松开它。
+    m_accountSkinDialog->setBusy(true, tr("正在获取披风列表…"));
+    QApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+
+    if (allowTokenRefresh) {
+        token = m_authManager->loadSavedToken(&error);
+        if (token.isEmpty()) {
+            // 没登录（或者令牌换不出来）。
+            failRefresh(error);
+            return;
+        }
     }
 
     QList<OwnedCape> capes;
@@ -470,8 +488,9 @@ void MainWindow::onAccountSwitchRequested(const QString &uuid) {
     appendLog(tr("已切换到账号「%1」。").arg(AccountStore::nameOf(uuid)));
     if (m_accountSkinDialog != nullptr) {
         m_accountSkinDialog->setCapes({});
+        m_accountSkinDialog->setCapesOwner(QString());
     }
-    // 切号不刷新令牌、不拉披风列表，只刷新列表、状态与 3D 预览。
+    // 切号不刷新令牌；若页开着且当前令牌未过期，用本地令牌拉新账号的披风，已过期则在失败行提示。
     refreshAccountSkin(false);
 }
 

@@ -2642,8 +2642,9 @@ private:
     // / 把这个窗建出来并接好线（幂等：已经建过就什么都不做）。
     void setupAccountSkinDialog();
     /// 刷新这个窗里的三样东西：账号列表（本地）、3D 预览（走和主页同一条路）、
-    /// 披风列表（@p fetchCapes 为 true 且页面可见时才联网拉取；开页与切号不触发刷新）。窗还没建时只刷新主页预览。
-    void refreshAccountSkin(bool fetchCapes = true);
+    /// 披风列表（页面可见时：@p allowTokenRefresh 为 true 走 loadSavedToken 按 6 小时窗口刷新后拉取；
+    /// false 则只用未过期的本地令牌直接拉取，已过期时在失败行提示，不刷新令牌）。窗还没建时只刷新主页预览。
+    void refreshAccountSkin(bool allowTokenRefresh = true);
     /// 这个窗顶部那句话应该写什么（当前身份）。**唯一一处**决定它 —— 离线身份、未登录、
     /// 正版三种状态要是散在各条路上，迟早出现"底栏说离线、这里说正版"。
     QString accountSkinStatusText() const;

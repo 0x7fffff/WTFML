@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include "auth/SkinApi.hpp"
 #include "ActivityPopover.hpp"
 #include "ServerConsolePage.hpp"
 #include "ServerSettingsPage.hpp"
@@ -1340,11 +1341,13 @@ void runBottomBarPanelTests() {
         auto *activity = w.findChild<ActivityCenterController *>();
         check(activity != nullptr, "AH13 前提：ActivityCenterController 找得到");
 
-        // 本地模拟服务端：可统计请求数，也可制造慢响应 / 断网
+        // 本地模拟服务端：可统计认证请求与披风档案请求，也可制造慢响应 / 断网
         QTcpServer mockAuth;
         check(mockAuth.listen(QHostAddress::LocalHost, 0), "AH13 模拟认证服务器监听成功");
-        int mockHits = 0;
+        int tokenHits = 0;
+        int skinProfileHits = 0;
         int delayMs = 0;
+        const QString base = QStringLiteral("http://127.0.0.1:%1").arg(mockAuth.serverPort());
         QObject::connect(&mockAuth, &QTcpServer::newConnection, &mockAuth, [&] {
             while (auto *sock = mockAuth.nextPendingConnection()) {
                 QObject::connect(sock, &QTcpSocket::disconnected, sock, &QTcpSocket::deleteLater);
@@ -1361,8 +1364,12 @@ void runBottomBarPanelTests() {
                     }
                     if (buf.size() < hdrEnd + 4 + contentLen) return;
                     const QByteArray path = buf.left(buf.indexOf("\r\n")).split(' ').value(1);
-                    ++mockHits;
-                    const auto respond = [sock, path, bobUuid] {
+                    if (path == "/token") {
+                        ++tokenHits;
+                    } else if (path == "/minecraft/profile") {
+                        ++skinProfileHits;
+                    }
+                    const auto respond = [sock, path, bobUuid, base] {
                         if (!sock || sock->state() != QAbstractSocket::ConnectedState) return;
                         QByteArray body = QByteArrayLiteral("{}");
                         if (path == "/token") {
@@ -1373,6 +1380,13 @@ void runBottomBarPanelTests() {
                             body = QByteArrayLiteral("{\"access_token\":\"mc-ok-67\",\"expires_in\":86400}");
                         } else if (path == "/profile") {
                             body = QStringLiteral("{\"id\":\"%1\",\"name\":\"Bob\"}").arg(bobUuid).toUtf8();
+                        } else if (path == "/minecraft/profile") {
+                            body = QStringLiteral(
+                                       "{\"id\":\"%1\",\"name\":\"Bob\",\"skins\":[],"
+                                       "\"capes\":[{\"id\":\"cape-1\",\"alias\":\"Migrator\","
+                                       "\"state\":\"ACTIVE\",\"url\":\"%2/cape.png\"}]}")
+                                       .arg(bobUuid, base)
+                                       .toUtf8();
                         }
                         sock->write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " +
                                     QByteArray::number(body.size()) + "\r\nConnection: close\r\n\r\n");
@@ -1388,7 +1402,6 @@ void runBottomBarPanelTests() {
             }
         });
 
-        const QString base = QStringLiteral("http://127.0.0.1:%1").arg(mockAuth.serverPort());
         AuthManager::EndpointOverrides overrides;
         overrides.oauthTokenUrl = base + QStringLiteral("/token");
         overrides.xboxLiveAuthUrl = base + QStringLiteral("/xbl");
@@ -1397,8 +1410,9 @@ void runBottomBarPanelTests() {
         overrides.minecraftProfileUrl = base + QStringLiteral("/profile");
         overrides.clientId = QStringLiteral("test-client-id");
         AuthManager::setEndpointOverridesForTest(overrides);
+        SkinApi::setBaseUrlOverride(base);
 
-        // 写入一个剩余 1 小时（< 6h）且有 refresh_token 的账号 Bob，再切去离线账号 Alex
+        // 写入一个剩余 1 小时（< 6h，未过期）且有 refresh_token 的账号 Bob，再切去离线账号 Alex
         {
             QJsonObject ms{{QStringLiteral("access_token"), QStringLiteral("ms-bob")},
                            {QStringLiteral("refresh_token"), QStringLiteral("rt-bob")}};
@@ -1410,13 +1424,14 @@ void runBottomBarPanelTests() {
             check(TokenStore::writeJson(TokenStore::microsoftKey(), ms) &&
                       TokenStore::writeJson(TokenStore::minecraftKey(), mc) &&
                       AccountStore::captureActive(),
-                  "AH13 准备不足 6h 的账号 Bob");
+                  "AH13 准备不足 6h（未过期）的账号 Bob");
             check(AccountStore::addOffline(alexName), "AH13 先切回 Alex");
             auth->setOfflinePlayer(alexName);
         }
 
-        // 1) 切号 & 打开账号页都不触发刷新
-        mockHits = 0;
+        // 1a) 切号不刷新；未过期账号打开账号页会用现有令牌拉披风、但不刷新令牌
+        tokenHits = 0;
+        skinProfileHits = 0;
         {
             QWidget *panel = openPanel(accountsButton);
             const int bobRow = rowIndexOf(panel, QStringLiteral("Bob"));
@@ -1427,13 +1442,26 @@ void runBottomBarPanelTests() {
                 clickRow(bobBtn);
             }
         }
-        check(AccountStore::activeUuid() == bobUuid && mockHits == 0,
-              "AH13 切到剩余 < 6h 的 Bob 不发刷新请求",
-              QStringLiteral("active=%1 hits=%2").arg(AccountStore::activeUuid()).arg(mockHits));
+        check(AccountStore::activeUuid() == bobUuid && tokenHits == 0,
+              "AH13 面板切到剩余 < 6h 的 Bob 不发刷新请求",
+              QStringLiteral("active=%1 tokenHits=%2").arg(AccountStore::activeUuid()).arg(tokenHits));
 
         QMetaObject::invokeMethod(&w, "onAccountSkinButtonClicked", Qt::DirectConnection);
         QApplication::processEvents();
-        // 即使账号页已打开时切到别的号再切回，也不触发刷新
+        {
+            auto *dialog = w.findChild<AccountSkinDialog *>();
+            auto *capeList = dialog ? dialog->findChild<QListWidget *>(AccountSkinDialog::capeListName()) : nullptr;
+            auto *errLabel = dialog ? dialog->findChild<QLabel *>(AccountSkinDialog::statusErrorLabelName()) : nullptr;
+            check(tokenHits == 0 && skinProfileHits == 1 && capeList != nullptr && capeList->count() == 2 &&
+                      errLabel != nullptr && !errLabel->isVisibleTo(dialog) && errLabel->text().isEmpty(),
+                  "AH13 令牌未过期时开页用现有令牌拉披风且不刷新令牌",
+                  QStringLiteral("tokenHits=%1 skinHits=%2 capes=%3 err=%4")
+                      .arg(tokenHits)
+                      .arg(skinProfileHits)
+                      .arg(capeList ? capeList->count() : -1)
+                      .arg(errLabel ? errLabel->text() : QString()));
+        }
+        // 页内切走再切回未过期账号 Bob：不刷新令牌、且仍能拉取到 Bob 的披风
         QMetaObject::invokeMethod(&w, "onAccountSwitchRequested", Qt::DirectConnection, Q_ARG(QString, alexUuid));
         QApplication::processEvents();
         QMetaObject::invokeMethod(&w, "onAccountSwitchRequested", Qt::DirectConnection, Q_ARG(QString, bobUuid));
@@ -1443,12 +1471,71 @@ void runBottomBarPanelTests() {
             QApplication::processEvents();
             QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
         }
-        check(AccountStore::activeUuid() == bobUuid && mockHits == 0,
-              "AH13 打开账号页及在页内切号均不发刷新请求", QString::number(mockHits));
+        check(AccountStore::activeUuid() == bobUuid && tokenHits == 0 && skinProfileHits == 2,
+              "AH13 页内切回未过期 Bob 时拉取披风且不刷新令牌",
+              QStringLiteral("tokenHits=%1 skinHits=%2").arg(tokenHits).arg(skinProfileHits));
+
+        // 1b) 令牌已过期时打开账号页：不刷新令牌、不拉披风，失败行显示「登录凭据已过期，披风列表未更新。」
+        {
+            QJsonObject ms{{QStringLiteral("access_token"), QStringLiteral("ms-bob")},
+                           {QStringLiteral("refresh_token"), QStringLiteral("rt-bob")}};
+            QJsonObject mc{{QStringLiteral("access_token"), QStringLiteral("mc-bob-expired")},
+                           {QStringLiteral("expires_at"),
+                            QDateTime::currentDateTimeUtc().addSecs(-3600).toString(Qt::ISODate)},
+                           {QStringLiteral("name"), QStringLiteral("Bob")},
+                           {QStringLiteral("uuid"), bobUuid}};
+            check(TokenStore::writeJson(TokenStore::microsoftKey(), ms) &&
+                      TokenStore::writeJson(TokenStore::minecraftKey(), mc) &&
+                      AccountStore::captureActive(),
+                  "AH13 准备已过期账号 Bob（验证开页提示）");
+            auth->reloadStoredAccount();
+        }
+        tokenHits = 0;
+        skinProfileHits = 0;
+        QMetaObject::invokeMethod(&w, "onAccountSkinButtonClicked", Qt::DirectConnection);
+        QApplication::processEvents();
+        {
+            auto *dialog = w.findChild<AccountSkinDialog *>();
+            auto *errLabel = dialog ? dialog->findChild<QLabel *>(AccountSkinDialog::statusErrorLabelName()) : nullptr;
+            auto *retryBtn = dialog ? dialog->findChild<QPushButton *>(AccountSkinDialog::retryButtonName()) : nullptr;
+            check(tokenHits == 0 && skinProfileHits == 0 && errLabel != nullptr && errLabel->isVisibleTo(dialog) &&
+                      errLabel->text() == QStringLiteral("登录凭据已过期，披风列表未更新。") &&
+                      retryBtn != nullptr && retryBtn->isVisibleTo(dialog),
+                  "AH13 令牌已过期时开页不刷新不拉披风，失败行显示规定提示与重试按钮",
+                  QStringLiteral("tokenHits=%1 skinHits=%2 err=%3")
+                      .arg(tokenHits)
+                      .arg(skinProfileHits)
+                      .arg(errLabel ? errLabel->text() : QString()));
+            if (retryBtn != nullptr) {
+                retryBtn->click();
+                QApplication::processEvents();
+            }
+            auto *capeList = dialog ? dialog->findChild<QListWidget *>(AccountSkinDialog::capeListName()) : nullptr;
+            check(tokenHits == 1 && skinProfileHits == 1 && errLabel != nullptr && !errLabel->isVisibleTo(dialog) &&
+                      errLabel->text().isEmpty() && capeList != nullptr && capeList->count() == 2,
+                  "AH13 点失败行「重试」走正常刷新路径并拉出披风列表",
+                  QStringLiteral("tokenHits=%1 skinHits=%2 capes=%3")
+                      .arg(tokenHits)
+                      .arg(skinProfileHits)
+                      .arg(capeList ? capeList->count() : -1));
+        }
+        if (w.ui() != nullptr && w.ui()->overlay() != nullptr && w.ui()->overlay()->isOpen()) {
+            w.ui()->overlay()->closeOverlay();
+            QApplication::processEvents();
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        }
 
         // 2) 实测嵌套事件循环等待网络响应期间窗口事件/重绘/定时器照常响应
+        {
+            QJsonObject mc{{QStringLiteral("access_token"), QStringLiteral("mc-bob-1h")},
+                           {QStringLiteral("expires_at"),
+                            QDateTime::currentDateTimeUtc().addSecs(3600).toString(Qt::ISODate)},
+                           {QStringLiteral("name"), QStringLiteral("Bob")},
+                           {QStringLiteral("uuid"), bobUuid}};
+            check(TokenStore::writeJson(TokenStore::minecraftKey(), mc), "AH13 重置为 < 6h 令牌以触发刷新");
+        }
         delayMs = 250;
-        mockHits = 0;
+        tokenHits = 0;
         int timerTicks = 0;
         int paintEvents = 0;
         struct PaintCounter : QObject {
@@ -1562,6 +1649,7 @@ void runBottomBarPanelTests() {
                   "AH13 离线游玩不清掉正版身份，保留本地名字、UUID 和现有令牌");
         }
 
+        SkinApi::setBaseUrlOverride(QString());
         AuthManager::setEndpointOverridesForTest({});
     }
 
