@@ -11,6 +11,7 @@
 
 #include <QAbstractItemView>
 #include <QAbstractButton>
+#include <QAbstractSlider>
 #include <QButtonGroup>
 #include <QCache>
 #include <QFileInfo>
@@ -39,6 +40,7 @@
 #include <QPointer>
 #include <QProxyStyle>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QScrollBar>
 #include <QSettings>
 #include <QSizePolicy>
@@ -47,6 +49,7 @@
 #include <QStyleFactory>
 #include <QStyleHints>
 #include <QStyleOptionComboBox>
+#include <QTabWidget>
 #include <QTextEdit>
 #include <QTimer>
 #include <QToolButton>
@@ -432,6 +435,231 @@ private:
         widget->update();
     }
     bool m_keyboard = false;
+};
+
+/// 焦点不在输入框/多行文本/列表和树/下拉框/数字框/滑块上（包括无焦点或焦点在页眉/导航栏）时，
+/// 方向键（上/下）和翻页键（PageUp/PageDown）把最上层可见页面的滚动区滚一步/一页。
+class PageScrollKeyFilter : public QObject {
+public:
+    static void install(QApplication &app) {
+        const QString name = QStringLiteral("wtfmlPageScrollKeyFilter");
+        if (app.findChild<QObject *>(name, Qt::FindDirectChildrenOnly) != nullptr) {
+            return;
+        }
+        auto *filter = new PageScrollKeyFilter(&app);
+        filter->setObjectName(name);
+        app.installEventFilter(filter);
+    }
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override {
+        if (event->type() != QEvent::KeyPress) {
+            return false;
+        }
+        auto *keyEvent = static_cast<QKeyEvent *>(event);
+        const int key = keyEvent->key();
+        if (key != Qt::Key_Up && key != Qt::Key_Down &&
+            key != Qt::Key_PageUp && key != Qt::Key_PageDown) {
+            return false;
+        }
+        const Qt::KeyboardModifiers mods =
+            keyEvent->modifiers() & (Qt::ShiftModifier | Qt::ControlModifier |
+                                     Qt::AltModifier | Qt::MetaModifier);
+        if (mods != Qt::NoModifier || QApplication::activePopupWidget() != nullptr) {
+            return false;
+        }
+
+        auto *widget = qobject_cast<QWidget *>(watched);
+        if (widget == nullptr) {
+            return false;
+        }
+        QWidget *win = widget->window();
+        if (win == nullptr) {
+            return false;
+        }
+
+        QWidget *focus = QApplication::focusWidget();
+        if (focus == nullptr || focus->window() != win) {
+            focus = win->focusWidget();
+        }
+        if (isArrowKeyControl(focus)) {
+            if (qobject_cast<QScrollArea *>(watched) != nullptr) {
+                event->ignore();
+                return true;
+            }
+            return false;
+        }
+
+        if (auto *area = qobject_cast<QScrollArea *>(watched)) {
+            QScrollBar *bar = area->verticalScrollBar();
+            if (bar != nullptr && bar->maximum() > bar->minimum()) {
+                return false;
+            }
+            if (QScrollArea *topArea = findTopmostScrollArea(win, focus);
+                topArea != nullptr && topArea != area) {
+                triggerScroll(topArea, key);
+                event->accept();
+                return true;
+            }
+            return false;
+        }
+
+        if (watched == win ||
+            (qobject_cast<QAbstractButton *>(watched) != nullptr &&
+             !watched->property("wtfmlKeyCaptureArmed").toBool())) {
+            if (QScrollArea *topArea = findTopmostScrollArea(win, focus)) {
+                triggerScroll(topArea, key);
+                event->accept();
+                return true;
+            }
+        }
+        return false;
+    }
+
+private:
+    explicit PageScrollKeyFilter(QObject *parent) : QObject(parent) {}
+
+    static bool isArrowKeyControl(QWidget *w) {
+        if (w == nullptr) {
+            return false;
+        }
+        const auto matches = [](QWidget *x) {
+            return qobject_cast<QLineEdit *>(x) != nullptr ||
+                   qobject_cast<QTextEdit *>(x) != nullptr ||
+                   qobject_cast<QPlainTextEdit *>(x) != nullptr ||
+                   qobject_cast<QAbstractItemView *>(x) != nullptr ||
+                   qobject_cast<QComboBox *>(x) != nullptr ||
+                   qobject_cast<QAbstractSpinBox *>(x) != nullptr ||
+                   qobject_cast<QAbstractSlider *>(x) != nullptr;
+        };
+        if (matches(w)) {
+            return true;
+        }
+        if (QWidget *parent = w->parentWidget()) {
+            if (auto *area = qobject_cast<QAbstractScrollArea *>(parent);
+                area != nullptr && area->viewport() == w && matches(area)) {
+                return true;
+            }
+            if (qobject_cast<QComboBox *>(parent) != nullptr ||
+                qobject_cast<QAbstractSpinBox *>(parent) != nullptr) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static QWidget *topmostVisibleRoot(QWidget *win) {
+        if (win == nullptr) {
+            return nullptr;
+        }
+        const auto children = win->findChildren<QWidget *>(QString(), Qt::FindDirectChildrenOnly);
+        for (auto it = children.crbegin(); it != children.crend(); ++it) {
+            QWidget *child = *it;
+            if (child != nullptr && child->isVisible() &&
+                child->property("wtfmlGlassPopover").toBool()) {
+                return child;
+            }
+        }
+        if (auto *overlay = win->findChild<QWidget *>(QStringLiteral("overlayHost"))) {
+            if (overlay->isVisible()) {
+                if (auto *prompt = overlay->findChild<QWidget *>(QStringLiteral("overlayPromptHost"));
+                    prompt != nullptr && prompt->isVisible()) {
+                    return prompt;
+                }
+                return overlay;
+            }
+        }
+        if (auto *tabs = win->findChild<QTabWidget *>(QStringLiteral("mainTabWidget"))) {
+            if (QWidget *current = tabs->currentWidget(); current != nullptr && current->isVisible()) {
+                return current;
+            }
+        }
+        return win;
+    }
+
+    static QScrollArea *findTopmostScrollArea(QWidget *win, QWidget *focus) {
+        QWidget *root = topmostVisibleRoot(win);
+        if (root == nullptr) {
+            return nullptr;
+        }
+        QList<QScrollArea *> candidates;
+        if (auto *selfArea = qobject_cast<QScrollArea *>(root);
+            selfArea != nullptr && selfArea->isVisible()) {
+            QScrollBar *bar = selfArea->verticalScrollBar();
+            if (bar != nullptr && bar->maximum() > bar->minimum()) {
+                candidates.append(selfArea);
+            }
+        }
+        for (QScrollArea *area : root->findChildren<QScrollArea *>()) {
+            if (area == nullptr || !area->isVisible()) {
+                continue;
+            }
+            QScrollBar *bar = area->verticalScrollBar();
+            if (bar != nullptr && bar->maximum() > bar->minimum()) {
+                candidates.append(area);
+            }
+        }
+        if (candidates.isEmpty()) {
+            return nullptr;
+        }
+        if (focus != nullptr) {
+            QScrollArea *deepestForFocus = nullptr;
+            for (QScrollArea *area : std::as_const(candidates)) {
+                if (area == focus || area->isAncestorOf(focus)) {
+                    if (deepestForFocus == nullptr || deepestForFocus->isAncestorOf(area)) {
+                        deepestForFocus = area;
+                    }
+                }
+            }
+            if (deepestForFocus != nullptr) {
+                return deepestForFocus;
+            }
+        }
+        QScrollArea *best = nullptr;
+        qint64 bestViewportArea = -1;
+        for (QScrollArea *area : std::as_const(candidates)) {
+            bool enclosesAnother = false;
+            for (QScrollArea *other : std::as_const(candidates)) {
+                if (other != area && area->isAncestorOf(other)) {
+                    enclosesAnother = true;
+                    break;
+                }
+            }
+            if (enclosesAnother) {
+                continue;
+            }
+            const QWidget *vp = area->viewport();
+            const qint64 vpArea = vp != nullptr ? qint64(vp->width()) * vp->height() : 0;
+            if (best == nullptr || vpArea > bestViewportArea) {
+                best = area;
+                bestViewportArea = vpArea;
+            }
+        }
+        return best;
+    }
+
+    static void triggerScroll(QScrollArea *area, int key) {
+        QScrollBar *bar = area != nullptr ? area->verticalScrollBar() : nullptr;
+        if (bar == nullptr) {
+            return;
+        }
+        switch (key) {
+        case Qt::Key_Up:
+            bar->triggerAction(QAbstractSlider::SliderSingleStepSub);
+            break;
+        case Qt::Key_Down:
+            bar->triggerAction(QAbstractSlider::SliderSingleStepAdd);
+            break;
+        case Qt::Key_PageUp:
+            bar->triggerAction(QAbstractSlider::SliderPageStepSub);
+            break;
+        case Qt::Key_PageDown:
+            bar->triggerAction(QAbstractSlider::SliderPageStepAdd);
+            break;
+        default:
+            break;
+        }
+    }
 };
 
 // ---------------------------------------------------------------------------
@@ -2407,6 +2635,9 @@ QString widgetStyleSheet() {
 }
 
 QStyle *createStyle() {
+    if (qApp != nullptr) {
+        PageScrollKeyFilter::install(*qApp);
+    }
     QStyle *style = new WtfmlProxyStyle(QStyleFactory::create(QStringLiteral("Fusion")));
     // 名字是给 `ui_shot` 那行 `style: …` 看的 —— 那一行存在的意义就是"图是在哪个样式下画的
     // 必须能从产物本身看出来"。`QProxyStyle` 自己不设 `objectName`，不设的话那一行会印成
@@ -2739,6 +2970,7 @@ void apply(QApplication &app) {
         app.setFont(textFont(app.font(), TextRole::Body));
     if (app.findChild<QObject *>(QStringLiteral("wtfmlControlFocusVisibility")) == nullptr)
         new ControlFocusVisibility(app);
+    PageScrollKeyFilter::install(app);
     if (app.findChild<QObject *>(QStringLiteral("wtfmlScrollBarStyler")) == nullptr)
         new ScrollBarStyler(app);
     if (app.findChild<QObject *>(QStringLiteral("wtfmlColorSchemeWatcher")) == nullptr)
