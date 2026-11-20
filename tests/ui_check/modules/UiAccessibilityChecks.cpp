@@ -1,4 +1,9 @@
 #include "Support.hpp"
+#include "MainWindowUI.hpp"
+#include "NewServerPage.hpp"
+#include "PresetModEditor.hpp"
+
+#include <QKeyEvent>
 int UiAccessibilityChecks(QMainWindow &window) {
     // ------------------------------------------------------------------
     // 那一句「完善键盘焦点、Tab 顺序和减少动态效果」，以及最后那条
@@ -205,6 +210,48 @@ int UiAccessibilityChecks(QMainWindow &window) {
             QApplication::processEvents();
         }
     }
+
+    // ------------------------------------------------------------------
+    // 回车 = 弹窗的主动作：有单行输入、有一个确认动作的那两个框，确认那颗得是**默认**
+    // 按钮（Qt 的 QDialog 只认 `isDefault()`，不是"排第一的那颗"）。
+    {
+        NewServerPage page;
+        page.setDefaults(QStringLiteral("CheckServer"), QStringLiteral("1.20.1"));
+        page.setSummary(QStringLiteral("离线检查"), QString());  // 没问题 ⇒「创建」点得动
+        auto *create = page.findChild<QPushButton *>(MainWindowUI::newServerCreateButtonName());
+        check(create != nullptr && create->isEnabled() && create->isDefault(),
+              "「新建服务端」：回车 = 「创建」（那颗是默认按钮）",
+              create != nullptr ? QStringLiteral("default=%1 enabled=%2")
+                                      .arg(create->isDefault())
+                                      .arg(create->isEnabled())
+                                : QStringLiteral("<null>"));
+        if (create != nullptr && create->isEnabled()) {
+            // Qt 只点**露着**的默认按钮：这一页先上屏（离屏平台，看得见就够）。
+            page.show();
+            QApplication::processEvents();
+            bool accepted = false;
+            QObject::connect(&page, &QDialog::accepted, &page, [&accepted] { accepted = true; });
+            QKeyEvent enter(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier);
+            QApplication::sendEvent(&page, &enter);
+            QApplication::processEvents();
+            check(accepted, "「新建服务端」：对着对话框按回车真的走了一次「创建」");
+            page.hide();
+        }
+    }
+    {
+        PresetModEditor editor(QList<PresetModEditor::Entry>{}, nullptr);
+        QPushButton *save = nullptr;
+        for (QPushButton *button : editor.findChildren<QPushButton *>()) {
+            if (button->text() == QCoreApplication::translate("PresetModEditor", "保存")) {
+                save = button;
+                break;
+            }
+        }
+        check(save != nullptr && save->isDefault(),
+              "「整合包额外模组」：回车 = 「保存」（那颗是默认按钮）",
+              save != nullptr ? save->text() : QStringLiteral("<null>"));
+    }
+
     return 0;
 }
 

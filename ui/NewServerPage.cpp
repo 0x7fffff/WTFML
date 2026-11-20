@@ -242,7 +242,10 @@ NewServerPage::NewServerPage(QWidget *parent) : QDialog(parent) {
     // ---------- 底下那颗「创建」（浮在正中间）----------
     m_createButton = new QPushButton(tr("创建"), content);
     m_createButton->setObjectName(MainWindowUI::newServerCreateButtonName());
+    // 这一页只有一个输入表单 + 一个主动作：回车就是「创建」（「刷新版本」那颗仍是
+    // autoDefault(false)，不会因为抢到焦点变成默认按钮）。
     m_createButton->setAutoDefault(false);
+    m_createButton->setDefault(true);
     m_createButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     m_createButton->setMinimumWidth(180);
     Theme::markButton(m_createButton, Theme::ButtonKind::Primary);
