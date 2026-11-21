@@ -135,27 +135,6 @@ using RowActionHandler = std::function<void(const QString &key, RowAction action
 /// 「清除已完成」被点了。**清完由调用方让面板刷新一次**（refresh()），面板不知道账本在哪。
 using ClearFinishedHandler = std::function<void()>;
 
-/// 左栏里的一份运行中进程（客户端会话或服务端进程）。复用底栏面板已经算好的标题、时长、图标和动作。
-struct RunningAction {
-    QPixmap icon;
-    QString text;
-    QString tooltip;
-    bool enabled = true;
-    int action = -1;
-};
-
-struct RunningItem {
-    QString key;
-    QPixmap icon;
-    QString title;
-    QString subtitle;
-    QList<RunningAction> actions;
-    std::function<QString()> liveSubtitle;
-};
-
-using RunningProvider = std::function<QList<RunningItem>()>;
-using RunningActionHandler = std::function<void(const QString &key, int action)>;
-
 /// 一步那一个小记号。**唯一出处**：面板里画它、验证工程比对它，都读这一个函数。
 QString stepMark(StepState state);
 
@@ -205,8 +184,6 @@ public:
     /// @param onClear 「清除已完成」被点了该告诉谁（可以给空的 = 那就没有那颗按钮）。
     TaskCenterPanel(QWidget *anchor, const TaskCenter::ItemProvider &provider,
                     const TaskCenter::ClearFinishedHandler &onClear,
-                    const TaskCenter::RunningProvider &runningProvider,
-                    const TaskCenter::RunningActionHandler &runningAction,
                     const OutsidePressHandler &onOutsidePress, QWidget *parent,
                     bool embedded = false);
     ~TaskCenterPanel() override;
@@ -258,7 +235,6 @@ private:
     bool m_dragRefreshPending = false;
     /// 把内容整块重建（两栏 + 那个「清除已完成」）。调用方负责随后摆位置。
     void rebuild();
-    void rebuildRunning();
     void rebuildDetail(const QList<TaskCenter::Item> &items);
     void selectTask(const QString &key);
     void syncSelection();
@@ -268,10 +244,6 @@ private:
     void deferRefreshUntilRelease();
     /// 宽屏三列 / 窄屏“列表或详情占满整页”的唯一布局切换点。
     void applyWorkspaceMode();
-    /// 按当前宽度摆**收起/展开**那一套（栏宽、箭头、标题）。**只读 `m_runningCollapsed`**。
-    void applyRunningCollapsed();
-    /// 改 `m_runningCollapsed` 并落到控件上。@p animate true = 走展开/折叠那一发。
-    void setRunningCollapsed(bool collapsed, bool animate);
     /// 右栏的宽度跟着工作区一起伸缩（唯一出处；`applyWorkspaceMode` / `place` / `resizeEvent` 都问它）。
     void updateDetailPaneWidth();
     /// 给某一行造一个"点了怎么办"（没挂处理器时回一个空的 —— 那一行就不可点）。
@@ -284,8 +256,6 @@ private:
     QWidget *m_anchor = nullptr;
     TaskCenter::ItemProvider m_provider;
     TaskCenter::ClearFinishedHandler m_onClear;
-    TaskCenter::RunningProvider m_runningProvider;
-    TaskCenter::RunningActionHandler m_runningAction;
     /// 面板里某一行被点了（参数是那一行的 `key`）。空 = 那几行不可点。
     std::function<void(const QString &key)> m_onRowActivated;
     /// 行尾那颗小按钮被点了（见 `RowActionHandler`）。空 = 行尾什么都不长。
@@ -297,24 +267,15 @@ private:
     QComboBox *m_filter = nullptr;
     QLineEdit *m_search = nullptr;
     QPushButton *m_clearFinished = nullptr;
-    QWidget *m_runningContent = nullptr;
     QWidget *m_detailContent = nullptr;
     /// 详情底下那排操作钮：钉在滚动区**外面**，窗口矮时也一直看得见。
     QWidget *m_detailFooter = nullptr;
     /// 详情底部那排「主钮 + 两颗扁平钮 + 更多…」的记账（每次重建详情换新）。
     std::unique_ptr<TaskVisuals::ActionOverflow> m_detailActions;
-    QWidget *m_runningPane = nullptr;
     QWidget *m_detailPane = nullptr;
     QScrollArea *m_scroll = nullptr;
-    QScrollArea *m_runningScroll = nullptr;
     QScrollArea *m_detailScroll = nullptr;
-    QLabel *m_runningTitle = nullptr;
-    QPushButton *m_collapseRunning = nullptr;
     QString m_selectedKey;
-    bool m_runningCollapsed = false;
-    /// 用户亲手点过那颗收起/展开按钮没有。点过之后**不再按"有没有实例在跑"替他做主**
-    /// （他展开就是想看着；重画一次又收回去等于跟用户抢）。
-    bool m_runningUserToggled = false;
     bool m_compact = false;
     bool m_compactDetailOpen = false;
     bool m_opened = false;

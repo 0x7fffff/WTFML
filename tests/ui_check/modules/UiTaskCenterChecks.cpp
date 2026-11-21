@@ -161,20 +161,13 @@ int UiTaskCenterChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget * &tabs
                     check(curtain == nullptr || !curtain->isVisible(),
                           "I2 任务中心停放期间切主页面不显示灰色换页幕布");
                 }
-                check(panel->findChild<QWidget *>(QStringLiteral("taskCenterRunningPane")) !=
-                              nullptr
+                check(panel->findChild<QWidget *>(QStringLiteral("taskCenterRunningPane")) == nullptr
+                          && window.findChild<QPushButton *>(QStringLiteral("taskCenterRunningCollapse")) == nullptr
                           && panel->findChild<QWidget *>(QStringLiteral("taskCenterTaskList")) !=
                                  nullptr
                           && panel->findChild<QWidget *>(QStringLiteral("taskCenterDetailPane")) !=
                                  nullptr,
-                      "I2 任务中心具备运行中实例 / 任务列表 / 上下文详情三列结构");
-                // 开关在工具条上，工具条被挂进页头（headerActions()），不在 panel 底下
-                auto *runningToggle = window.findChild<QPushButton *>(
-                    QStringLiteral("taskCenterRunningCollapse"));
-                check(runningToggle != nullptr && runningToggle->parentWidget() != nullptr
-                          && runningToggle->parentWidget()->objectName()
-                                 == QStringLiteral("taskCenterToolbar"),
-                      "I2 运行中实例列的开关在任务中心工具条上");
+                      "I2 任务中心只有任务列表 / 上下文详情两列，运行中的进程不在这里（看轨底入口）");
                 // 行按**行号**找得回来（名字由 taskCenterPanelRowName() 给），两栏接着数：
                 // 第 0 行是「当前工作」那件、第 1 行是「已完成」那件。
                 QLabel *title0 =
