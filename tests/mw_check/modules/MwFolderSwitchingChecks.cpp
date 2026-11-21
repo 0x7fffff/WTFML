@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include "ListRowDelegate.hpp"
 int MwFolderSwitchingChecks(const QDir &root, MainWindow &window) {
     // ------------------------------------------------------------------
     // 这一节会改**进程级**的 AppPaths 覆盖（切文件夹就是改它），所以末尾必须把它和
@@ -239,8 +240,50 @@ int MwFolderSwitchingChecks(const QDir &root, MainWindow &window) {
                           instanceItems.first()->data(0, Qt::UserRole).toString() ==
                               QStringLiteral("1.7.10"),
                       "列的就是那一份里的 1.7.10");
+                check(!instanceItems.isEmpty() &&
+                          !instanceItems.first()->data(0, ListRowDelegate::SubtitleRole).toString()
+                               .contains(QStringLiteral("游玩")),
+                      "没有游玩记录的实例只显示原有副标题");
+                auto *versions = w7.findChild<VersionManager *>();
+                const QString stableId = versions ? versions->ensureInstanceId(QStringLiteral("1.7.10")) : QString();
+                const qint64 playedMs = 75 * 60 * 1000;
+                check(!stableId.isEmpty() && LaunchHistory::savePlayTime(LaunchHistory::historyPath(), stableId,
+                          {playedMs, playedMs}), "为另一个文件夹里的实例保存一条游玩记录");
                 check(folderLabel->text().contains(QStringLiteral("1 个实例")),
                       "「当前文件夹」那句话跟着换了", folderLabel->text());
+                auto *manager = w7.findChild<FolderManager *>();
+                auto *pill = w7.findChild<QPushButton *>(MainWindowUI::instanceFolderPillName());
+                const bool moved = manager && manager->setCurrentFolder(AppPaths::defaultMinecraftDir());
+                check(moved, "从文件夹管理器切回第一个目录");
+                if (moved) {
+                    w7.ui()->getTabWidget()->setCurrentIndex(MainWindowUI::homeTabIndex());
+                    auto *picker = w7.findChild<QAbstractButton *>(MainWindowUI::homeCurrentPickerName());
+                    if (picker) picker->click();
+                    QApplication::processEvents();
+                    auto *list = w7.findChild<QListWidget *>(QStringLiteral("homePickerInstanceList"));
+                    if (list) {
+                        for (int row = 0; row < list->count(); ++row) {
+                            if (list->item(row)->data(Qt::UserRole).toString() == QStringLiteral("1.7.10")) {
+                                emit list->itemClicked(list->item(row));
+                                break;
+                            }
+                        }
+                    }
+                    const auto rows = instanceItemsOf(instances);
+                    check(list && pill && sameDir(manager->currentFolder(), otherRoot) &&
+                              folderListView->currentItem() &&
+                              sameDir(folderListView->currentItem()->data(Qt::UserRole).toString(), otherRoot) &&
+                              pill->text() == QDir(otherRoot).dirName() && rows.size() == 1 &&
+                              rows.first()->data(0, Qt::UserRole).toString() == QStringLiteral("1.7.10"),
+                          "从主页选择其他目录的实例后，管理页的文件夹、胶囊和实例列表同步",
+                          QStringLiteral("picker=%1 list=%2 root=%3 pill=%4 rows=%5")
+                              .arg(picker != nullptr).arg(list != nullptr).arg(manager->currentFolder(),
+                                  pill ? pill->text() : QString()).arg(rows.size()));
+                    check(rows.size() == 1 && rows.first()->data(0, ListRowDelegate::SubtitleRole).toString()
+                              .contains(QStringLiteral("游玩 %1").arg(LaunchHistory::playTimeText(playedMs))),
+                          "有游玩记录的实例在副标题显示游玩时长");
+                    if (!sameDir(manager->currentFolder(), otherRoot)) manager->setCurrentFolder(otherRoot);
+                }
                 // 同上：判据从"那个按钮亮了"搬到"齿轮里那一项亮了"（就是同一件事，
                 // 只是入口换了地方）。
                 {

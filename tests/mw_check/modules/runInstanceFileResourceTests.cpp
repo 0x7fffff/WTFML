@@ -661,8 +661,8 @@ void runInstanceFileResourceTests() {
             bool modButtonVisible = false; // 模组设置入口是否可见
             bool modButtonEnabled = false; // 入口应当启用
             QString modButtonText;
-            bool checkboxVisible = true;   // 「显示快照版」那一颗露着吗（不该露）
-            bool checkboxChecked = true;   // 按了裸 Alt 之后它被拨了吗（不该被拨）
+            bool checkboxVisible = false;
+            bool checkboxChecked = false;
             QString chip;
         };
         struct ModReturnProbe {
@@ -717,8 +717,6 @@ void runInstanceFileResourceTests() {
                         ResourceDetailPage::showSnapshotsCheckBoxName())) {
                     modProbe.checkboxVisible = box->isVisible();
                 }
-                // 裸 Alt 那一下：那一格上**没有**「显示快照版」可拨，所以按了必须
-                // **什么都不发生**（不挡的话用户按一下只会得出"这软件没反应"的结论）。
                 QKeyEvent alt(QEvent::KeyPress, Qt::Key_Alt, Qt::NoModifier);
                 QApplication::sendEvent(detail, &alt);
                 if (QCheckBox *box = detail->findChild<QCheckBox *>(
@@ -740,10 +738,8 @@ void runInstanceFileResourceTests() {
         check(modProbe.header == modTitle,
               "★ T24.7 页眉上写的就是接口给的那个资源名（是那个资源，不是那条文件名）",
               modProbe.header);
-        // 这一条就是用户那半句话的落点：**同一格换成了「模组设置」**。
         check(modProbe.slotShown && modProbe.modButtonVisible,
-              "★★ T24.7 从实例的文件管理页点一个**模组** ⇒ 右上角那一格摆的是「模组设置」"
-              "（「右上角显示快照版那里替换为模组设置」）",
+              "★★ T24.7 实例模组详情的头卡提供「模组设置」",
               QStringLiteral("槽位=%1 按钮露着=%2")
                   .arg(modProbe.slotShown ? QStringLiteral("模组设置") : QStringLiteral("快照版"),
                        modProbe.modButtonVisible ? QStringLiteral("是") : QStringLiteral("不是")));
@@ -759,12 +755,8 @@ void runInstanceFileResourceTests() {
               "同一个页面对象上一趟刚被按到 1.20.1 上，所以这一条同时钉住了「再开一次从「全部」"
               "重来」",
               modProbe.chip.isEmpty() ? QStringLiteral("(全部)") : modProbe.chip);
-        check(!modProbe.checkboxVisible,
-              "★★ T24.7 摆它的时候「显示快照版」那颗勾选框**整个收起来**了"
-              "（「替换」就是同一格只露一个，不是两颗并排）");
-        check(!modProbe.checkboxChecked,
-              "★★ T24.7 这一档上裸 Alt 那一下**什么都不拨**（那一格上压根没有勾选框可拨 ——"
-              "拨一个看不见的勾，用户只会得出「这软件没反应」的结论）");
+        check(modProbe.checkboxVisible, "★★ T24.7 模组设置与显示快照版同时可见");
+        check(modProbe.checkboxChecked, "★★ T24.7 单按 Alt 打开显示快照版");
         pumpUntil([&modReturned] { return modReturned.ran; }, 5000);
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
         check(modReturned.ran && modReturned.opened && modReturned.hasSettings &&

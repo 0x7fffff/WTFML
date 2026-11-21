@@ -25,6 +25,7 @@
 #pragma once
 
 #include <QDateTime>
+#include <QHash>
 #include <QList>
 #include <QSet>
 #include <QString>
@@ -54,6 +55,7 @@ private:
 };
 
 PlayTime loadPlayTime(const QString &path, const QString &stableInstanceId);
+QHash<QString, PlayTime> loadPlayTimes(const QString &path);
 bool savePlayTime(const QString &path, const QString &stableInstanceId, const PlayTime &playTime);
 QString playTimeText(qint64 milliseconds);
 

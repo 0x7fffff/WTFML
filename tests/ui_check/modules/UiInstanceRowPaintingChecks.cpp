@@ -454,24 +454,23 @@ int UiInstanceRowPaintingChecks() {
 
             page.setModSettingsSlot(true);
             check(page.modSettingsSlotShown() && modButton != nullptr &&
-                      modButton->isVisible() && !snapBox->isVisible(),
-                  "★★ Z14 摆上它的时候「显示快照版」那颗**整个收起来**"
-                  "（用户原话「显示快照版那里替换为模组设置」—— 同一格只露一个）",
+                      modButton->isVisible() && snapBox->isVisible(),
+                  "★★ Z14 摆上「模组设置」时「显示快照版」仍然露着（两者不再共用一格）",
                   QStringLiteral("勾选框露着=%1")
                       .arg(snapBox->isVisible() ? QStringLiteral("是") : QStringLiteral("不是")));
             check(modButton != nullptr && modButton->isEnabled(),
                   "★★ Z14 模组设置入口可用，打开当前实例配置文件管理");
 
-            // 这一档上裸 Alt **什么都不拨**：那一格上压根没有勾选框，拨了也是拨一个看不见的
-            // 勾 —— 屏幕上什么都不动，用户只能得出"这软件没反应"的结论。
+            // 两者都在时裸 Alt 照旧拨「显示快照版」。
             snapFired.clear();
             {
                 QKeyEvent altWhileMod(QEvent::KeyPress, Qt::Key_Alt, Qt::NoModifier);
                 QApplication::sendEvent(&page, &altWhileMod);
             }
-            check(snapFired.isEmpty() && !snapBox->isChecked() && !page.showSnapshots(),
-                  "★★ Z14 摆着「模组设置」时裸 Alt **一声不响**（不去拨那颗看不见的勾）",
+            check(snapFired.size() == 1 && snapBox->isChecked() && page.showSnapshots(),
+                  "★★ Z14 摆着「模组设置」时裸 Alt 仍然拨「显示快照版」",
                   QStringLiteral("发了 %1 次").arg(snapFired.size()));
+            page.setShowSnapshots(false);
             // 而 Esc 照旧是"离开这一页"：**摆着它的那一档**只多挡了裸 Alt 那一发，别的照旧
             // 交给基类（吞掉的话这一页就再也退不出去了）。用一张一次性的页量 —— 别把上面
             // 那一张关掉，后面还有别的量要它露着。

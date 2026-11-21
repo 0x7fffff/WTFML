@@ -321,6 +321,30 @@ int main(int argc, char *argv[]) {
     }
 
     if (app.arguments().contains(QStringLiteral("update-center-check"))) { runUpdateCenterActionTests(); return g_fail == 0 ? 0 : 1; }
+    if (app.arguments().contains(QStringLiteral("instance-start-actions-check"))) {
+        runInstanceStartActionsTests();
+        return g_fail == 0 ? 0 : 1;
+    }
+    if (app.arguments().contains(QStringLiteral("dropped-file-check"))) {
+        runDroppedFileTests();
+        return g_fail == 0 ? 0 : 1;
+    }
+    if (app.arguments().contains(QStringLiteral("resource-detail-check"))) {
+        runResourceDetailPageTests();
+        runInstanceFileResourceTests();
+        return g_fail == 0 ? 0 : 1;
+    }
+    if (app.arguments().contains(QStringLiteral("folder-switching-check"))) {
+        const QDir versions(AppPaths::versionsDir());
+        makeInstalledVersion(versions, QStringLiteral("1.18.2"));
+        makeInstalledVersion(versions, QStringLiteral("26.3"));
+        makeInstalledVersion(versions, QStringLiteral("1.20.1"));
+        makeVersionMeta(versions, QStringLiteral("1.20.1"),
+                        R"({"name":"我的整合包","loaderName":"Forge","loaderVersion":"47.2.0"})");
+        MainWindow window;
+        const int result = MwFolderSwitchingChecks(root, window);
+        return result != 0 ? result : g_fail == 0 ? 0 : 1;
+    }
 
     // ---------- modpack-import-live：**真网络**跑一次整合包导入 ----------
     // mw_check.exe modpack-import-live "<整合包.zip>" "<实例名>" "<游戏根目录>"

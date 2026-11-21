@@ -91,15 +91,30 @@ qint64 PlayTimeCounter::totalMs(qint64 tickMs) const {
     return m_completed.totalMs + qMin(room, currentMs(tickMs));
 }
 
-PlayTime loadPlayTime(const QString &path, const QString &stableInstanceId) {
-    if (stableInstanceId.isEmpty()) return {};
+static QJsonObject playTimeObject(const QString &path) {
     const QJsonObject root = readHistoryObject(path);
     if (root.value(QStringLiteral("format")).toString() != formatTag()) return {};
-    const QJsonObject entry = root.value(QLatin1String(kPlayTimesKey)).toObject()
-                                  .value(stableInstanceId).toObject();
+    return root.value(QLatin1String(kPlayTimesKey)).toObject();
+}
+
+static PlayTime parsePlayTime(const QJsonObject &entry) {
     const qint64 total = qMax<qint64>(0, entry.value(QStringLiteral("totalMs")).toInteger());
     const qint64 last = entry.value(QStringLiteral("lastMs")).toInteger(-1);
     return {total, last >= 0 && last <= total ? last : -1};
+}
+
+PlayTime loadPlayTime(const QString &path, const QString &stableInstanceId) {
+    if (stableInstanceId.isEmpty()) return {};
+    return parsePlayTime(playTimeObject(path).value(stableInstanceId).toObject());
+}
+
+QHash<QString, PlayTime> loadPlayTimes(const QString &path) {
+    QHash<QString, PlayTime> result;
+    const QJsonObject entries = playTimeObject(path);
+    for (auto it = entries.constBegin(); it != entries.constEnd(); ++it) {
+        result.insert(it.key(), parsePlayTime(it.value().toObject()));
+    }
+    return result;
 }
 
 bool savePlayTime(const QString &path, const QString &stableInstanceId, const PlayTime &playTime) {

@@ -7,6 +7,7 @@
 #include "MainWindowPageLayout.hpp"
 #include "MainWindowUI.hpp"
 #include "Animations.hpp"
+#include "InlineMessage.hpp"
 #include "Theme.hpp"
 
 #include <QJsonArray>
@@ -83,7 +84,7 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
     struct Shot { QString theme, state; };
     static QList<Shot> shots;
     for (const QString &theme : {QStringLiteral("dark"), QStringLiteral("emerald")})
-        for (const char *state : {"expanded", "collapsed", "full"}) shots.append({theme, QLatin1String(state)});
+        for (const char *state : {"expanded", "collapsed", "full", "picker"}) shots.append({theme, QLatin1String(state)});
     static int index = 0;
     static QJsonArray report;
     static std::function<void()> step;
@@ -152,6 +153,30 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
         QTimer::singleShot(700, &window, seed);
         QTimer::singleShot(1000, &window, [&window, root, shot]() {
             const QString file = QStringLiteral("%1-%2-%3x%4.png").arg(shot.state, shot.theme).arg(window.width()).arg(window.height());
+            if (shot.state == QStringLiteral("picker")) {
+                QList<MainWindowUI::HomePickerInstance> rows;
+                for (const auto &item : realisticItems()) {
+                    MainWindowUI::HomePickerInstance row;
+                    row.id = item.key;
+                    row.title = item.name;
+                    row.subtitle = item.detail.section(QLatin1Char('\n'), 0, 0);
+                    row.current = item.current;
+                    row.recent = item.recent;
+                    rows.append(row);
+                }
+                rows[1].subtitle += QStringLiteral(" · 版本不符");
+                rows[3].subtitle += QStringLiteral(" · 加载器不符");
+                QTimer::singleShot(300, &window, [&window, root, file] {
+                    auto *box = window.findChild<InlineMessageBox *>(MainWindowUI::resourceDownloadInstancePickerName());
+                    const bool saved = box && window.grab().save(root + QLatin1Char('/') + file);
+                    report.append(QJsonObject{{"file", file}, {"saved", saved}});
+                    if (box) box->buttonAt(2)->click();
+                });
+                bool otherFolder = false;
+                window.ui()->chooseResourceDownloadInstance(rows, &otherFolder);
+                QTimer::singleShot(200, &window, [] { step(); });
+                return;
+            }
             report.append(QJsonObject{{"file", file}, {"saved", window.grab().save(root + QLatin1Char('/') + file)},
                                       {"width", window.width()}, {"height", window.height()}});
             if (shot.theme == QStringLiteral("dark") && shot.state == QStringLiteral("expanded")) {

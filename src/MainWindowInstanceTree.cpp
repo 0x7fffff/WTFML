@@ -45,6 +45,18 @@
 
 using namespace MainWindowViewData;
 
+namespace {
+
+QString instanceSubtitle(const VersionDisplayParts &parts, const LaunchHistory::PlayTime &playTime) {
+    QString subtitle = parts.realVersion.isEmpty() ? parts.id : parts.realVersion;
+    if (playTime.totalMs > 0) {
+        subtitle += QStringLiteral(" · ") + MainWindow::tr("游玩 %1").arg(LaunchHistory::playTimeText(playTime.totalMs));
+    }
+    return subtitle;
+}
+
+}  // namespace
+
 void MainWindow::markFileOperationBusy(const QString &versionId) {
     // 判据（引用计数、空 id、成对释放、没记过不许变负）都在 `FileOperationOccupancy`
     // 那一层：见 tests/core_modules/FileOperationOccupancyTests.cpp 的 FO 段。
@@ -398,14 +410,15 @@ void MainWindow::rebuildInstanceTree() {
                      m_instancePageMarks, pinnedGroupId, pinnedInstanceIds);
     QHash<QString, VersionDisplayParts> partOf;
     for (const VersionDisplayParts &part : shown) partOf.insert(part.id, part);
+    const auto completedPlayTimes = m_launchHistory->completedPlayTimes();
     for (QTreeWidgetItemIterator it(tree); *it != nullptr; ++it) {
         // 列表行第二行与行尾（ListRowDelegate）：游戏版本 / 加载器。
         const auto found = partOf.constFind(instanceIdOf(*it));
         if (found != partOf.constEnd()) {
             QString loaderVersion;
             const QString loader = instanceLoaderName(*found, m_versionManager, &loaderVersion);
-            (*it)->setData(0, ListRowDelegate::SubtitleRole,
-                           found->realVersion.isEmpty() ? found->id : found->realVersion);
+            const auto playTime = completedPlayTimes.value(m_versionManager->instanceId(found->id));
+            (*it)->setData(0, ListRowDelegate::SubtitleRole, instanceSubtitle(*found, playTime));
             (*it)->setData(0, ListRowDelegate::MetaRole,
                            loader.isEmpty() ? tr("原版") : (loader + QLatin1Char(' ') + loaderVersion).trimmed());
             // 封面：用户挑过图标用挑的那张，没挑按实例名稳定配色的等距方块（和主页一致）；
@@ -480,18 +493,21 @@ void MainWindow::updateInstanceTreeRunState() {
     QTreeWidget *tree = m_ui->getInstanceList();
     // 挡信号：改的是文字，不该被当成"用户在树里点了什么"（树上的点击会同步到下拉框）。
     const QSignalBlocker blocker(tree);
+    const auto completedPlayTimes = m_launchHistory->completedPlayTimes();
     QTreeWidgetItemIterator it(tree);
     while (*it != nullptr) {
         const QString id = instanceIdOf(*it);
         if (!id.isEmpty()) {
             // 重新拼一遍而不是"在旧文本上加减后缀"：加减法要认得旧文本长什么样。
             // 每回从头拼，和整棵重灌（refreshInstalledVersions()）的结果就一定一样。
-            QString text = instanceTreeItemText(m_versionManager->displayParts(id),
-                                                m_launcherManager->isVersionRunning(id));
+            const auto parts = m_versionManager->displayParts(id);
+            QString text = instanceTreeItemText(parts, m_launcherManager->isVersionRunning(id));
             if (m_fileOperationOccupancy.contains(id)) {
                 text += tr("（文件操作中）");
             }
             (*it)->setText(0, text);
+            const auto playTime = completedPlayTimes.value(m_versionManager->instanceId(id));
+            (*it)->setData(0, ListRowDelegate::SubtitleRole, instanceSubtitle(parts, playTime));
         }
         ++it;
     }

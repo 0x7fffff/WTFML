@@ -1,6 +1,7 @@
 #include "Support.hpp"
 #include "ActivityPopover.hpp"
 #include "MainWindowPageLayout.hpp"
+#include "ResourceDetailPage.hpp"
 #include <QVariantAnimation>
 #include "TaskCenterPanel.hpp"
 #include <QMouseEvent>
@@ -24,6 +25,18 @@ int UiUiRefreshCheck(QApplication &app) {
             printf("%s %s\n", ok ? "PASS" : "FAIL", message);
             if (!ok) ++failures;
         };
+        {
+            ResourceDetailPage detail(&preview);
+            detail.setModSettingsSlot(true);
+            detail.setShowSnapshots(false);
+            detail.show();
+            auto *snapshots = detail.findChild<QCheckBox *>(ResourceDetailPage::showSnapshotsCheckBoxName());
+            expect(snapshots && snapshots->isVisible() && detail.modSettingsButton()->isVisible(),
+                   "instance mod details display both settings and snapshot controls");
+            QKeyEvent alt(QEvent::KeyPress, Qt::Key_Alt, Qt::AltModifier);
+            QApplication::sendEvent(&detail, &alt);
+            expect(detail.showSnapshots(), "Alt toggles snapshots on instance mod details");
+        }
         expect(ui.getTabWidget()->tabText(MainWindowUI::instancesTabIndex()) == QStringLiteral("管理"), "management navigation label");
         auto *launchSettings = preview.findChild<QWidget *>(MainWindowUI::settingsPanelName(QStringLiteral("launch")));
         auto *warningSettings = preview.findChild<QWidget *>(MainWindowUI::settingsPanelName(QStringLiteral("warn")));
@@ -640,6 +653,26 @@ int UiUiRefreshCheck(QApplication &app) {
             settle();
         }
         // 实例带收起 / 展开：点箭头卡片排隐藏、页签留着，再点恢复；收起时点页签先展开再切过去。
+        {
+            QList<MainWindowUI::HomeQuickItem> tiles;
+            for (int i = 0; i < 4; ++i) {
+                auto item = longCard;
+                item.key = QStringLiteral("compact-%1").arg(i);
+                tiles.append(item);
+            }
+            ui.setHomeQuickRows({quick}, tiles, {quick});
+            ui.setHomeQuickMode(MainWindowUI::HomeQuickMode::Favorite);
+            settle();
+            auto *section = home->findChild<QWidget *>(QStringLiteral("homeFavoriteSection"));
+            auto *last = section ? section->findChild<QPushButton *>(QStringLiteral("homeQuickCard_compact-3")) : nullptr;
+            auto *version = last ? last->findChild<QLabel *>(QStringLiteral("homeQuickTileVersion")) : nullptr;
+            auto *play = last ? last->findChild<QPushButton *>(QStringLiteral("homeQuickPlay")) : nullptr;
+            expect(section && last && version && play && !version->isVisibleTo(last) && !play->isHidden() &&
+                       last->mapTo(section, QPoint(last->width(), 0)).x() <= section->width(),
+                   "overflowing recent or favorite cards shrink to icon and play without clipping");
+            ui.setHomeQuickRows({quick}, {longCard}, {quick});
+            settle();
+        }
         {
             auto *toggle = home->findChild<QPushButton *>(QStringLiteral("homeQuickToggle"));
             auto *cards = home->findChild<QWidget *>(QStringLiteral("homeQuickCards"));

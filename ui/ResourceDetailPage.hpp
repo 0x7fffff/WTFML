@@ -144,17 +144,9 @@ public:
     /// 初始值"，不是"用户拨了"）。
     void setShowSnapshots(bool showSnapshots);
 
-    /// 右上角**同一格**换成那颗「模组设置」。
-    ///
-    /// · 只有**从实例的「文件管理」页点一个模组**进来时才摆它（判据在
-    /// MainWindow::openResourceDetailPage，按"这一页是怎么打开的"分）；
-    /// · 摆它的时候「显示快照版」那颗**整个收起来**（同一格只露一个）；
-    /// · 点击请求打开当前实例的配置文件管理，不推测单个模组的配置归属。
-    ///
-    /// NOTE: 下载页里点一行模组开出来的是**同一个页面对象**，它照旧摆「显示快照版」——
-    /// 所以这一位**每次开页都要显式摆一次**（页面是建一次留着的，不摆就留着上一次的）。
+    /// 实例文件页打开模组详情时显示头卡的「模组设置」，入口通往该实例的配置管理。
     void setModSettingsSlot(bool show);
-    /// 右上角现在摆的是那颗「模组设置」吗（验证工程和 keyPressEvent 读它）。
+    /// 当前页面是否提供「模组设置」。
     bool modSettingsSlotShown() const { return m_modSettingsShown; }
 
     /// 版本列表那一块。**空表 = 摆一句「这个资源一个版本都没发过」**。
@@ -285,7 +277,7 @@ private:
     QCheckBox *m_showSnapshots = nullptr;
     /// 右上角「模组设置」入口，显示和启用均由 setModSettingsSlot 控制。
     QPushButton *m_modSettings = nullptr;
-    /// 现在摆的是不是它（`keyPressEvent` 那个裸 Alt 要读它 —— 见那儿那段）。
+    /// 当前资源是否有实例配置入口。
     bool m_modSettingsShown = false;
     QTreeWidget *m_list = nullptr;
 

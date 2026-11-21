@@ -338,6 +338,20 @@ public:
         m_reveal = child;
         syncReveal();
     }
+    void setStripWidths(QWidget *identity, int normalWidth, int compactWidth) {
+        m_stripIdentity = identity;
+        m_normalStripWidth = normalWidth;
+        m_compactStripWidth = compactWidth;
+        setFixedWidth(normalWidth);
+    }
+    int stripWidth(bool compact) const { return compact ? m_compactStripWidth : m_normalStripWidth; }
+    void setStripCompact(bool compact) {
+        if (compact == m_compactStrip) return;
+        m_compactStrip = compact;
+        m_stripIdentity->setVisible(!compact);
+        setFixedWidth(stripWidth(compact));
+        syncReveal();
+    }
     void setDashed(bool dashed) { m_dashed = dashed; }
 
 protected:
@@ -418,11 +432,15 @@ protected:
 
 private:
     void syncReveal() {
-        if (m_reveal != nullptr) m_reveal->setVisible(underMouse() || hasFocus());
+        if (m_reveal != nullptr) m_reveal->setVisible(m_compactStrip || underMouse() || hasFocus());
         update();
     }
     Shape m_shape;
     QPointer<QWidget> m_reveal;
+    QWidget *m_stripIdentity = nullptr;
+    int m_normalStripWidth = 0;
+    int m_compactStripWidth = 0;
+    bool m_compactStrip = false;
     bool m_dashed = false;
 };
 
@@ -824,8 +842,22 @@ protected:
 
 private:
     void relayout() {
-        // 卡片只有自然宽（每张自己定死），这一条内层就是它那么宽：从左缘摆起，
-        // 排不下时右边超出去的那截由 `syncFade()` 渐隐裁掉。
+        QList<HeroButton *> tiles;
+        int normalWidth = m_row->contentsMargins().left() + m_row->contentsMargins().right();
+        for (int i = 0; i < m_row->count(); ++i) {
+            if (auto *tile = dynamic_cast<HeroButton *>(m_row->itemAt(i)->widget())) {
+                if (!tiles.isEmpty()) normalWidth += m_row->spacing();
+                tiles.append(tile);
+                normalWidth += tile->stripWidth(false);
+            }
+        }
+        qsizetype normalCount = tiles.size();
+        // 默认三张沿用原版式。更多卡片按优先顺序保留完整样式。
+        while (tiles.size() > 3 && normalCount > 0 && normalWidth > width()) {
+            const auto *tile = tiles.at(--normalCount);
+            normalWidth -= tile->stripWidth(false) - tile->stripWidth(true);
+        }
+        for (qsizetype i = 0; i < tiles.size(); ++i) tiles.at(i)->setStripCompact(i >= normalCount);
         const QSize hint = m_content->sizeHint();
         const int width = qMax(hint.width(), 0);
         const int height = qMax(hint.height(), this->height());
@@ -2484,7 +2516,8 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
             applyCover();
             Theme::follow(icon, applyCover);
             content->addWidget(icon, 0, Qt::AlignVCenter);
-            auto *identity = new QVBoxLayout;
+            auto *identityWidget = new QWidget(card);
+            auto *identity = new QVBoxLayout(identityWidget);
             identity->setSpacing(1);
             identity->setContentsMargins(0, 0, 0, 0);
             identity->addStretch(1);
@@ -2536,7 +2569,7 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
             followHeroInk(sub, true);
             identity->addWidget(sub);
             identity->addStretch(1);
-            content->addLayout(identity, 1);
+            content->addWidget(identityWidget, 1);
             auto *play = new HeroButton(HeroButton::Shape::Play, card);
             play->setObjectName(QStringLiteral("homeQuickPlay"));
             play->setProperty("wtfmlHeroPlay", true);
@@ -2564,7 +2597,10 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
             // 收着时也留那一格（retainSizeWhenHidden），名字的可用宽度才不随悬停 / 按下 / 焦点变。
             // （以前手动加 `play->sizeHint().width()`：QPushButton 按图标算的是 17，它实际钉死
             // 30 宽，每次少算 13，名字刚好放下的卡片一悬停就收成省略号 —— issue #41。）
-            card->setFixedWidth(qBound(kHomeTileWidth, content->sizeHint().width(), kHomeTileMaxWidth));
+            const int compactWidth = content->contentsMargins().left() + content->contentsMargins().right()
+                                     + icon->width() + content->spacing() + play->width();
+            card->setStripWidths(identityWidget,
+                qBound(kHomeTileWidth, content->sizeHint().width(), kHomeTileMaxWidth), compactWidth);
             card->setToolTip(subtitle.isEmpty() ? item.name : item.name + QLatin1Char('\n') + subtitle);
             row->addWidget(card);
         }

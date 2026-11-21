@@ -183,6 +183,15 @@ LaunchHistory::PlayTime LaunchHistoryController::completedPlayTime(const QString
     return LaunchHistory::loadPlayTime(path, stableInstanceId);
 }
 
+QHash<QString, LaunchHistory::PlayTime> LaunchHistoryController::completedPlayTimes() const {
+    const QString path = LaunchHistory::historyPath();
+    auto completed = LaunchHistory::loadPlayTimes(path);
+    for (auto it = m_playTimeCounters.cbegin(); it != m_playTimeCounters.cend(); ++it) {
+        if (it.key().first == path) completed.insert(it.key().second, it->completed());
+    }
+    return completed;
+}
+
 std::optional<LaunchHistoryController::RunningPlayTime>
 LaunchHistoryController::runningPlayTime(int sessionId) const {
     const auto session = m_playTimeSessions.constFind(sessionId);

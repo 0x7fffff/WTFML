@@ -206,6 +206,7 @@ void ConnectionsController::setup() {
         });
     connect(m_owner->m_folderManager, &FolderManager::currentFolderChanged, m_owner, [this] {
         m_owner->applyCurrentFolderToPaths();
+        m_owner->refreshFolderList();
         // 换了一整份 .minecraft，三件跟着"上一份"走的事要重置：
         // - "目录名和 jar 名对不上"的告警只报一次，新目录得重新能报；
         // - 本机 Java 列表是**按根目录**扫的（自管 Java 在 <数据目录>/java 下），

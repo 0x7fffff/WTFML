@@ -104,6 +104,7 @@ public:
     void finishPlayTime(int sessionId);
     void finishAllPlayTimes();
     LaunchHistory::PlayTime completedPlayTime(const QString &stableInstanceId) const;
+    QHash<QString, LaunchHistory::PlayTime> completedPlayTimes() const;
     std::optional<RunningPlayTime> runningPlayTime(int sessionId) const;
 
 signals:

@@ -127,7 +127,7 @@ bool ResourcePageController::open(const QString &iconKey, const QString &kindKey
     m_state.iconKey = iconKey;
     m_state.title = hit->title;
     m_state.chip.clear();
-    m_state.showSnapshots = false;   // 开页一律从"不显示快照版"开始（勾选框的默认值）
+    m_state.showSnapshots = false;
     m_state.versions.clear();
     m_state.loaded = false;
     // 前置名字"这一页问过谁"跟着新页从头算（R3）：上一个资源问不着的那几个号不该让
@@ -161,8 +161,6 @@ bool ResourcePageController::open(const QString &iconKey, const QString &kindKey
     // NOTE: 这一份**声明表要留着**（不止是拿来摆一次 chip）：勾选框一拨，chip 那一排整个
     // 换一份（折 / 不折是两份不一样的表），那时候手上只有开页时存下来的它。
     m_state.declaredGameVersions = hit->gameVersions;
-    // 勾选框一律从不勾开始（那一页自己的默认值，见 ResourcePageState::showSnapshots）。
-    page->setShowSnapshots(false);
 
     // ---------- 从某个实例进来的那一次：预选到**那个实例的**版本 / 加载器----------
     //
@@ -196,6 +194,8 @@ bool ResourcePageController::open(const QString &iconKey, const QString &kindKey
                          ? ResourceCatalog::otherSeriesKey()
                          : series;
     }
+    m_state.showSnapshots = ResourceCatalog::isSnapshotGameVersion(m_state.preselectedGameVersion);
+    page->setShowSnapshots(m_state.showSnapshots);
     applyChips(hit->gameVersions, m_state.showSnapshots, wantedChip);
     // 按着的是哪一颗**以页面为准**（和 onResourcePageShowSnapshotsChanged 里那一句逐字
     // 同一个理由）：上一步要是把"表里没有的那个 key"纠正成了「全部」，两位得说的是同一
@@ -204,17 +204,7 @@ bool ResourcePageController::open(const QString &iconKey, const QString &kindKey
     // 全部版本"（看着像筛没生效）。
     m_state.chip = m_page->currentChip();
 
-    // 右上角那一格**每次开页都显式摆一次**：这一页是**同一个对象、建一次
-    // 留着的**，两个入口（下载页 / 实例的文件管理页）共用它 —— 不摆的话就留着上一次那
-    // 一格（先下载页点个模组、再从实例点个模组进来，看见的还是「显示快照版」）。
-    //
-    // 判据是**两样都要**：来路是实例的文件管理页，**而且**这一条是个模组。少一样都不摆
-    // —— 从实例点一个**资源包**进来照旧摆「显示快照版」（那一颗在那一页上是有用的：那一
-    // 排 chip 折的正是"这个资源支持哪些游戏版本"）。
-    // 上面那一发 `applyChips(…, wantedChip)` 已经按实例版本预选好了。
-    // 别再在这儿补一次 `QString()` 的那一发 —— 那会把上面刚按下去的那一颗整个抹回
-    // 「全部」，而 `m_state.chip` 还留着实例那个值：屏幕上一颗亮的都没有、底下
-    // 列的却是按实例版本筛过的（正是 fillResourcePageGroups 那段点名的"两位各说各的"）。
+    // 详情页复用，按本次来路更新「模组设置」入口。上面已按实例版本预选过滤条件。
     page->setModSettingsSlot(from == DetailSource::InstanceFiles && kind == ResourceCatalog::Kind::Mod);
     // 图标是异步来的：先清掉上一次那一张（不然会留着上一个资源的图标，比空着糟），
     // 那一格的位置照旧留着，图回来时整张卡不会往左跳一下。

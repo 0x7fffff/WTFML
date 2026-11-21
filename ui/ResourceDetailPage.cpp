@@ -283,9 +283,23 @@ ResourceDetailPage::ResourceDetailPage(QWidget *parent) : QDialog(parent) {
     buttonRow->addWidget(m_copyName);
     textColumn->addStretch(1);
 
+    auto *buttonColumn = new QVBoxLayout;
+    buttonColumn->setSpacing(4);
+    buttonColumn->addLayout(buttonRow);
+    m_modSettings = new QPushButton(modSettingsText(), card);
+    m_modSettings->setObjectName(modSettingsButtonName());
+    Theme::markButton(m_modSettings, Theme::ButtonKind::Neutral);
+    m_modSettings->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    m_modSettings->setEnabled(false);
+    m_modSettings->setToolTip(tr("打开配置文件管理；共享配置需自行选择。"));
+    connect(m_modSettings, &QPushButton::clicked, this, [this] {
+        if (m_modSettingsShown) emit modSettingsRequested();
+    });
+    m_modSettings->hide();
+    buttonColumn->addWidget(m_modSettings, 0, Qt::AlignRight);
     cardLayout->addLayout(textColumn, 1);
-    cardLayout->addLayout(buttonRow);
-    buttonRow->setAlignment(Qt::AlignTop);
+    cardLayout->addLayout(buttonColumn);
+    buttonColumn->setAlignment(Qt::AlignTop);
     outer->addWidget(card);
 
     // ---------- 那一排游戏版本 chip ----------
@@ -313,19 +327,6 @@ ResourceDetailPage::ResourceDetailPage(QWidget *parent) : QDialog(parent) {
             [this](bool checked) { emit showSnapshotsChanged(checked); });
     chipLine->addWidget(m_showSnapshots, 0, Qt::AlignTop);
 
-    // 与「显示快照版」复用同一槽位，仅实例模组详情可见并可操作。
-    m_modSettings = new QPushButton(modSettingsText(), this);
-    m_modSettings->setObjectName(modSettingsButtonName());
-    Theme::markButton(m_modSettings, Theme::ButtonKind::Neutral);
-    m_modSettings->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-    // 只有实例模组详情显示并启用它，下载详情不能访问本地配置。
-    m_modSettings->setEnabled(false);
-    m_modSettings->setToolTip(tr("打开配置文件管理；共享配置需自行选择。"));
-    connect(m_modSettings, &QPushButton::clicked, this, [this] {
-        if (m_modSettingsShown) emit modSettingsRequested();
-    });
-    m_modSettings->hide();
-    chipLine->addWidget(m_modSettings, 0, Qt::AlignTop);
     outer->addLayout(chipLine);
 
     // ---------- chip 那一排与版本列表中间那一行----------
@@ -564,13 +565,11 @@ void ResourceDetailPage::setShowSnapshots(bool showSnapshots) {
 
 void ResourceDetailPage::setModSettingsSlot(bool show) {
     m_modSettingsShown = show;
-    if (m_modSettings == nullptr || m_showSnapshots == nullptr) {
+    if (m_modSettings == nullptr) {
         return;
     }
-    // 同一格只露一个 —— 摆谁就把另一个**整个收起来**（「替换」就是这个意思，不是两颗并排）。
     m_modSettings->setVisible(show);
     m_modSettings->setEnabled(show);
-    m_showSnapshots->setVisible(!show);
 }
 
 QString ResourceDetailPage::chipTextAt(int index) const {
@@ -737,11 +736,8 @@ void ResourceDetailPage::keyPressEvent(QKeyEvent *event) {
     // 的那几发**不算** —— 那是别的快捷键，放给下面那一层。
     const Qt::KeyboardModifiers others =
         event->modifiers() & ~(Qt::AltModifier | Qt::KeypadModifier);
-    // 摆着「模组设置」的时候**这一发不吃**：那一格上压根没有「显示快照版」，
-    // 拨了也是拨一个**看不见**的勾 —— 屏幕上什么都不动，用户按一下 Alt 只能得出"这软件
-    // 没反应"的结论。放给基类，让它该干嘛干嘛。
     if (event->key() == Qt::Key_Alt && others == Qt::NoModifier) {
-        if (!m_modSettingsShown && m_showSnapshots != nullptr) {
+        if (!event->isAutoRepeat() && m_showSnapshots != nullptr) {
             // 走 setChecked：`toggled` 那一发会照常发出去（这一下就是"用户拨了"）。
             m_showSnapshots->setChecked(!m_showSnapshots->isChecked());
         }
