@@ -26,6 +26,7 @@
 #include <QUrl>
 #include <QUuid>
 #include <QtConcurrent/QtConcurrentRun>
+#include <algorithm>
 #include <atomic>
 #include <memory>
 #include <functional>
@@ -264,6 +265,70 @@ void addLegacyInfoDeclaration(Mod &mod, const QByteArray &bytes) {
     mod.declarations.append(declaration);
 }
 
+const QStringList kModMetadataEntries{
+    QStringLiteral("fabric.mod.json"), QStringLiteral("quilt.mod.json"),
+    QStringLiteral("META-INF/neoforge.mods.toml"), QStringLiteral("META-INF/mods.toml"),
+    QStringLiteral("mcmod.info")};
+
+void readModDeclarations(Mod &mod, const ZipUtil::ArchiveMetadata &record) {
+    const auto parsedProblem = [&](const QString &entry, const QString &loader) {
+        Declaration declaration;
+        declaration.loader = loader;
+        declaration.basis = entry;
+        declaration.problem = record.entryProblems.value(entry);
+        mod.declarations.append(declaration);
+    };
+    if (record.entryProblems.contains(QStringLiteral("fabric.mod.json"))) {
+        parsedProblem(QStringLiteral("fabric.mod.json"), QStringLiteral("fabric"));
+    } else if (record.entries.contains(QStringLiteral("fabric.mod.json"))) {
+        addFabricDeclaration(mod, record.entries.value(QStringLiteral("fabric.mod.json")),
+                             QStringLiteral("fabric.mod.json"));
+    }
+    if (record.entryProblems.contains(QStringLiteral("quilt.mod.json"))) {
+        parsedProblem(QStringLiteral("quilt.mod.json"), QStringLiteral("quilt"));
+    } else if (record.entries.contains(QStringLiteral("quilt.mod.json"))) {
+        addQuiltDeclaration(mod, record.entries.value(QStringLiteral("quilt.mod.json")));
+    }
+    const auto addToml = [&](const QString &entry, const QString &loader, const QString &loaderId) {
+        if (record.entryProblems.contains(entry)) {
+            parsedProblem(entry, loader);
+            return;
+        }
+        if (!record.entries.contains(entry)) return;
+        const auto requirements = tomlRequirements(record.entries.value(entry), loaderId);
+        Declaration declaration;
+        declaration.loader = loader;
+        declaration.game = requirements.game;
+        declaration.basis = entry + QStringLiteral(" / minecraft.versionRange");
+        declaration.loaderRange = requirements.loader;
+        declaration.loaderBasis = entry + QStringLiteral(" / ") + loaderId + QStringLiteral(".versionRange");
+        declaration.javaRange = requirements.java;
+        declaration.javaBasis = entry + QStringLiteral(" / java.versionRange");
+        declaration.problem = requirements.problem;
+        mod.declarations.append(declaration);
+    };
+    addToml(QStringLiteral("META-INF/neoforge.mods.toml"), QStringLiteral("neoforge"),
+            QStringLiteral("neoforge"));
+    addToml(QStringLiteral("META-INF/mods.toml"), QStringLiteral("forge"),
+            QStringLiteral("forge"));
+    if (record.entryProblems.contains(QStringLiteral("mcmod.info"))) {
+        parsedProblem(QStringLiteral("mcmod.info"), QStringLiteral("forge"));
+    } else if (record.entries.contains(QStringLiteral("mcmod.info"))) {
+        addLegacyInfoDeclaration(mod, record.entries.value(QStringLiteral("mcmod.info")));
+    }
+}
+
+ModVersionDeclaration::Match matchModVersion(const Declaration &declaration, const QJsonValue &rule,
+                                             const QString &target) {
+    if (declaration.loader != QStringLiteral("fabric")) {
+        return ModVersionDeclaration::matches(rule, target);
+    }
+    const auto result = FabricVersionDeclaration::matches(rule, target);
+    if (result == FabricVersionDeclaration::Match::Yes) return ModVersionDeclaration::Match::Yes;
+    if (result == FabricVersionDeclaration::Match::No) return ModVersionDeclaration::Match::No;
+    return ModVersionDeclaration::Match::Unknown;
+}
+
 /// 只读 class 文件的常量池，用来找旧 Forge 的 `@Mod` 注解。
 /// 不解析整份 class（字段/方法/属性都跳过），所以坏字节只影响"能不能读出来"。
 QStringList constantPoolStrings(const QByteArray &bytes, QString *problem) {
@@ -377,10 +442,7 @@ Scan scan(const QString &root, const QString &sourceId, const QString &cache, co
     }
     audit.close();
     QString batchProblem;
-    const auto metadata = ZipUtil::readMetadataBatch(paths,
-        {QStringLiteral("fabric.mod.json"), QStringLiteral("quilt.mod.json"),
-         QStringLiteral("META-INF/neoforge.mods.toml"), QStringLiteral("META-INF/mods.toml"),
-         QStringLiteral("mcmod.info")},
+    const auto metadata = ZipUtil::readMetadataBatch(paths, kModMetadataEntries,
         &batchProblem, [stop] { return stop->load(); });
     QElapsedTimer identityClock; identityClock.start();
     for (const auto &path : paths) {
@@ -393,51 +455,7 @@ Scan scan(const QString &root, const QString &sourceId, const QString &cache, co
         } else {
             mod.problem = record.problem;
         }
-        const auto parsedProblem = [&](const QString &entry, const QString &loader) {
-            Declaration declaration;
-            declaration.loader = loader;
-            declaration.basis = entry;
-            declaration.problem = record.entryProblems.value(entry);
-            mod.declarations.append(declaration);
-        };
-        if (record.entryProblems.contains(QStringLiteral("fabric.mod.json"))) {
-            parsedProblem(QStringLiteral("fabric.mod.json"), QStringLiteral("fabric"));
-        } else if (record.entries.contains(QStringLiteral("fabric.mod.json"))) {
-            addFabricDeclaration(mod, record.entries.value(QStringLiteral("fabric.mod.json")),
-                                 QStringLiteral("fabric.mod.json"));
-        }
-        if (record.entryProblems.contains(QStringLiteral("quilt.mod.json"))) {
-            parsedProblem(QStringLiteral("quilt.mod.json"), QStringLiteral("quilt"));
-        } else if (record.entries.contains(QStringLiteral("quilt.mod.json"))) {
-            addQuiltDeclaration(mod, record.entries.value(QStringLiteral("quilt.mod.json")));
-        }
-        const auto addToml = [&](const QString &entry, const QString &loader, const QString &loaderId) {
-            if (record.entryProblems.contains(entry)) {
-                parsedProblem(entry, loader);
-                return;
-            }
-            if (!record.entries.contains(entry)) return;
-            const auto requirements = tomlRequirements(record.entries.value(entry), loaderId);
-            Declaration declaration;
-            declaration.loader = loader;
-            declaration.game = requirements.game;
-            declaration.basis = entry + QStringLiteral(" / minecraft.versionRange");
-            declaration.loaderRange = requirements.loader;
-            declaration.loaderBasis = entry + QStringLiteral(" / ") + loaderId + QStringLiteral(".versionRange");
-            declaration.javaRange = requirements.java;
-            declaration.javaBasis = entry + QStringLiteral(" / java.versionRange");
-            declaration.problem = requirements.problem;
-            mod.declarations.append(declaration);
-        };
-        addToml(QStringLiteral("META-INF/neoforge.mods.toml"), QStringLiteral("neoforge"),
-                QStringLiteral("neoforge"));
-        addToml(QStringLiteral("META-INF/mods.toml"), QStringLiteral("forge"),
-                QStringLiteral("forge"));
-        if (record.entryProblems.contains(QStringLiteral("mcmod.info"))) {
-            parsedProblem(QStringLiteral("mcmod.info"), QStringLiteral("forge"));
-        } else if (record.entries.contains(QStringLiteral("mcmod.info"))) {
-            addLegacyInfoDeclaration(mod, record.entries.value(QStringLiteral("mcmod.info")));
-        }
+        readModDeclarations(mod, record);
         const auto identity = identities.constFind(path);
         const auto records = installedRecords.value(QFileInfo(path).fileName());
         if ((identity != identities.cend() && !identity->sha1.isEmpty()) || !records.isEmpty()) {
@@ -739,14 +757,7 @@ QString localState(const Mod &mod, const QString &game, const QString &loader,
         *basis += QObject::tr("（按 Fabric 声明；Quilt 可加载 Fabric 模组）");
     }
     const auto matchRule = [chosen](const QJsonValue &rule, const QString &target) {
-        if (chosen->loader != QStringLiteral("fabric")) {
-            return ModVersionDeclaration::matches(rule, target);
-        }
-        const auto match = FabricVersionDeclaration::matches(rule, target);
-        return match == FabricVersionDeclaration::Match::Yes
-            ? ModVersionDeclaration::Match::Yes
-            : match == FabricVersionDeclaration::Match::No
-                ? ModVersionDeclaration::Match::No : ModVersionDeclaration::Match::Unknown;
+        return matchModVersion(*chosen, rule, target);
     };
     if (!chosen->breaks.isNull() && !chosen->breaks.isUndefined()) {
         const auto excluded = matchRule(chosen->breaks, game);
@@ -842,6 +853,43 @@ QString localState(const Mod &mod, const QString &game, const QString &loader,
 }
 
 void UpgradeAssessment::setWallClockBudgetsForTesting(bool enabled) { g_wallClockBudgets.store(enabled); }
+
+QHash<QString, UpgradeAssessment::PickerMismatch> UpgradeAssessment::checkDroppedMods(
+    const QStringList &paths, const QList<PickerTarget> &targets) {
+    if (paths.isEmpty() || targets.isEmpty()) return {};
+    const auto archives = ZipUtil::readMetadataBatch(paths, kModMetadataEntries);
+    QHash<QString, PickerMismatch> results;
+    for (auto it = archives.cbegin(); it != archives.cend(); ++it) {
+        Mod mod;
+        mod.path = it.key();
+        readModDeclarations(mod, it.value());
+        if (mod.declarations.isEmpty()) continue;
+        for (const auto &target : targets) {
+            const auto supportsLoader = [&target](const Declaration &declaration) {
+                return declaration.loader == target.loader ||
+                       (target.loader == QStringLiteral("quilt") && declaration.loader == QStringLiteral("fabric"));
+            };
+            const bool matchingLoader = std::any_of(mod.declarations.cbegin(), mod.declarations.cend(),
+                                                    supportsLoader);
+            auto &mismatch = results[target.id];
+            mismatch.loader |= !matchingLoader;
+            if (target.gameVersion.isEmpty()) continue;
+            bool checked = false;
+            bool rejected = true;
+            for (const auto &declaration : mod.declarations) {
+                if (matchingLoader && !supportsLoader(declaration)) continue;
+                checked = true;
+                const bool excluded = matchModVersion(declaration, declaration.breaks, target.gameVersion)
+                    == ModVersionDeclaration::Match::Yes;
+                const bool unsupported = matchModVersion(declaration, declaration.game, target.gameVersion)
+                    == ModVersionDeclaration::Match::No;
+                rejected &= declaration.problem.isEmpty() && (excluded || unsupported);
+            }
+            mismatch.gameVersion |= checked && rejected;
+        }
+    }
+    return results;
+}
 
 void UpgradeAssessment::attach(InstanceSettingsDialog *dialog, VersionManager *versions, ResourceStore *store,
                                const QString &sourceId, const QString &root, const QString &identityCache) {

@@ -129,7 +129,7 @@ constexpr int kPickerWidth = 320;
 constexpr int kPickerRowHeight = 34;
 constexpr int kPickerHeadHeight = 28;
 constexpr int kPickerRecentLimit = 5;
-constexpr int kDownloadPickerListHeight = 6 * kPickerRowHeight;
+constexpr int kDownloadPickerListHeight = 8 * kPickerRowHeight;
 constexpr int kRoleId = Qt::UserRole;
 constexpr int kRoleFolder = Qt::UserRole + 1;
 constexpr int kRoleKind = Qt::UserRole + 2;    ///< 0 = 小节标题，1 = 实例
@@ -318,7 +318,8 @@ private:
         item->setData(kRoleFolder, instance.folderPath);
         item->setData(kRoleCurrent, instance.current && !m_confirmSelection);
         item->setData(kRoleSub, instance.subtitle);
-        item->setToolTip(instance.title);
+        item->setToolTip(instance.subtitle.isEmpty() ? instance.title
+            : instance.title + QLatin1Char('\n') + instance.subtitle);
     }
     void rebuild();
     void activate(QListWidgetItem *item) {
@@ -629,10 +630,16 @@ T *openPopover(QWidget *anchor, const QString &name) {
 
 }  // namespace
 
-QString MainWindowUI::chooseResourceDownloadInstance(const QList<HomePickerInstance> &instances) {
-    InlineMessageBox box(MessageKind::Question, QStringLiteral("下载到哪个实例"),
-                         QStringLiteral("请选择当前游戏目录中的目标实例。"),
-                         {QStringLiteral("下载"), QStringLiteral("取消")}, -1, -1);
+QString MainWindowUI::chooseResourceDownloadInstance(const QList<HomePickerInstance> &instances,
+                                                      bool *otherFolder, bool importing) {
+    const QString title = importing ? QCoreApplication::translate("MainWindowUI", "装到哪个实例里")
+                                    : QStringLiteral("下载到哪个实例");
+    const QString action = importing ? QCoreApplication::translate("MainWindowUI", "安装")
+                                     : QStringLiteral("下载");
+    InlineMessageBox box(MessageKind::Question, title,
+                         QCoreApplication::translate("MainWindowUI", "请选择目标实例或其他文件夹。"),
+                         {action, QCoreApplication::translate("MainWindowUI", "其他文件夹…"),
+                          QStringLiteral("取消")}, -1, -1);
     box.setObjectName(resourceDownloadInstancePickerName());
     auto *content = new InstancePickerList(instances, &box, true);
     content->setFixedHeight(34 + 4 + kDownloadPickerListHeight);
@@ -644,6 +651,7 @@ QString MainWindowUI::chooseResourceDownloadInstance(const QList<HomePickerInsta
     content->onSelectionChanged();
     content->onActivate = [download](const QString &, const QString &) { download->click(); };
     overlay()->execPrompt(&box);
+    *otherFolder = box.clickedIndex() == 1;
     return box.clickedIndex() == 0 ? content->selectedId() : QString();
 }
 

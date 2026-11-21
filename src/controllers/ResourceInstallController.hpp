@@ -78,7 +78,8 @@ private:
         QString instanceDirectory;
     };
 
-    std::optional<InstallTarget> selectTarget(ResourceCatalog::Kind kind);
+    std::optional<InstallTarget> selectTarget(ResourceCatalog::Kind kind,
+                                             const ResourceCatalog::VersionEntry &version);
     bool targetStillAvailable(const InstallTarget &target);
     void installNow(ResourceCatalog::Kind kind, const QString &displayTitle,
                     const ResourceCatalog::VersionEntry &version,

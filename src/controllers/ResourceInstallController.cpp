@@ -6,6 +6,7 @@
 #include <QScopedValueRollback>
 #include <QSet>
 #include <QStringList>
+#include <algorithm>
 
 #include "MainWindow.hpp"
 #include "controllers/ActivityCenterController.hpp"
@@ -23,10 +24,13 @@
 #include "MainWindowUI.hpp"
 #include "util/AppPaths.hpp"
 
+using MainWindowViewData::loaderGroupKey;
+
 ResourceInstallController::ResourceInstallController(MainWindow *owner) : QObject(owner), m_owner(*owner) {}
 
 std::optional<ResourceInstallController::InstallTarget>
-ResourceInstallController::selectTarget(ResourceCatalog::Kind kind) {
+ResourceInstallController::selectTarget(ResourceCatalog::Kind kind,
+                                        const ResourceCatalog::VersionEntry &version) {
     MainWindow &owner = m_owner;
     if (kind == ResourceCatalog::Kind::Modpack) {
         return InstallTarget{AppPaths::modpackCacheDir(), {}, {}};
@@ -39,13 +43,26 @@ ResourceInstallController::selectTarget(ResourceCatalog::Kind kind) {
     const QString defaultId = owner.resourceDownloadDefaultInstanceId();
     const QDir versionsDir(AppPaths::versionsDir());
     if (owner.m_settings->downloadAutoIntoInstance()) {
-        const QString selectedId = owner.m_ui->chooseResourceDownloadInstance(
-            owner.currentFolderInstancePickerRows(defaultId));
-        if (selectedId.isEmpty()) {
-            return std::nullopt;
+        auto rows = owner.currentFolderInstancePickerRows(defaultId);
+        for (auto &row : rows) {
+            const QString game = owner.m_versionManager->instanceGameVersion(row.id);
+            if (!game.isEmpty() && !version.gameVersions.isEmpty() &&
+                !version.gameVersions.contains(game)) {
+                row.subtitle += QStringLiteral(" · ") + MainWindow::tr("版本不符");
+            }
+            if (kind == ResourceCatalog::Kind::Mod && !version.loaders.isEmpty()) {
+                const bool compatible = std::any_of(version.loaders.cbegin(), version.loaders.cend(),
+                    [&row](const QString &loader) { return loaderGroupKey(loader) == row.loaderKey; });
+                if (!compatible) row.subtitle += QStringLiteral(" · ") + MainWindow::tr("加载器不符");
+            }
         }
-        const QString instanceDir = versionsDir.filePath(selectedId);
-        return InstallTarget{QDir(instanceDir).filePath(folder), selectedId, instanceDir};
+        bool otherFolder = false;
+        const QString selectedId = owner.m_ui->chooseResourceDownloadInstance(rows, &otherFolder);
+        if (!otherFolder) {
+            if (selectedId.isEmpty()) return std::nullopt;
+            const QString instanceDir = versionsDir.filePath(selectedId);
+            return InstallTarget{QDir(instanceDir).filePath(folder), selectedId, instanceDir};
+        }
     }
 
     const QString instanceDir = defaultId.isEmpty() ? QString() : versionsDir.filePath(defaultId);
@@ -81,7 +98,7 @@ void ResourceInstallController::install(ResourceCatalog::Kind kind, QString disp
     }
     const QScopedValueRollback installing(m_installing, true);
     MainWindow &owner = m_owner;
-    const auto destination = selectTarget(kind);
+    const auto destination = selectTarget(kind, version);
     if (!destination || !targetStillAvailable(*destination)) {
         return;
     }

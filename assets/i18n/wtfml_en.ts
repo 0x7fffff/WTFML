@@ -5846,6 +5846,10 @@ Are you sure you want to restore?</translation>
     <context>
         <name>ImportController</name>
         <message>
+            <source>选择安装文件夹</source>
+            <translation>Choose an installation folder</translation>
+        </message>
+        <message>
             <source>没有文件网页</source>
             <translation>No file page</translation>
         </message>
@@ -11405,6 +11409,18 @@ The game was not launched. You can set the Java path manually in Instance Settin
     <context>
         <name>MainWindow</name>
         <message>
+            <source>游玩 %1</source>
+            <translation>Played %1</translation>
+        </message>
+        <message>
+            <source>版本不符</source>
+            <translation>Version mismatch</translation>
+        </message>
+        <message>
+            <source>加载器不符</source>
+            <translation>Loader mismatch</translation>
+        </message>
+        <message>
             <source>应用实例预设</source>
             <translation>Application instance defaults</translation>
         </message>
@@ -13929,6 +13945,10 @@ Are you sure to delete?</translation>
     <context>
         <name>MainWindowSettingsPage</name>
         <message>
+            <source>数量较多时，放不下的卡片只显示图标和启动按钮。</source>
+            <translation>When space is limited, extra cards show only an icon and a launch button.</translation>
+        </message>
+        <message>
             <source>搜索设置</source>
             <translation>Search settings</translation>
         </message>
@@ -14133,8 +14153,8 @@ Are you sure to delete?</translation>
             <translation>Default %1 × %2. Minimum %3 × %4.</translation>
         </message>
         <message>
-            <source>下载资源时选择目标实例；关闭后改用系统文件夹选择。</source>
-            <translation>Select an instance when downloading resources. Turn this off to use the system folder picker.</translation>
+            <source>下载或拖入资源时选择目标实例；关闭后改用系统文件夹选择。</source>
+            <translation>Select an instance when downloading or dropping resources. Turn this off to use the system folder picker.</translation>
         </message>
         <message>
             <source>外观</source>
@@ -14247,6 +14267,18 @@ Are you sure to delete?</translation>
     </context>
     <context>
         <name>MainWindowUI</name>
+        <message>
+            <source>装到哪个实例里</source>
+            <translation>Choose an instance</translation>
+        </message>
+        <message>
+            <source>请选择目标实例或其他文件夹。</source>
+            <translation>Choose an instance or another folder.</translation>
+        </message>
+        <message>
+            <source>其他文件夹…</source>
+            <translation>Other folder…</translation>
+        </message>
         <message>
             <source>查看详情</source>
             <translation>Check the details</translation>

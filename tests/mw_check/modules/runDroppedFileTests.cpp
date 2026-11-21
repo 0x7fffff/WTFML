@@ -10,14 +10,17 @@ void runDroppedFileTests() {
     QSettings sandbox;
     const QVariant foldersBefore = sandbox.value(QStringLiteral("Launcher/Folders"));
     const QVariant currentBefore = sandbox.value(QStringLiteral("Launcher/CurrentFolder"));
+    const QVariant pickerBefore = sandbox.value(QStringLiteral("Download/AutoIntoInstance"));
     const auto restore = [&] {
         sandbox.setValue(QStringLiteral("Launcher/Folders"), foldersBefore);
         sandbox.setValue(QStringLiteral("Launcher/CurrentFolder"), currentBefore);
+        sandbox.setValue(QStringLiteral("Download/AutoIntoInstance"), pickerBefore);
         sandbox.sync();
         AppPaths::setMinecraftDir(originalDir);
     };
     sandbox.setValue(QStringLiteral("Launcher/Folders"), QStringList({root.path()}));
     sandbox.setValue(QStringLiteral("Launcher/CurrentFolder"), root.path());
+    sandbox.setValue(QStringLiteral("Download/AutoIntoInstance"), true);
     sandbox.sync();
     AppPaths::setMinecraftDir(root.path());
     QDir().mkpath(root.path() + QStringLiteral("/libraries"));
@@ -47,6 +50,7 @@ void runDroppedFileTests() {
     // 另外三类各建一个目录，好让"落点对不对"有个确凿的判据（`folderForKind` 那三个名字）。
     const QString instanceDir = root.path() + QStringLiteral("/versions/") + idV;
     const QString otherInstanceDir = root.path() + QStringLiteral("/versions/") + idOther;
+    writeFileAt(instanceDir + QStringLiteral("/wtfml.meta"), R"({"realVersion":"1.21.1"})");
 
     // 拖进来的东西：两个模组 + 一个资源包 + 一个认不出来的。
     const QString work = root.path() + QStringLiteral("/drop-src");
@@ -303,27 +307,37 @@ void runDroppedFileTests() {
         // ---- (h) 没开实例设置时：问"装到哪个实例" ----
         //
         // 这一档走的是 `handleWindowDrop()`：主窗自己接住（没有哪一页开着，装到哪儿要问）。
-        // 选框是 `InlineMessage::pickFromList()` —— 卡片里那张列表就是"哪些实例"。
+        // 主窗口拖入和下载共用可搜索的实例选择器。
         const QString modD = work + QStringLiteral("/第四个模组.jar");
-        writeFileAt(modD, "D");
+        const QString fabric = work + QStringLiteral("/fabric.mod.json");
+        writeFileAt(fabric, R"({"id":"test","version":"1.0","depends":{"minecraft":">=99.0"}})");
+        check(ZipUtil::createZip(modD, {{QStringLiteral("fabric.mod.json"), fabric}}),
+              "T30.11 准备声明了加载器和版本的拖入模组");
         // 先确认这一刻**没有**哪一页开着（不然这一发会被那一页接走，量的就是别的东西）。
         check(currentPageOverlay() == nullptr,
               "T30.11 前提：这一刻没有哪一页开着（这一发才会落到主窗自己身上）");
 
         // ① 弹出来的框里那张列表 = 盘上现在装着的实例。
         int listCount = -1;
-        int listRow = -2;
+        QString selectedId;
         QString comboSelection;
-        QTimer::singleShot(0, &w, [&] {
+        QTimer inspectPicker;
+        inspectPicker.setInterval(10);
+        QObject::connect(&inspectPicker, &QTimer::timeout, &w, [&] {
             InlineMessageBox *box = currentPrompt();
-            if (box == nullptr) {
-                ++g_modalHandlerGeneration;
-                return;
-            }
+            if (box == nullptr) return;
+            inspectPicker.stop();
             recordPrompt(box);
-            if (auto *list = box->listWidget()) {
+            if (auto *list = box->findChild<QListWidget *>(QStringLiteral("homePickerInstanceList"))) {
                 listCount = list->count();
-                listRow = box->listRow();
+                if (list->currentItem()) selectedId = list->currentItem()->data(Qt::UserRole).toString();
+                QString tooltip;
+                for (int row = 0; row < list->count(); ++row) {
+                    if (list->item(row)->data(Qt::UserRole).toString() == idV)
+                        tooltip = list->item(row)->toolTip();
+                }
+                check(tooltip.contains(QStringLiteral("版本不符")) && tooltip.contains(QStringLiteral("加载器不符")),
+                      "T30.11 拖入声明不兼容的模组时，实例行同时标出两个原因", tooltip);
                 // 把选中**清掉**，这一档要量的才是"用户没选"（比如 Ctrl+点一下把那一行
                 // 取消掉）。**必须 `setCurrentItem(nullptr)`**：它连当前项一起清；只调
                 // `clearSelection()` 不够 —— 当前项还在，`currentRow()` 照样回 0，于是
@@ -336,10 +350,16 @@ void runDroppedFileTests() {
                 comboSelection = combo->currentData().toString();
             }
             // 一行都没选中就点「确定」——「没选」必须是「没选」，不许替用户挑第 0 行。
-            clickPromptButton(0);
+            check(box->objectName() == MainWindowUI::resourceDownloadInstancePickerName() &&
+                      box->buttonAt(0) && !box->buttonAt(0)->isEnabled() &&
+                      box->buttonAt(1) && box->buttonAt(1)->isEnabled(),
+                  "T30.11 拖入复用下载选择器，支持其他文件夹，未选择实例时安装不可用");
+            clickPromptButton(2);
             ++g_modalHandlerGeneration;
         });
+        inspectPicker.start();
         dropFilesOn(&w, {modD});
+        inspectPicker.stop();
         QApplication::processEvents();
         check(listCount >= 1,
               "★ T30.11 没开实例设置时拖进来 ⇒ 弹出「装到哪个实例」那张列表"
@@ -348,9 +368,9 @@ void runDroppedFileTests() {
         // 预选那一格：**有**预选的话，它必须是下拉框里当前选中的那一个实例（用户多半就想
         // 装给他刚点开的那一份）。下拉框这一刻没选中东西时（沙盒里没有"上次启动"记录）
         // 一行都不选 —— 那也是对的，所以判据写成"要么没选，要么选的就是那一个"。
-        check(listRow < 0 || (comboSelection == idV && listRow == rowV),
+        check(selectedId.isEmpty() || selectedId == comboSelection,
               "★ T30.11 有预选的话，预选的就是下拉框里当前那一个实例",
-              QStringLiteral("combo=%1 row=%2 expected=%3").arg(comboSelection).arg(listRow).arg(rowV));
+              QStringLiteral("combo=%1 selected=%2").arg(comboSelection, selectedId));
         check(!exists(instanceDir + QStringLiteral("/mods/第四个模组.jar")),
               "★★ T30.11 一行都没选中就点「确定」⇒ **什么都没装**（不替用户挑第 0 行）");
 
@@ -367,10 +387,15 @@ void runDroppedFileTests() {
             if (answered == 1) {
                 // 第一条：那张"装到哪个实例"的列表 —— 挑**第二个实例那一行**（不是第 0 行，
                 // 也不是 idV 那一行），再点「确定」。
-                if (auto *list = box->listWidget()) {
-                    list->setCurrentRow(rowOther);
+                if (auto *list = box->findChild<QListWidget *>(QStringLiteral("homePickerInstanceList"))) {
+                    for (int row = 0; row < list->count(); ++row) {
+                        if (list->item(row)->data(Qt::UserRole).toString() == idOther) {
+                            list->setCurrentRow(row);
+                            break;
+                        }
+                    }
                 }
-                clickPromptButton(0);
+                clickPromptButton(box->buttonAt(0)->isEnabled() ? 0 : 2);
                 return;
             }
             // 第二条：装完之后那句报信（断言读的就是它记下来的标题）。

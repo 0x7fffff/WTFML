@@ -749,7 +749,8 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
         spin->setSpecialValueText(QCoreApplication::translate("MainWindowSettingsPage", "隐藏"));  // 0 直接显示「隐藏」
         WheelGuard::install(spin);
         // 0–kHomeQuickMaxCount 的小整数：「− 值 +」步进器（值仍在这颗 QSpinBox 上，范围 / valueChanged / 持久化不动）。
-        addRow(quick, label, Theme::makeNumberStepper(form, spin, 72), Placement::Natural);
+        addRow(quick, label, Theme::makeNumberStepper(form, spin, 72), Placement::Natural,
+               QCoreApplication::translate("MainWindowSettingsPage", "数量较多时，放不下的卡片只显示图标和启动按钮。"));
         *out = spin;
     };
     addCount(QCoreApplication::translate("MainWindowSettingsPage", "收藏"), homeFavoriteCountSpinName(), &homeFavoriteCountSpin);
@@ -879,7 +880,7 @@ void MainWindowUI::setupSettingsDownloadPanel(QStackedWidget *stack) {
     downloadAutoIntoInstanceCheck = new QCheckBox(downloadAutoIntoInstanceCheckText(), form);
     downloadAutoIntoInstanceCheck->setObjectName(downloadAutoIntoInstanceCheckName());
     addSwitch(files, downloadAutoIntoInstanceCheck, downloadAutoIntoInstanceRowText(),
-              QCoreApplication::translate("MainWindowSettingsPage", "下载资源时选择目标实例；关闭后改用系统文件夹选择。"));
+              QCoreApplication::translate("MainWindowSettingsPage", "下载或拖入资源时选择目标实例；关闭后改用系统文件夹选择。"));
     panel.layout->addStretch(1);
 }
 

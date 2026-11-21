@@ -1740,7 +1740,8 @@ public:
     static QString resourceDownloadInstancePickerName() {
         return QStringLiteral("resourceDownloadInstancePicker");
     }
-    QString chooseResourceDownloadInstance(const QList<HomePickerInstance> &instances);
+    QString chooseResourceDownloadInstance(const QList<HomePickerInstance> &instances,
+                                           bool *otherFolder, bool importing = false);
     /// 当前实例在不在跑：启动区主按钮在「启动游戏」/「停止游戏」之间换（MainWindow 每次重画底栏时给）。
     void setHomeLaunchRunning(bool running);
     /// 主页启动卡片（issue #65）：点「启动游戏」后，启动区那一行原地换成「手写 W + 步骤 / 进度 + 取消」，

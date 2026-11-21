@@ -13710,8 +13710,8 @@ Minecraft %2 / %3 %4</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>下载资源时选择目标实例；关闭后改用系统文件夹选择。</source>
-        <translation type="unfinished"></translation>
+        <source>下载或拖入资源时选择目标实例；关闭后改用系统文件夹选择。</source>
+        <translation>下载或拖入资源时选择目标实例；关闭后改用系统文件夹选择。</translation>
     </message>
     <message>
         <source>外观</source>

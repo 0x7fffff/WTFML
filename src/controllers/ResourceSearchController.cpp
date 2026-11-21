@@ -7,13 +7,16 @@
 #include "LoadingState.hpp"
 #include "controllers/ResourcePageController.hpp"
 #include "controllers/InstanceIconController.hpp"
+#include "controllers/MainWindowViewData.hpp"
 #include "download/ResourceStore.hpp"
+#include "manage/VersionManager.hpp"
 #include <QComboBox>
 #include <QLineEdit>
 #include <QSet>
 #include <QTreeWidget>
 
 namespace {
+constexpr int kVersionsRequestKeyRole = Qt::UserRole + 41;
 
 /// 新版本号（26.1 / 26.2 …）在下载树里归成 `26.x` 一行；1.21 这类旧写法保持原样。
 QString downloadVersionRowKey(const QString &version)
@@ -287,14 +290,7 @@ void ResourceSearchController::onResourceItemActivated(QTreeWidgetItem *item) {
         // "点开"是"看看有什么"，看一眼不等于选了它。
         const bool expand = !item->isExpanded();
         item->setExpanded(expand);
-        if (depth != 1 || !expand || item->childCount() > 0) {
-            return;
-        }
-        // 第二层**第一次**被点开：这时才去问"这个资源在这个游戏版本上，哪些版本可下"。
-        // 判据是"底下一条都没有" —— 这一层点开之前一定是空的，问过之后无论有没有结果都会
-        // 留下至少一行（版本号、或者一句灰的"没有"），所以"空"就等于"还没问过"。
-        // 没取到时底下那一行带「重试」（LoadingState::failRow），点它就再问一次。
-        requestResourceVersions(item);
+        if (depth == 1 && expand) requestResourceVersions(item);
         return;
     }
     if (depth == 2) {
@@ -303,7 +299,7 @@ void ResourceSearchController::onResourceItemActivated(QTreeWidgetItem *item) {
     }
 }
 
-void ResourceSearchController::requestResourceVersions(QTreeWidgetItem *item) {
+bool ResourceSearchController::requestResourceVersions(QTreeWidgetItem *item) {
     const QTreeWidgetItem *resourceItem = item->parent();
     const QString projectId = resourceItem == nullptr
                                   ? QString()
@@ -322,20 +318,30 @@ void ResourceSearchController::requestResourceVersions(QTreeWidgetItem *item) {
     const QString gameVersion =
         item->data(MainWindowUI::versionTreeKeyColumn(), Qt::UserRole).toString();
     if (projectId.isEmpty() || gameVersion.isEmpty()) {
-        return;
+        return false;
     }
-    LoadingState::beginRow(item, MainWindow::tr("正在获取…"));
-    // NOTE: **不按加载器筛**（loader 传空）。为什么：这一层的游戏版本是从**搜索响应**
-    // 来的，而那份响应里没有"这个资源的哪个游戏版本属于哪个加载器"这份对应关系
-    // （categories 是整个资源的标签，不是某个版本的）。要按加载器筛就得先知道
-    // 用户在给哪个实例装 —— 那件事在点版本号那一下才定（见
-    // downloadResourceVersion 里那道加载器对不上的闸口）。
+    QString loader;
+    ResourceCatalog::Kind kind;
+    if (m_owner.m_downloadReturn.valid() &&
+        ResourceCatalog::kindFromCategoryKey(resourceItem->data(MainWindowUI::versionTreeKeyColumn(),
+            MainWindowUI::resourceKindRole()).toString(), &kind) && kind == ResourceCatalog::Kind::Mod) {
+        const auto parts = m_owner.m_versionManager->displayParts(m_owner.m_downloadReturn.instanceId);
+        loader = MainWindowViewData::loaderGroupKey(
+            MainWindowViewData::instanceLoaderName(parts, m_owner.m_versionManager, nullptr));
+    }
     // 26.x 是本地归并出来的行：问接口时不要带单个版本号，回来在 fillResourceVersionRows()
     // 里按 series 过滤；否则接口只认 26.1 这种精确值，这一行会是空的。
     const QString requestVersion = isDownloadVersionSeriesKey(gameVersion) ? QString() : gameVersion;
-    m_owner.m_resourceStore->fetchVersions(
-        ResourceCatalog::versionsRequestKey(projectId, gameVersion, QString(), source),
-        projectId, source, requestVersion);
+    const QString key = ResourceCatalog::versionsRequestKey(projectId, gameVersion, loader, source);
+    if (item->childCount() > 0 &&
+        item->data(MainWindowUI::versionTreeKeyColumn(), kVersionsRequestKeyRole).toString() == key) {
+        return false;
+    }
+    qDeleteAll(item->takeChildren());
+    LoadingState::beginRow(item, MainWindow::tr("正在获取…"));
+    item->setData(MainWindowUI::versionTreeKeyColumn(), kVersionsRequestKeyRole, key);
+    m_owner.m_resourceStore->fetchVersions(key, projectId, source, requestVersion, loader);
+    return true;
 }
 
 void ResourceSearchController::fillResourceVersionRows(QTreeWidgetItem *gameItem,
@@ -445,10 +451,7 @@ void ResourceSearchController::onResourceVersionsFinished(const QString &request
         m_owner.fillResourcePageGroups();
         return;
     }
-    // 不解析那把钥匙（钥匙的格式只有 ResourceCatalog 知道）。而是**按内容重算**：把树上
-    // 每一个"资源 × 游戏版本"重算一次钥匙，和回来的这一把比。几页加起来也就几十对，
-    // 一次线性扫描。这样钥匙的拼法只有一处（versionsRequestKey），而且不必在条目上存
-    // "这一发是谁发的"（那个指针在重搜时会被整个清掉，留着就是悬空的）。
+    // 请求键随版本行保存，切换实例后迟到的结果不会落到不同加载器的列表上。
     for (ResourceCatalog::Kind kind : ResourceCatalog::allKinds()) {
         QTreeWidget *tree = m_owner.m_ui->getDownloadResourceTree(ResourceCatalog::kindKey(kind));
         if (tree == nullptr) {
@@ -456,22 +459,14 @@ void ResourceSearchController::onResourceVersionsFinished(const QString &request
         }
         for (int i = 0; i < tree->topLevelItemCount(); ++i) {
             QTreeWidgetItem *resourceItem = tree->topLevelItem(i);
-            const QString projectId = resourceItem->data(column, Qt::UserRole).toString();
-            if (projectId.isEmpty()) {
+            if (resourceItem->data(column, Qt::UserRole).toString().isEmpty()) {
                 continue;
             }
-            // 这一条是从哪个来源搜出来的：**必须跟着它算钥匙**。钥匙里带来源（见
-            // versionsRequestKey 那段），拿默认那一档去比的话，CurseForge 那条路上一把都
-            // 对不上 —— 症状是"展开游戏版本，一直停在「正在获取…」"，而请求其实已经回来了。
-            ResourceCatalog::Source source = ResourceCatalog::Source::Modrinth;
-            ResourceCatalog::sourceFromKey(
-                resourceItem->data(column, MainWindowUI::resourceSourceRole()).toString(), &source);
             for (int j = 0; j < resourceItem->childCount(); ++j) {
                 QTreeWidgetItem *gameItem = resourceItem->child(j);
                 const QString gameVersion = gameItem->data(column, Qt::UserRole).toString();
-                if (gameVersion.isEmpty()
-                    || ResourceCatalog::versionsRequestKey(projectId, gameVersion, QString(), source)
-                           != requestKey) {
+                const QString sentKey = gameItem->data(column, kVersionsRequestKeyRole).toString();
+                if (gameVersion.isEmpty() || sentKey != requestKey) {
                     continue;
                 }
                 // 就是它。清单存下来（点第三层那一下要用 URL / sha1 / 大小），再摆第三层。
@@ -498,9 +493,8 @@ void ResourceSearchController::downloadResourceVersion(QTreeWidgetItem *item) {
     if (gameItem == nullptr || resourceItem == nullptr) {
         return;
     }
+    if (requestResourceVersions(gameItem)) return;
     const QString versionId = item->data(column, Qt::UserRole).toString();
-    const QString gameVersion = gameItem->data(column, Qt::UserRole).toString();
-    const QString projectId = resourceItem->data(column, Qt::UserRole).toString();
     ResourceCatalog::Kind kind = ResourceCatalog::Kind::Mod;
     if (!ResourceCatalog::kindFromCategoryKey(
             resourceItem->data(column, MainWindowUI::resourceKindRole()).toString(), &kind)) {
@@ -509,14 +503,10 @@ void ResourceSearchController::downloadResourceVersion(QTreeWidgetItem *item) {
     // 这一版的文件清单：随"点开游戏版本"那一发回来的。没有它就下不了（正常走不到 ——
     // 有第三层这些行就说明那一发回来过）。说清楚，别静静地什么都不做。
     //
-    // 钥匙里的来源要**从这一行自己读**（和点开时那把一模一样，见 onResourceItemActivated）：
-    // 少带来源的话，CurseForge 那一页上每一版都查不到自己的清单 —— 用户按下去拿到的是
-    // 一句「这一版的下载信息还没取到」，可它明明就摆在眼前。
     ResourceCatalog::Source source = ResourceCatalog::Source::Modrinth;
     ResourceCatalog::sourceFromKey(
         resourceItem->data(column, MainWindowUI::resourceSourceRole()).toString(), &source);
-    const QString requestKey =
-        ResourceCatalog::versionsRequestKey(projectId, gameVersion, QString(), source);
+    const QString requestKey = gameItem->data(column, kVersionsRequestKeyRole).toString();
     const auto cached = m_owner.m_resourceVersions.constFind(requestKey);
     if (cached == m_owner.m_resourceVersions.constEnd()) {
         InlineMessage::warning(m_owner.m_ui->overlay(), MainWindow::tr("下载失败"),

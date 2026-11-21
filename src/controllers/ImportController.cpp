@@ -10,6 +10,7 @@
 #include "download/ResourceCatalog.hpp"
 #include "controllers/ActivityCenterController.hpp"
 #include "controllers/DownloadTaskLedgerController.hpp"
+#include "controllers/UpgradeAssessment.hpp"
 #include "launcher/LauncherManager.hpp"
 #include "manage/DroppedResource.hpp"
 #include "manage/FolderManager.hpp"
@@ -20,6 +21,7 @@
 #include "manage/ModpackCompletion.hpp"
 #include "manage/VersionManager.hpp"
 #include "settings/GlobalJavaSettings.hpp"
+#include "settings/LauncherSettings.hpp"
 #include "tasks/TaskManager.hpp"
 #include "util/AppPaths.hpp"
 #include "util/WriteDirectoryGuard.hpp"
@@ -39,6 +41,7 @@
 #include <QUuid>
 #include <QFutureWatcher>
 #include <QScopeGuard>
+#include <QScopedValueRollback>
 #include <QElapsedTimer>
 #include <QtConcurrent/QtConcurrentRun>
 #include <atomic>
@@ -1194,9 +1197,15 @@ bool ImportController::installLocalResourceFile(const QString &versionId,
         }
         return false;
     }
-    const QString target = AppPaths::versionDir(versionId) + QLatin1Char('/') + folder +
-                           QLatin1Char('/') + QFileInfo(path).fileName();
+    const QString root = AppPaths::versionDir(versionId);
+    return copyLocalResourceFile(versionId, root, QDir(root).filePath(folder), path, problemOut);
+}
 
+bool ImportController::copyLocalResourceFile(const QString &versionId, const QString &lockRoot,
+                                             const QString &dir, const QString &path,
+                                             QString *problemOut) {
+    if (problemOut != nullptr) problemOut->clear();
+    const QString target = QDir(dir).filePath(QFileInfo(path).fileName());
     // 同名文件：**问一句**（不静默盖）。2.1.2 起这一问统一成三档：
     // 「取消」/「跳过已有项」（两者都不动目标，前者顺带停掉这一批）/「盖掉」。
     OperationReport::ConflictPolicy policy = OperationReport::ConflictPolicy::Overwrite;
@@ -1216,8 +1225,7 @@ bool ImportController::installLocalResourceFile(const QString &versionId,
             m_owner->m_ui->overlay(), MessageKind::Question,
             tr("已经有一个同名的"),
             tr("%1 中已存在「%2」。\n\n「跳过已有项」会保留原文件。「取消」将停止处理剩余文件。")
-                .arg(QDir::toNativeSeparators(AppPaths::versionDir(versionId) +
-                                              QLatin1Char('/') + folder),
+                                .arg(QDir::toNativeSeparators(dir),
                      QFileInfo(path).fileName()),
             {tr("取消"), tr("跳过已有项"), tr("盖掉")},
             /*defaultIndex=*/0, /*destructiveIndex=*/2, false);
@@ -1238,12 +1246,11 @@ bool ImportController::installLocalResourceFile(const QString &versionId,
     }
 
     QString lockProblem;
-    if (!WriteDirectoryGuard::acquire(AppPaths::versionDir(versionId), &lockProblem)) {
+    if (!WriteDirectoryGuard::acquire(lockRoot, &lockProblem)) {
         if (problemOut != nullptr) *problemOut = lockProblem;
         recordFileCopyReport(versionId, path, target, policy, false, false, lockProblem);
         return false;
     }
-    const QString dir = AppPaths::versionDir(versionId) + QLatin1Char('/') + folder;
     if (!QDir().mkpath(dir)) {
         if (problemOut != nullptr) {
             *problemOut = tr("无法创建 %1。").arg(QDir::toNativeSeparators(dir));
@@ -1543,6 +1550,7 @@ void ImportController::importDroppedModpack(const QString &zipPath, const QStrin
 }
 
 void ImportController::handleWindowDrop(const QStringList &paths) {
+    if (m_importFlow) return;
     QList<DroppedResource::Result> results;
     results.reserve(paths.size());
     for (const QString &path : paths) {
@@ -1557,6 +1565,7 @@ void ImportController::handleWindowDrop(const QStringList &paths) {
             return;
         }
     }
+    const FlowGuard flow(m_importFlow);
 
     // 其余几类：**装到哪个实例**要问（这一档没有上下文可推，见文件头那段 ★）。
     // NOTE: 分类结果**复用上面那一趟**（不在这里再 classify 一遍）：读一个压缩包的条目表
@@ -1583,78 +1592,71 @@ void ImportController::handleWindowDrop(const QStringList &paths) {
         return;
     }
 
-    // 候选 = **盘上现在装着的实例**（和「已安装版本」下拉框同一个出处）。一个都没有时
-    // 不弹那个空列表框（`pickFromList` 也拦了这一手），直接说一句该怎么办。
-    const QStringList installed = m_owner->m_versionManager->installedVersions(nullptr);
-    if (installed.isEmpty()) {
-        InlineMessage::information(m_owner->m_ui->overlay(), tr("没有可用实例"),
-                                   tr("未找到已安装的实例。请先安装实例，再将文件拖到实例设置页。"));
+    m_owner->beginFolderSwitchHold();
+    const auto folderHold = qScopeGuard([this] { m_owner->endFolderSwitchHold(); });
+    const auto batch = QScopedValueRollback(m_batchCancelled, false);
+    const auto *combo = m_owner->m_ui->getInstalledVersionCombo();
+    const QString defaultId = combo == nullptr ? QString() : combo->currentData().toString();
+    QString versionId;
+    QString customDirectory;
+    bool otherFolder = !m_owner->m_settings->downloadAutoIntoInstance();
+    if (!otherFolder) {
+        auto rows = m_owner->currentFolderInstancePickerRows(defaultId);
+        QStringList mods;
+        for (const auto &result : results) {
+            if (result.known && result.kind == ResourceCatalog::Kind::Mod) mods.append(result.path);
+        }
+        if (!mods.isEmpty() && !rows.isEmpty()) {
+            QList<UpgradeAssessment::PickerTarget> targets;
+            targets.reserve(rows.size());
+            for (const auto &row : rows) {
+                targets.append({row.id, m_owner->m_versionManager->instanceGameVersion(row.id), row.loaderKey});
+            }
+            QHash<QString, UpgradeAssessment::PickerMismatch> mismatches;
+            runOffUiThread([&] { mismatches = UpgradeAssessment::checkDroppedMods(mods, targets); });
+            for (auto &row : rows) {
+                const auto mismatch = mismatches.value(row.id);
+                if (mismatch.gameVersion) row.subtitle += QStringLiteral(" · ") + MainWindow::tr("版本不符");
+                if (mismatch.loader) row.subtitle += QStringLiteral(" · ") + MainWindow::tr("加载器不符");
+            }
+        }
+        versionId = m_owner->m_ui->chooseResourceDownloadInstance(rows, &otherFolder, /*importing=*/true);
+    }
+    if (otherFolder) {
+        customDirectory = QFileDialog::getExistingDirectory(
+            m_owner, tr("选择安装文件夹"),
+            defaultId.isEmpty() ? AppPaths::minecraftDir() : AppPaths::versionDir(defaultId));
+        if (customDirectory.isEmpty()) return;
+    } else if (versionId.isEmpty()) {
+        return;
+    } else if (!QDir(AppPaths::versionDir(versionId)).exists()) {
+        InlineMessage::warning(m_owner->m_ui->overlay(), MainWindow::tr("目标实例已不可用"),
+                               MainWindow::tr("游戏目录已切换或该实例已移除，请重新选择下载目标。"));
         return;
     }
-    QStringList labels;
-    labels.reserve(installed.size());
-    for (const QString &id : installed) {
-        labels.append(m_owner->instanceDisplayName(id));
-    }
-    // 默认选中"左下角/下拉框里现在选中的那一个"（用户多半就是想装给它），选不着就不选。
-    int initialRow = -1;
-    if (QComboBox *combo = m_owner->m_ui->getInstalledVersionCombo()) {
-        const QString selected = combo->currentData().toString();
-        initialRow = installed.indexOf(selected);
-    }
-    int row = -1;
-    if (!InlineMessage::pickFromList(m_owner->m_ui->overlay(), tr("装到哪个实例里"),
-                                     tr("这几个文件装进哪一个实例？"), labels, initialRow, &row)) {
-        return;  // 用户取消 / 什么都没选
-    }
-    if (row < 0 || row >= installed.size()) {
-        return;  // 理论上到不了（pickFromList 只在选中一行时才回 true）
-    }
 
-    // 装进挑中的那一个。**走的是和实例设置那一页完全同一条路**（同一个
-    // m_owner->installLocalResourceFile()），所以"同名要问一句""目录不存在就建"这些规矩只有一份。
-    const QString versionId = installed.at(row);
-    QList<QPair<ResourceCatalog::Kind, QStringList>> byKind;
-    for (const DroppedResource::Result &result : results) {
-        // 认不出来的、以及整合包（上面已经 return 了）不进这一趟。
-        if (!result.known || ResourceCatalog::folderForKind(result.kind).isEmpty()) {
-            continue;
-        }
-        const QString path = result.path;
-        int slot = -1;
-        for (int i = 0; i < byKind.size(); ++i) {
-            if (byKind.at(i).first == result.kind) {
-                slot = i;
-                break;
-            }
-        }
-        if (slot < 0) {
-            byKind.append(qMakePair(result.kind, QStringList{}));
-            slot = byKind.size() - 1;
-        }
-        byKind[slot].second.append(path);
-    }
-
+    const QString destination = versionId.isEmpty() ? QDir::toNativeSeparators(customDirectory)
+                                                    : m_owner->instanceDisplayName(versionId);
     int total = 0;
     QStringList problems;
-    for (const QPair<ResourceCatalog::Kind, QStringList> &entry : byKind) {
-        for (const QString &path : entry.second) {
-            QString problem;
-            if (m_owner->installLocalResourceFile(versionId, entry.first, path, &problem)) {
-                ++total;
-            } else if (!problem.isEmpty()) {
-                problems.append(problem);
-            }
-        }
+    for (const auto &result : results) {
+        if (!result.known || ResourceCatalog::folderForKind(result.kind).isEmpty()) continue;
+        QString problem;
+        const bool copied = versionId.isEmpty()
+            ? copyLocalResourceFile({}, customDirectory, customDirectory, result.path, &problem)
+            : installLocalResourceFile(versionId, result.kind, result.path, &problem);
+        if (copied) ++total;
+        else if (!problem.isEmpty()) problems.append(problem);
+        if (m_batchCancelled) break;
     }
     if (!problems.isEmpty()) {
         InlineMessage::warning(m_owner->m_ui->overlay(), tr("有几个没装进去"),
                                problems.join(QLatin1String("\n\n")));
     }
     if (total > 0) {
-        m_owner->appendLog(tr("已把 %1 个文件装进「%2」。").arg(total).arg(m_owner->instanceDisplayName(versionId)));
+        m_owner->appendLog(tr("已把 %1 个文件装进「%2」。").arg(total).arg(destination));
         InlineMessage::information(m_owner->m_ui->overlay(), tr("安装完成"),
-                                   tr("已安装到「%1」。").arg(m_owner->instanceDisplayName(versionId)));
+                                   tr("已安装到「%1」。").arg(destination));
     }
 }
 

@@ -26,6 +26,8 @@ public:
     void importDroppedModpack(const QString &zipPath, const QString &namePrefill);
     void handleWindowDrop(const QStringList &paths);
 private:
+    bool copyLocalResourceFile(const QString &versionId, const QString &lockRoot,
+                               const QString &dir, const QString &path, QString *problemOut);
     struct PreparedModpack;
     bool prepareModpackPackage(const QString &zipPath, PreparedModpack *out);
     bool resolveCurseForgeManifestIfNeeded(ModpackImport::Pack *pack, ModpackImport::Format format,
