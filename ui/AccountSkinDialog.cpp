@@ -41,6 +41,7 @@
 #include <QGuiApplication>
 #include <QPushButton>
 #include <QScrollBar>
+#include <QSignalBlocker>
 #include <QStyledItemDelegate>
 #include <QTimer>
 #include <QVBoxLayout>
@@ -562,6 +563,13 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
         controls->addLayout(capeHeader);
     }
 
+    m_capeLoadingLabel = new QLabel(this);
+    m_capeLoadingLabel->setObjectName(QStringLiteral("accountCapeLoading"));
+    m_capeLoadingLabel->setFont(Theme::textFont(m_capeLoadingLabel->font(), Theme::TextRole::Caption));
+    m_capeLoadingLabel->setWordWrap(true);
+    m_capeLoadingLabel->hide();
+    controls->addWidget(m_capeLoadingLabel);
+
     m_capeList = new QListWidget(this);
     m_capeList->setObjectName(capeListName());
     makeListTransparent(m_capeList);
@@ -914,7 +922,21 @@ void AccountSkinDialog::setLooks(const QImage &skin, const QImage &cape, bool sl
     }
 }
 
-void AccountSkinDialog::setCapes(const QList<CapeRow> &capes) {
+void AccountSkinDialog::setCapeLoading(const QString &text) {
+    m_capeLoadingLabel->setText(text);
+    m_capeLoadingLabel->setVisible(!text.isEmpty());
+}
+
+void AccountSkinDialog::clearCapes() {
+    m_capesOwner.clear();
+    setCapes({});
+    m_capeList->hide();
+}
+
+void AccountSkinDialog::setCapes(const QList<CapeRow> &capes, bool keepSelection) {
+    const bool hadSelection = keepSelection && m_capeList->currentItem() != nullptr;
+    const QString selectedId = selectedCapeId();
+    const QSignalBlocker blocker(m_capeList);
     if (capes.isEmpty()) {
         m_previewCapeId.clear();
         m_noCapeApplied = false;
@@ -941,9 +963,18 @@ void AccountSkinDialog::setCapes(const QList<CapeRow> &capes) {
     const int columns = qMax(1, (kControlsWidth - 8) / (kCapeCell + kCapeGap));
     const int rows = qMax(1, (m_capeList->count() + columns - 1) / columns);
     m_capeList->setFixedHeight(rows * (kCapeCellHeight + kCapeGap) + 4);
-    m_capeList->setCurrentRow(-1);  // 别让第一格自动变成「已选中」；预览跟当前披风走
+    int selectedRow = -1;
+    if (hadSelection) {
+        for (int i = 0; i < m_capeList->count(); ++i) {
+            if (m_capeList->item(i)->data(Qt::UserRole).toString() == selectedId) {
+                selectedRow = i;
+                break;
+            }
+        }
+    }
+    m_capeList->setCurrentRow(selectedRow);
     m_capeList->setVisible(true);
-    updatePreviewCape(wearing);  // 新列表的 active 标记才是准的，预览跟着它重新贴一次
+    updatePreviewCape(!m_noCapeApplied && (wearing || !m_previewCapeId.isEmpty()));
     refreshButtonStates();
 }
 
@@ -957,8 +988,7 @@ void AccountSkinDialog::setCapeTexture(const QString &url, const QImage &texture
             const bool active = item->data(Qt::UserRole + 1).toBool();
             const bool preview = !m_previewCapeId.isEmpty() &&
                                  item->data(Qt::UserRole).toString() == m_previewCapeId;
-            if (preview || item == m_capeList->currentItem() ||
-                (m_capeList->currentItem() == nullptr && active)) {
+            if (!m_noCapeApplied && (preview || (m_previewCapeId.isEmpty() && active))) {
                 updatePreviewCape(true);
             }
         }
@@ -968,25 +998,14 @@ void AccountSkinDialog::setCapeTexture(const QString &url, const QImage &texture
 void AccountSkinDialog::updatePreviewCape(bool wearing, bool turnToBack) {
     QImage cape;
     if (wearing) {
-        QListWidgetItem *item = m_capeList->currentItem();
-        if (item == nullptr && !m_previewCapeId.isEmpty()) {
-            for (int i = 0; i < m_capeList->count(); ++i) {
-                QListWidgetItem *row = m_capeList->item(i);
-                if (row->data(Qt::UserRole).toString() == m_previewCapeId) {
-                    item = row;
-                    break;
-                }
-            }
-        }
-        if (item != nullptr) {
-            cape = item->data(Qt::UserRole + 3).value<QImage>();
-        } else {
-            for (int i = 0; i < m_capeList->count(); ++i) {
-                QListWidgetItem *row = m_capeList->item(i);
-                if (row->data(Qt::UserRole + 1).toBool()) {
-                    cape = row->data(Qt::UserRole + 3).value<QImage>();
-                    break;
-                }
+        for (int i = 0; i < m_capeList->count(); ++i) {
+            const auto *row = m_capeList->item(i);
+            const bool wanted = m_previewCapeId.isEmpty()
+                ? row->data(Qt::UserRole + 1).toBool()
+                : row->data(Qt::UserRole).toString() == m_previewCapeId;
+            if (wanted) {
+                cape = row->data(Qt::UserRole + 3).value<QImage>();
+                break;
             }
         }
     }
@@ -1006,8 +1025,7 @@ void AccountSkinDialog::setBusy(bool busy, const QString &what) {
     // 离线那一档的两颗一起灰（忙的时候下面 refreshButtonStates() 也会按 idle 重算一遍）。
     m_offlineSkinButton->setEnabled(!busy);
     m_offlineSkinResetButton->setEnabled(!busy);
-    // 两个列表一起灰：它们的内容正是「正在被刷新」的那两样，忙的时候让用户改选中项，
-    // 只会让「我点的是哪个」和「回来的结果是哪个」对不上。
+    // 登录将更换活动账号，期间停用两个列表的操作。
     m_accountList->setEnabled(!busy);
     m_capeList->setEnabled(!busy);
     if (busy) {

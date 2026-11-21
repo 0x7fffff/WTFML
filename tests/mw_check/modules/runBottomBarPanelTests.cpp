@@ -1353,6 +1353,8 @@ void runBottomBarPanelTests() {
         int tokenHits = 0;
         int skinProfileHits = 0;
         int delayMs = 0;
+        bool holdCapeProfile = false;
+        std::function<void()> releaseCapeProfile;
         const QString base = QStringLiteral("http://127.0.0.1:%1").arg(mockAuth.serverPort());
         QObject::connect(&mockAuth, &QTcpServer::newConnection, &mockAuth, [&] {
             while (auto *sock = mockAuth.nextPendingConnection()) {
@@ -1375,7 +1377,7 @@ void runBottomBarPanelTests() {
                     } else if (path == "/minecraft/profile") {
                         ++skinProfileHits;
                     }
-                    const auto respond = [sock, path, bobUuid, base] {
+                    const auto respond = [sock = QPointer<QTcpSocket>(sock), path, bobUuid, base] {
                         if (!sock || sock->state() != QAbstractSocket::ConnectedState) return;
                         QByteArray body = QByteArrayLiteral("{}");
                         if (path == "/token") {
@@ -1399,7 +1401,9 @@ void runBottomBarPanelTests() {
                         sock->write(body);
                         sock->disconnectFromHost();
                     };
-                    if (delayMs > 0) {
+                    if (path == "/minecraft/profile" && holdCapeProfile) {
+                        releaseCapeProfile = respond;
+                    } else if (delayMs > 0) {
                         QTimer::singleShot(delayMs, sock, respond);
                     } else {
                         respond();
@@ -1452,35 +1456,70 @@ void runBottomBarPanelTests() {
               "AH13 面板切到剩余 < 6h 的 Bob 不发刷新请求",
               QStringLiteral("active=%1 tokenHits=%2").arg(AccountStore::activeUuid()).arg(tokenHits));
 
+        holdCapeProfile = true;
         QMetaObject::invokeMethod(&w, "onAccountSkinButtonClicked", Qt::DirectConnection);
         QApplication::processEvents();
+        auto *capeDialog = w.findChild<AccountSkinDialog *>();
+        auto *skinApi = w.findChild<SkinApi *>();
+        auto *capeLoading = capeDialog ? capeDialog->findChild<QLabel *>(QStringLiteral("accountCapeLoading")) : nullptr;
+        auto *capeList = capeDialog ? capeDialog->findChild<QListWidget *>(AccountSkinDialog::capeListName()) : nullptr;
+        auto *accountList = capeDialog ? capeDialog->findChild<QListWidget *>(AccountSkinDialog::accountListName()) : nullptr;
+        auto *switchButton = capeDialog ? capeDialog->findChild<QPushButton *>(AccountSkinDialog::switchButtonName()) : nullptr;
+        auto *applyCape = capeDialog ? capeDialog->findChild<QPushButton *>(AccountSkinDialog::applyCapeButtonName()) : nullptr;
+        const bool awaitingCapeResponse = pumpUntil(
+            [&] { return bool(releaseCapeProfile); }, HttpClient::kDefaultTimeoutMs);
+        check(awaitingCapeResponse && skinProfileHits == 1 &&
+                  tokenHits == 0 && capeLoading && !capeLoading->isHidden() &&
+                  accountList && accountList->isEnabled(),
+              "AH13 披风请求仍在等待时，账号列表可操作且未刷新令牌",
+              QStringLiteral("pending=%1 profiles=%2 tokens=%3 loading=%4 accountsEnabled=%5")
+                  .arg(awaitingCapeResponse).arg(skinProfileHits).arg(tokenHits)
+                  .arg(capeLoading && !capeLoading->isHidden()).arg(accountList && accountList->isEnabled()));
         {
-            auto *dialog = w.findChild<AccountSkinDialog *>();
-            auto *capeList = dialog ? dialog->findChild<QListWidget *>(AccountSkinDialog::capeListName()) : nullptr;
-            auto *errLabel = dialog ? dialog->findChild<QLabel *>(AccountSkinDialog::statusErrorLabelName()) : nullptr;
-            check(tokenHits == 0 && skinProfileHits == 1 && capeList != nullptr && capeList->count() == 2 &&
-                      errLabel != nullptr && !errLabel->isVisibleTo(dialog) && errLabel->text().isEmpty(),
-                  "AH13 令牌未过期时开页用现有令牌拉披风且不刷新令牌",
-                  QStringLiteral("tokenHits=%1 skinHits=%2 capes=%3 err=%4")
-                      .arg(tokenHits)
-                      .arg(skinProfileHits)
-                      .arg(capeList ? capeList->count() : -1)
-                      .arg(errLabel ? errLabel->text() : QString()));
+            if (accountList) {
+                for (int i = 0; i < accountList->count(); ++i) {
+                    if (accountList->item(i)->data(Qt::UserRole).toString() == alexUuid) {
+                        accountList->setCurrentRow(i);
+                        break;
+                    }
+                }
+            }
+            check(switchButton && switchButton->isEnabled(),
+                  "AH13 披风尚未返回时可点击切换账号");
+            if (switchButton) switchButton->click();
+            check(AccountStore::activeUuid() == alexUuid && capeLoading && capeLoading->isHidden(),
+                  "AH13 未等披风响应就切换到了离线账号");
         }
-        // 页内切走再切回未过期账号 Bob：不刷新令牌、且仍能拉取到 Bob 的披风
-        QMetaObject::invokeMethod(&w, "onAccountSwitchRequested", Qt::DirectConnection, Q_ARG(QString, alexUuid));
-        QApplication::processEvents();
+        holdCapeProfile = false;
+        if (releaseCapeProfile) std::exchange(releaseCapeProfile, {})();
+        check(skinApi && pumpUntil([&] { return skinApi->cachedCapes(bobUuid) != nullptr; }, 5000) &&
+                  capeDialog && capeDialog->capesOwner().isEmpty() && capeList && capeList->isHidden(),
+              "AH13 迟到的披风响应进入原账号缓存，离线账号界面保持当前身份");
+
         QMetaObject::invokeMethod(&w, "onAccountSwitchRequested", Qt::DirectConnection, Q_ARG(QString, bobUuid));
-        QApplication::processEvents();
+        check(AccountStore::activeUuid() == bobUuid && tokenHits == 0 && skinProfileHits == 1 &&
+                  capeDialog && capeDialog->capesOwner() == bobUuid && capeList && capeList->count() == 2,
+              "AH13 切回 Bob 立即展示缓存，未重复请求");
+
+        if (capeDialog && capeList && capeLoading && applyCape) {
+            capeList->setCurrentRow(1);
+            holdCapeProfile = true;
+            emit capeDialog->refreshRequested();
+            check(pumpUntil([&] { return skinProfileHits == 2 && bool(releaseCapeProfile); }, 5000) &&
+                      tokenHits == 0 && capeLoading->isVisible() && applyCape->isEnabled() &&
+                      capeDialog->selectedCapeId() == QStringLiteral("cape-1"),
+                  "AH13 手动刷新期间，已有披风仍可选择和应用");
+            holdCapeProfile = false;
+            if (releaseCapeProfile) std::exchange(releaseCapeProfile, {})();
+            check(pumpUntil([&] { return capeLoading->isHidden(); }, 5000) &&
+                      capeDialog->selectedCapeId() == QStringLiteral("cape-1"),
+                  "AH13 后台刷新保留所选披风");
+        }
         if (w.ui() != nullptr && w.ui()->overlay() != nullptr && w.ui()->overlay()->isOpen()) {
             w.ui()->overlay()->closeOverlay();
             QApplication::processEvents();
             QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
         }
-        check(AccountStore::activeUuid() == bobUuid && tokenHits == 0 && skinProfileHits == 2,
-              "AH13 页内切回未过期 Bob 时拉取披风且不刷新令牌",
-              QStringLiteral("tokenHits=%1 skinHits=%2").arg(tokenHits).arg(skinProfileHits));
-
         // 1b) 令牌已过期时打开账号页：不刷新令牌、不拉披风，失败行显示「登录凭据已过期，披风列表未更新。」
         {
             QJsonObject ms{{QStringLiteral("access_token"), QStringLiteral("ms-bob")},
@@ -1514,7 +1553,7 @@ void runBottomBarPanelTests() {
                       .arg(errLabel ? errLabel->text() : QString()));
             if (retryBtn != nullptr) {
                 retryBtn->click();
-                QApplication::processEvents();
+                pumpUntil([&] { return skinProfileHits == 1 && capeLoading && capeLoading->isHidden(); }, 5000);
             }
             auto *capeList = dialog ? dialog->findChild<QListWidget *>(AccountSkinDialog::capeListName()) : nullptr;
             check(tokenHits == 1 && skinProfileHits == 1 && errLabel != nullptr && !errLabel->isVisibleTo(dialog) &&

@@ -38,6 +38,8 @@
 #pragma once
 
 #include <QByteArray>
+#include <QDeadlineTimer>
+#include <QHash>
 #include <QJsonObject>
 #include <QList>
 #include <QObject>
@@ -46,6 +48,7 @@
 #include "../net/HttpClient.hpp"
 
 class QNetworkAccessManager;
+namespace RequestBudget { class ControlGet; }
 
 /// 这个人拥有的一件披风。
 struct OwnedCape {
@@ -136,12 +139,12 @@ public:
     /// 当前档案里的皮肤。@param errorOut 可选，失败原因。
     bool fetchCurrentSkin(const QString &token, SkinSummary *out, QString *errorOut = nullptr);
 
-    /// 这个人拥有的披风。
-    ///
-    /// NOTE: 打的是**档案**那个地址（`profilePath()`）—— 披风列表就在那份响应里，没有
-    /// 一条独立的"列披风"路由（见文件头，这里是 那个 404 的修法）。
-    /// 所以它和 fetchCurrentSkin() 要的是同一份响应的另一个数组。
-    bool fetchOwnedCapes(const QString &token, QList<OwnedCape> *out, QString *errorOut = nullptr);
+    /// 按账号异步查询档案里的披风。已经在查询时合并请求。
+    void requestOwnedCapes(const QString &uuid, const QString &token);
+    const QList<OwnedCape> *cachedCapes(const QString &uuid, bool freshOnly = false) const;
+    void discardCapes(const QString &uuid);
+    /// 成功设置或隐藏披风后更新缓存里的启用项，并取消旧查询。
+    void updateCachedCape(const QString &uuid, const QString &capeId);
 
     /// 把某一件披风设成当前。@return 成功返回 true。
     bool setActiveCape(const QString &token, const QString &capeId, QString *errorOut = nullptr);
@@ -167,7 +170,16 @@ public:
     /// 一行都碰不到它（验证工程只能验**纯函数**，验不了"打的是哪个地址"）。
     static QString profilePath() { return QStringLiteral("/minecraft/profile"); }
 
+signals:
+    void ownedCapesFinished(const QString &uuid, const QString &error);
+
 private:
+    struct CapeCacheEntry {
+        QList<OwnedCape> capes;
+        QDeadlineTimer freshness;
+    };
+    QHash<QString, CapeCacheEntry> m_capeCache;
+    QHash<QString, RequestBudget::ControlGet *> m_capeRequests;
     /// 这个类自己的管理器，不和 AuthManager/PlayerSkinStore 共用（各管各的超时与生命周期）。
     QNetworkAccessManager *m_network;
 };

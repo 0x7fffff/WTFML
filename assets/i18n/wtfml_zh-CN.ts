@@ -24592,6 +24592,10 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>披风列表响应格式无效。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>更换披风失败</source>
         <translation type="unfinished"></translation>
     </message>
