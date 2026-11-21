@@ -24523,7 +24523,7 @@ Please close the program occupying the port, or change the port in "Common Setti
             <translation>Network unreachable</translation>
         </message>
         <message>
-            <source>没有回话</source>
+            <source>服务器没有响应</source>
             <translation>No response</translation>
         </message>
         <message>
@@ -24575,7 +24575,7 @@ Please close the program occupying the port, or change the port in "Common Setti
             <translation>The server returned a packet without a valid length prefix.</translation>
         </message>
         <message>
-            <source>超时（连上了，但服务器没有回答）</source>
+            <source>已连接，但服务器没有响应（等待超时）</source>
             <translation>Connected, but the server did not respond in time.</translation>
         </message>
         <message>

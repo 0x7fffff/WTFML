@@ -470,7 +470,7 @@ QString kindName(Kind kind) {
     case Kind::Unreachable:
         return QCoreApplication::translate("ServerPing", "网络不通");
     case Kind::NoAnswer:
-        return QCoreApplication::translate("ServerPing", "没有回话");
+        return QCoreApplication::translate("ServerPing", "服务器没有响应");
     case Kind::ConnectionLost:
         return QCoreApplication::translate("ServerPing", "连接断了");
     case Kind::Protocol:
@@ -766,7 +766,7 @@ Status ping(const QString &address) {
             if (socket.error() == QAbstractSocket::SocketTimeoutError ||
                 socket.error() == QAbstractSocket::UnknownSocketError) {
                 status.kind = Kind::NoAnswer;
-                status.error = QCoreApplication::translate("ServerPing", "超时（连上了，但服务器没有回答）");
+                status.error = QCoreApplication::translate("ServerPing", "已连接，但服务器没有响应（等待超时）");
                 status.timedOut = true;
             } else {
                 status.kind = kindForSocketError(socket.error());

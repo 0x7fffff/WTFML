@@ -1611,6 +1611,8 @@ signals:
      * （理由写在 MainWindow::openInstanceSettings() 那段）。
      */
     void settingsEdited();
+    /// 用户点了概览里的「重置游玩时间」；清掉这个实例已记录的累计与上次时长。
+    void resetPlayTimeRequested();
 
     /**
      * @brief 「实例名」那一格改完了（用户按下回车，或者离开那一格）。

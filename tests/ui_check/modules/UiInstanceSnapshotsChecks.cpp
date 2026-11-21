@@ -67,36 +67,16 @@ int UiInstanceSnapshotsChecks() {
                   "「从快照恢复…」和「删除实例」同一档（它把现在这一份整个换掉）",
                   kindOf(create) + QStringLiteral(" / ") + kindOf(restore));
             auto *integrity = byName(Dlg::integrityCheckButtonName());
-            auto *updates = byName(Dlg::updateCenterButtonName());
             check(remove != nullptr && kindOf(remove) == kindOf(restore) &&
-                      integrity != nullptr && updates != nullptr &&
-                      kindOf(integrity) == Theme::buttonKindKey(Theme::ButtonKind::Neutral) &&
-                      kindOf(updates) == Theme::buttonKindKey(Theme::ButtonKind::Neutral),
+                      integrity != nullptr &&
+                      kindOf(integrity) == Theme::buttonKindKey(Theme::ButtonKind::Neutral),
                   "★★ U30.2 而这一排上原来那颗红的「删除实例」照旧红；"
-                  "「检查并修复」「检查更新」那些是**白的那一档**（`Neutral` —— "
-                  "它们只读不写，按下去出现的是个结果（不挂档就会跟着默认"
-                  "吃了绿的）—— 加了一颗红的**没有**把别的一起带下来（全红等于没有红）",
+                  "「检查并修复」是**白的那一档**（`Neutral` —— 它只读不写），"
+                  "加了一颗红的**没有**把别的一起带下来（全红等于没有红）",
                   (remove != nullptr ? kindOf(remove) : QStringLiteral("<没找到>"))
                       + QStringLiteral(" / ")
                       + (integrity != nullptr ? kindOf(integrity)
-                                              : QStringLiteral("<没找到>"))
-                      + QStringLiteral(" / ")
-                      + (updates != nullptr ? kindOf(updates) : QStringLiteral("<没找到>")));
-
-            // ---- 「检查并修复」旁边的「更新中心」也得挂上档 ----
-            //
-            // 概览里这三颗（检查更新 / 更新中心 / 检查并修复）只调了
-            // `prepareActionButton()`、**没挂档** ⇒ 会跟着默认吃了绿的那一档。
-            // 这一条钉的就是"别再有第四颗漏挂"：挑法一样，**认名字不认位置**。
-            auto *updateCenter = byName(Dlg::updateCenterButtonName());
-            check(updateCenter != nullptr &&
-                      kindOf(updateCenter) ==
-                          Theme::buttonKindKey(Theme::ButtonKind::Neutral),
-                  "★★ U30.2 概览里那三颗「检查…」（检查更新 / 更新中心 / 检查并修复）"
-                  "**三颗都挂了档**、都是白的那一档 —— 它们只读不写（判据见 Theme.hpp 的"
-                  "`ButtonKind` 那段），漏挂一颗就会跟着默认变成绿的",
-                  updateCenter != nullptr ? kindOf(updateCenter)
-                                          : QStringLiteral("<没找到>"));
+                                              : QStringLiteral("<没找到>")));
 
             // ---- 四颗按钮**不在同一条线上** ----
             //

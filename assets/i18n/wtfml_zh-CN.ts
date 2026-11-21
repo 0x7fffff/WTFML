@@ -23979,7 +23979,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>没有回话</source>
+        <source>服务器没有响应</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -24031,7 +24031,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>超时（连上了，但服务器没有回答）</source>
+        <source>已连接，但服务器没有响应（等待超时）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

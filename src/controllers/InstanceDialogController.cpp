@@ -583,6 +583,14 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
         m_owner->m_versionManager->instanceId(versionId));
     dialog.setPlayTime(LaunchHistory::playTimeText(playTime.totalMs),
                        LaunchHistory::playTimeText(playTime.lastMs));
+    connect(dialogPtr, &InstanceSettingsDialog::resetPlayTimeRequested, dialogPtr,
+            [this, dialogPtr, versionId]() {
+                const QString stableId = m_owner->m_versionManager->instanceId(versionId);
+                if (!m_owner->m_launchHistory->resetCompletedPlayTime(stableId)) {
+                    return;
+                }
+                dialogPtr->setPlayTime(LaunchHistory::playTimeText(0), QString());
+            });
     connect(&dialog, &InstanceSettingsDialog::launchInstanceRequested, m_owner,
             [this, versionId]() {
                 QComboBox *combo = m_owner->m_ui->getInstalledVersionCombo();

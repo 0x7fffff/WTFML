@@ -635,6 +635,20 @@ void MainWindow::changeCape(const QString &capeId) {
                          : m_skinApi->setActiveCape(token, capeId, &error);
     if (ok) {
         m_skinApi->updateCachedCape(uuid, capeId);
+        // 接口写成功不等于档案请求马上能拿到新地址（Mojang 那边有传播延迟）。先把
+        // 列表里这一件的地址按当前档案落下来，主页和预览立即换图，不等下一次刷新。
+        QString capeUrl;
+        if (!hide) {
+            if (const auto *capes = m_skinApi->cachedCapes(uuid)) {
+                for (const OwnedCape &cape : *capes) {
+                    if (cape.id == capeId) {
+                        capeUrl = cape.url;
+                        break;
+                    }
+                }
+            }
+        }
+        m_playerSkin->setCapeUrl(capeUrl);
         appendLog(hide ? tr("已取消披风（不显示）。") : tr("已更换披风。"));
     }
     if (AccountStore::activeUuid() != uuid || m_authManager->loginInFlight()) {

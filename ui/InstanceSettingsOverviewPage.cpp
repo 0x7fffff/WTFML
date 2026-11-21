@@ -357,7 +357,13 @@ void InstanceSettingsDialog::setupOverviewPage(const QString &instanceId) {
                         row++, 0, 1, 2);
         // 「最后启动」那一行：时间当标题，口径说明在悬停提示里（setLastLaunch 写的）。
         grid->addWidget(MainWindowPageLayout::makeSettingRow(this, m_lastLaunchLabel, QString(), nullptr), row++, 0, 1, 2);
-        grid->addWidget(MainWindowPageLayout::makeSettingRow(this, m_playTimeLabel, QString(), nullptr),
+        auto *resetPlayTime = new QPushButton(tr("重置"), this);
+        resetPlayTime->setObjectName(QStringLiteral("instancePlayTimeReset"));
+        resetPlayTime->setToolTip(tr("清掉这个实例已记录的累计游玩时间和上次游玩时长。"));
+        Theme::markButton(resetPlayTime, Theme::ButtonKind::Ghost);
+        connect(resetPlayTime, &QPushButton::clicked, this,
+                &InstanceSettingsDialog::resetPlayTimeRequested);
+        grid->addWidget(MainWindowPageLayout::makeSettingRow(this, m_playTimeLabel, QString(), resetPlayTime),
                         row++, 0, 1, 2);
     }
 
@@ -418,27 +424,6 @@ void InstanceSettingsDialog::setupOverviewPage(const QString &instanceId) {
         prepareActionButton(button);
         column->addWidget(button);
         cell->setToolTip(exportHint());
-        actionCells.append(cell);
-    }
-
-    // ---------- 「更新中心」----------
-    //
-    // 把概览已有的"检查更新"结果做成可操作列表 —— 这一颗就是那一页的**门口**：
-    // 上一次查出来的结论还在（`MainWindow` 记着），它不重查、不联网，只是把那份结论摆开。
-    //
-    // 更新中心始终可进入；后台检查失败不影响查看已有结果或回滚。
-    {
-        auto [cell, column] = makeZeroColumn(this);
-        auto *button = new QPushButton(updateCenterText(), cell);
-        button->setObjectName(updateCenterButtonName());
-        button->setToolTip(updateCenterButtonTooltip());
-        // 白（`Neutral`）：它连网都不联，只是把上一次那份结论摆开（见上面那段 NOTE）——
-        // 比「检查更新」还轻，同一档。
-        Theme::markButton(button, Theme::ButtonKind::Neutral);
-        connect(button, &QPushButton::clicked, this, [this]() { emit updateCenterRequested(); });
-        prepareActionButton(button);
-        column->addWidget(button);
-        cell->setToolTip(updateCenterHint());
         actionCells.append(cell);
     }
 
@@ -558,26 +543,12 @@ void InstanceSettingsDialog::setupOverviewPage(const QString &instanceId) {
         actionCells.append(cell);
     }
 
-    // 概览只保留更新入口；维护与实例操作的控件由 buildLifecyclePage() 迁入专属页。
-    // 保留同一份控件和接线，不另造一个相同功能的按钮。
-    QList<QWidget *> overviewActions;
+    // 概览只留基本信息和快捷方式；维护与实例操作由 buildLifecyclePage() 负责。
+    // 更新入口已从概览移除，这一张网格里的控件全部隐藏，只剩布局本身要收掉。
     for (QWidget *cell : actionCells) {
-        if (cell->findChild<QPushButton *>(checkUpdatesButtonName()) ||
-            cell->findChild<QPushButton *>(updateCenterButtonName()))
-            overviewActions.append(cell);
-        else
-            cell->hide();
+        cell->hide();
     }
-    // UI 7b：概览那两颗各占一行（标题 + 一句说明 | 按钮），不再摆成按钮网格。
     delete actionGrid;
-    {
-        auto *updates = new QWidget(this);
-        auto *updatesLine = new QHBoxLayout(updates);
-        updatesLine->setContentsMargins(0, 0, 0, 0);
-        updatesLine->setSpacing(8);
-        for (QWidget *cell : overviewActions) updatesLine->addWidget(cell);
-        grid->addWidget(MainWindowPageLayout::makeSettingRow(this, MainWindowPageLayout::makeSettingRowTitle(tr("更新"), this), QString(), updates), row++, 0, 1, 2);
-    }
 
     // ---------- 常用目录那一排按钮 ----------
     //

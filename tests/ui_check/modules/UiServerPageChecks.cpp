@@ -121,7 +121,7 @@ int UiServerPageChecks(InstanceSettingsDialog &dialog) {
             timedOut.tested = true;
             timedOut.online = false;
             timedOut.timedOut = true;
-            timedOut.error = QStringLiteral("超时（连上了，但服务器没有回答）");
+            timedOut.error = QStringLiteral("已连接，但服务器没有响应（等待超时）");
             check(Dlg::serverStatusLines(timedOut) == QStringList({Dlg::serverTimeoutText()}),
                   "★ U10L 超时 ⇒ 那一格只写「超时」两个字（理由是给排查看的，不进这一格）",
                   Dlg::serverStatusLines(timedOut).join(QStringLiteral("︱")));

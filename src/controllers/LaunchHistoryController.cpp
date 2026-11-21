@@ -192,6 +192,20 @@ QHash<QString, LaunchHistory::PlayTime> LaunchHistoryController::completedPlayTi
     return completed;
 }
 
+bool LaunchHistoryController::resetCompletedPlayTime(const QString &stableInstanceId) {
+    if (stableInstanceId.isEmpty()) return false;
+    const QString path = LaunchHistory::historyPath();
+    if (!LaunchHistory::savePlayTime(path, stableInstanceId, LaunchHistory::PlayTime{})) {
+        return false;
+    }
+    for (auto it = m_playTimeCounters.begin(); it != m_playTimeCounters.end(); ++it) {
+        if (it.key().first == path && it.key().second == stableInstanceId) {
+            it->resetCompleted();
+        }
+    }
+    return true;
+}
+
 std::optional<LaunchHistoryController::RunningPlayTime>
 LaunchHistoryController::runningPlayTime(int sessionId) const {
     const auto session = m_playTimeSessions.constFind(sessionId);

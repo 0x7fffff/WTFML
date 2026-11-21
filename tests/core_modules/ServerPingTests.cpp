@@ -586,8 +586,8 @@ void runServerPingTests() {
         // 设成 SocketTimeoutError，所以产品那一侧是**按走到哪一步**分的话术，不是照 error()
         // 翻表 —— 这条断言钉的就是那个区分。
         check(!status.ok && status.error.contains(QStringLiteral("超时")) &&
-                  status.error.contains(QStringLiteral("没有回答")),
-              "ZH8 没人回答 = 「超时（连上了，但服务器没有回答）」",
+                  status.error.contains(QStringLiteral("没有响应")),
+              "ZH8 没人回答 = 「已连接，但服务器没有响应（等待超时）」",
               QStringLiteral("「%1」").arg(status.error));
         // 界面上那一格对超时只写两个字（用户 ：「超时的只写超时」），判据是
         // 这一位 —— 所以它必须是**真的判定出来的**，而不是界面上拿 error 那句话的前缀猜的。

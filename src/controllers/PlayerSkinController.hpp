@@ -110,6 +110,8 @@ public:
     // NOTE: `applyPlayerSkin()` 也在这四个里 —— 主窗口那个同名槽转手到它，而它是这一层
     // **唯一**一处改"现在画着哪两张图"的地方（载不进来就退回默认外观那一条也在里面）。
     void applyPlayerSkin(const QString &skinPath, const QString &capePath, bool slim);
+    /// 换披风成功后先按**已知的新地址**更新本地档案并换图，不等下一次档案请求回来。
+    void setCapeUrl(const QString &capeUrl);
     void onProfileReady(const QString &uuid, const PlayerSkinProfile &profile);
     void onTextureReady(const QString &url, const QString &path);
 

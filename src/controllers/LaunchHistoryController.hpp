@@ -105,6 +105,8 @@ public:
     void finishAllPlayTimes();
     LaunchHistory::PlayTime completedPlayTime(const QString &stableInstanceId) const;
     QHash<QString, LaunchHistory::PlayTime> completedPlayTimes() const;
+    /// 清掉这个实例已记录的游玩时长（累计和上次都归零）。
+    bool resetCompletedPlayTime(const QString &stableInstanceId);
     std::optional<RunningPlayTime> runningPlayTime(int sessionId) const;
 
 signals:

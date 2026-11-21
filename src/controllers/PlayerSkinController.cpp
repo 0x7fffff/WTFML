@@ -341,3 +341,27 @@ void PlayerSkinController::applyPlayerSkin(const QString &skinPath, const QStrin
     // 那边是直接把这张图交给控件的，它没有"载不进来怎么办"这一说。
     emit skinChanged(skin, cape, slim);
 }
+
+void PlayerSkinController::setCapeUrl(const QString &capeUrl) {
+    const QString uuid = PlayerSkinStore::uuidKey(m_auth->playerUuid());
+    if (uuid.isEmpty() || m_skinProfile.capeUrl == capeUrl) {
+        return;
+    }
+    const bool hasProfile = !m_skinProfile.skinUrl.isEmpty();
+    m_skinProfile.capeUrl = capeUrl;
+    if (hasProfile) {
+        QString error;
+        if (!PlayerSkinStore::saveProfile(uuid, m_skinProfile, &error)) {
+            emit logMessage(tr("存玩家外观档案失败：%1").arg(error));
+        }
+    }
+    if (m_skinPath.isEmpty()) {
+        return;
+    }
+    if (capeUrl.isEmpty()) {
+        m_capePath.clear();
+        applyPlayerSkin(m_skinPath, {}, m_skinProfile.variant == QStringLiteral("slim"));
+        return;
+    }
+    requestTexture(capeUrl, /*allowDownload=*/true);
+}

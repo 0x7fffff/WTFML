@@ -47,6 +47,8 @@ public:
     qint64 currentMs(qint64 tickMs) const;
     qint64 totalMs(qint64 tickMs) const;
     PlayTime completed() const { return m_completed; }
+    /// 清掉这一次会话开始前记下的累计（用户手动重置游玩时长时用）。
+    void resetCompleted() { m_completed = PlayTime{}; }
 
 private:
     PlayTime m_completed;
