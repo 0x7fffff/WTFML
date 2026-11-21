@@ -1152,6 +1152,10 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         }
         runStateButton->setVisible(m_runStateActive && !collapsed);
         m_railCollapsed = collapsed;
+        // 图标轨里任务卡只剩进度环：没有任务时也把环留着，否则整颗按钮会缩成一块白框。
+        if (progressBar != nullptr) {
+            progressBar->setVisible(collapsed || m_lastTaskSummary.hasTask);
+        }
         if (taskFailureBadge != nullptr) {
             taskFailureBadge->setVisible(collapsed && m_lastTaskSummary.unreadFailure);
         }
@@ -2620,4 +2624,5 @@ void MainWindowUI::syncHomeLaunchButton() {
                                                          : VersionIcons::line(icon, side, ink, 2.0)));
     launch->setIconSize(QSize(side, side));
 }
+
 

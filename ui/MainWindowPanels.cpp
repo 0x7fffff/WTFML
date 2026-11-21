@@ -2242,7 +2242,8 @@ void MainWindowUI::setBottomBarTaskSummary(const BottomBarTaskSummary &summary) 
     if (!summary.hasTask) {
         progressBar->setRange(0, 100);
         Anim::smoothProgress(progressBar, 0);
-        progressBar->hide();
+        // 展开态不摆空进度条；图标轨里这颗环就是任务中心图标，必须留着。
+        progressBar->setVisible(m_railCollapsed);
         if (taskPercentLabel != nullptr) {
             taskPercentLabel->clear();
             taskPercentLabel->hide();
@@ -2322,5 +2323,6 @@ void MainWindowUI::setRunPanelAvailable(bool available) {
     // 点不动的格子不该再挂着"点一下向上展开实例列表"（鼠标都到不了它身上，也弹不出来）。
     runStateButton->setToolTip(available ? MainWindowUI::bottomBarRunPanelTip() : QString());
 }
+
 
 

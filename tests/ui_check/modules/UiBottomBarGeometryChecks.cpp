@@ -158,6 +158,16 @@ int UiBottomBarGeometryChecks(MainWindowUI &ui, QFrame * &bar) {
                       .arg(row2TextBand)
                       .arg(runDetail->maximumWidth())
                       .arg(runDetail->contentsMargins().left()));
+            // 图标轨（<1024）里任务卡只剩那枚环：没有任务时环也得在，否则整颗按钮缩成白框。
+            host->resize(900, 800);
+            QApplication::processEvents();
+            ui.setBottomBarTaskSummary(MainWindowUI::BottomBarTaskSummary());
+            QApplication::processEvents();
+            check(progress->isVisible(),
+                  "图标轨里没有任务时进度环仍然显示（任务中心图标不消失）");
+            host->resize(1280, 800);
+            QApplication::processEvents();
+
             // 收尾：那根进度条藏回去（上面 show() 过），并**把那一格还成开局那一份**
             // ——不能再 `status->hide()` 了：它开局就是亮的（见本节开头那条）。
             progress->hide();
