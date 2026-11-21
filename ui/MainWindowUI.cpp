@@ -2619,16 +2619,6 @@ void MainWindowUI::setHomeQuickMode(HomeQuickMode mode) {
     apply(homeQuickCurrentTab, nullptr, HomeQuickMode::Current);
     apply(homeQuickRecentTab, homeQuickRecentSection, HomeQuickMode::Recent);
     apply(homeQuickFavoriteTab, homeFavoriteSection, HomeQuickMode::Favorite);
-    // 灌卡片 / 换页签会改实例带的高度。折叠体（homeQuickCards）多了一层嵌套后，父链上每层各等
-    // 一轮 LayoutRequest，补齐要三轮以上：这几轮之间卡片被压成一截（量到 21 / 70 px）、整块启动区
-    // 和实例带错位下沉 64 px（wtfml.ui-daily-quote DQ-UI24 / DQ-UI25）。这里从折叠体往上把每层
-    // 布局当场排完，落定不再拖到下一轮；没显示出来的（还没 show）show 时本来就会排。
-    if (homeQuickCards != nullptr && homeQuickCards->isVisible()) {
-        for (QWidget *w = homeQuickCards; w != nullptr; w = w->parentWidget()) {
-            if (QLayout *layout = w->layout()) layout->activate();
-            if (w->isWindow()) break;
-        }
-    }
 }
 
 void MainWindowUI::setLaunchCard(const LaunchCard &card) {
