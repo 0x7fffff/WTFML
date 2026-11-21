@@ -162,8 +162,12 @@ int UiDailyQuoteCheck(QApplication &app) {
     check(eyebrow != nullptr, "DQ-UI23 「当前实例」那一行字在（量它的纵向位置当基准）");
     if (eyebrow != nullptr) {
         const auto pump = [] {
-            QApplication::processEvents();
-            QApplication::processEvents();
+            // 实例带 / 每日一言都往父链上排队 LayoutRequest；只 processEvents 两次时，
+            // 首次量到的可能还是“卡片还没露出来”的上一版版面（DQ-UI24/25）。
+            for (int pass = 0; pass < 4; ++pass) {
+                QCoreApplication::sendPostedEvents(nullptr, QEvent::LayoutRequest);
+                QApplication::processEvents();
+            }
         };
         const auto yOf = [&](QWidget *w) { return w->mapTo(&window, QPoint(0, 0)).y(); };
         for (const QSize size : {QSize(1280, 800), QSize(900, 620)}) {
