@@ -109,6 +109,9 @@ struct ShotOptions {
     /// `--r157`：步骤 157（导航收起时未读失败挂在进度环右上角），960×620 主页收起 + 展开对照 + 角标放大，
     /// 文件名 r157-<主题>-960x620-*.png。
     bool r157 = false;
+    /// `--i85`：issue #85（图标轨补运行状态入口），默认窗口下图标轨一个进程、多个进程加面板、展开轨对照，
+    /// 演示数据是写进界面的假进程行；开发用截图工具，不进启动器；文件名 i85-<主题>-<宽>x<高>-*.png。
+    bool i85 = false;
     /// `--r179c`：步骤 179 UI 问题 C（设置页居中、实例设置最小窗、左栏字重、任务中心运行中开关、W 焦点），
     /// 自己换尺寸；文件名 r179c-<主题>-<宽>x<高>-<页面>.png。
     bool r179c = false;
@@ -827,6 +830,86 @@ int shootR157(QApplication &app, QMainWindow &window, MainWindowUI &ui, const Sh
     return saved == 3 ? 0 : 1;
 }
 
+/// `--i85`：默认窗口（1024×620）主页，轨底的运行状态入口。图标轨一个进程 / 图标轨三个进程加面板 /
+/// 展开轨对照；每张另存一张轨底放大 3 倍的局部。
+int shootI85(QApplication &app, QMainWindow &window, MainWindowUI &ui, const ShotOptions &options) {
+    int saved = 0;
+    const auto pump = [&app] { for (int i = 0; i < 4; ++i) app.processEvents(); };
+    const auto name = [&](const QString &what) {
+        return QStringLiteral("i85-%1-%2x%3-%4").arg(options.theme).arg(window.width()).arg(window.height()).arg(what);
+    };
+    fillHomeSamples(ui);
+    ui.getTabWidget()->setCurrentIndex(MainWindowUI::homeTabIndex());
+    window.resize(MainWindowPageLayout::kMainWindowDefaultWidth, MainWindowPageLayout::kMainWindowDefaultHeight);
+
+    // 演示进程：同一实例多开两份 + 一个服务端（和运行面板同一份行结构）。
+    const QColor ink = Theme::tokens().text;
+    const int iconSize = MainWindowUI::bottomBarPanelActionIconSize();
+    const auto row = [&](const QString &key, const QString &title, const QString &subtitle, const QString &block) {
+        MainWindowUI::PanelRow r;
+        r.key = key;
+        r.icon = VersionIcons::isoBlock(VersionIcons::isoBlockKindFor(block), MainWindowUI::instanceTreeIconSize() * 2);
+        r.title = title;
+        r.subtitle = subtitle;
+        MainWindowUI::PanelAction stop, settings, log;
+        stop.icon = VersionIcons::power(iconSize, ink);
+        stop.tooltip = QStringLiteral("结束");
+        settings.icon = VersionIcons::gear(iconSize, Theme::tokens().primary);
+        settings.tooltip = QStringLiteral("设置");
+        log.icon = VersionIcons::line(QStringLiteral("log"), iconSize, ink);
+        log.tooltip = QStringLiteral("日志");
+        r.actions = {stop, settings, log};
+        return r;
+    };
+    const QList<MainWindowUI::PanelRow> allRows{
+        row(QStringLiteral("3"), QStringLiteral("1.20.1-Forge 47.2.0"), QStringLiteral("本次 4 分钟 · 累计 3 小时 12 分钟"), QStringLiteral("1.20.1-Forge")),
+        row(QStringLiteral("2"), QStringLiteral("1.20.1-Forge 47.2.0"), QStringLiteral("本次 21 分钟 · 累计 3 小时 12 分钟"), QStringLiteral("1.20.1-Forge")),
+        row(QStringLiteral("server:1"), QStringLiteral("生存服务端"), QStringLiteral("服务端 · 1 小时 5 分钟"), QStringLiteral("1.20.4"))};
+    int shown = 1;
+    ui.setBottomBarPanelContent([&](bool account) { return account ? QList<MainWindowUI::PanelRow>() : allRows.mid(0, shown); },
+                                [](bool, const QString &, int) {});
+    const auto setRunning = [&](int count) {
+        shown = count;
+        ui.setRunPanelAvailable(count > 0);
+        ui.setRunStateCount(count);
+        ui.getRunStateLabel()->setText(count > 0 ? MainWindowUI::runStateRunningCountText(count)
+                                                 : MainWindowUI::runStateNotRunningText());
+        ui.getRunStateLabel()->setVisible(true);
+        ui.getRunStateMarkLabel()->setPixmap(
+            MainWindowUI::runStateMarkPixmap(count > 0 ? MainWindowUI::RunStateMark::Running
+                                                       : MainWindowUI::RunStateMark::Idle,
+                                             ui.getBottomBar()->palette()));
+        ui.getRunStateMarkLabel()->setVisible(true);
+        pump();
+    };
+    const auto shotRail = [&](const QString &what) {
+        saveShot(app, window, options.out, name(what), &saved);
+        const QRect crop = ui.getBottomBar()->geometry().translated(ui.getBottomBar()->parentWidget()->mapTo(&window, QPoint(0, 0)));
+        const QPixmap zoom = window.grab(crop.adjusted(-6, -6, 6, 6)).scaled(
+            (crop.size() + QSize(12, 12)) * 3, Qt::KeepAspectRatio, Qt::FastTransformation);
+        if (zoom.save(QDir(options.out).filePath(name(what) + QStringLiteral("-rail.png")))) ++saved;
+    };
+
+    ui.titleBar()->setCollapsed(true);
+    setRunning(1);
+    shotRail(QStringLiteral("rail-one"));
+
+    setRunning(3);
+    ui.getRunStateButton()->click();
+    pump();
+    savePopupShot(app, window, options.out, name(QStringLiteral("rail-three-panel")), &saved);
+    for (QWidget *top : QApplication::topLevelWidgets()) {
+        if (top->windowType() == Qt::Popup && top->isVisible()) top->close();
+    }
+    pump();
+
+    ui.titleBar()->setCollapsed(false);
+    pump();
+    shotRail(QStringLiteral("expanded-three"));
+    std::printf("\ni85 shots: %d saved -> %s\n", saved, qPrintable(options.out));
+    return saved >= 6 ? 0 : 1;
+}
+
 QList<TaskCenter::Item> siteTaskItems();
 
 /// `--r70kbd`：实例页用键盘（方向键）选中一行：当前行行尾按钮露出、当前行一圈焦点标记；
@@ -975,7 +1058,7 @@ int shootR179c(QApplication &app, QMainWindow &window, MainWindowUI &ui, const S
         }
     }
 
-    // ---- #24：任务中心，运行中实例那一栏收着 / 露着 ----
+    // ---- 任务中心（运行中的进程那一栏已去掉，统一看轨底入口） ----
     ui.setTaskCenterContent([] { return siteTaskItems(); }, [] {});
     for (const QSize size : {QSize(1600, 800), QSize(1024, 620)}) {
         window.resize(size);
@@ -988,14 +1071,7 @@ int shootR179c(QApplication &app, QMainWindow &window, MainWindowUI &ui, const S
         if (QWidget *popover = window.findChild<QWidget *>(QStringLiteral("activityPopover"));
             popover != nullptr && popover->isVisible())
             popover->close();
-        auto *toggle = window.findChild<QPushButton *>(QStringLiteral("taskCenterRunningCollapse"));
-        shot(QStringLiteral("tasks-running-collapsed"));
-        if (toggle != nullptr && toggle->isVisible()) {
-            toggle->click();
-            pump();
-            shot(QStringLiteral("tasks-running-expanded"));
-            toggle->click();
-        }
+        shot(QStringLiteral("tasks-center"));
         if (ui.overlay() != nullptr && ui.overlay()->isOpen()) ui.overlay()->dismiss();
         pump();
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
@@ -1192,6 +1268,7 @@ int runExtended(QApplication &app, const ShotOptions &options) {
     if (options.r151) return shootR151(app, window, ui, options);
     if (options.r155) return shootR155(app, window, ui, options);
     if (options.r157) return shootR157(app, window, ui, options);
+    if (options.i85) return shootI85(app, window, ui, options);
     if (options.r179c) return shootR179c(app, window, ui, options);
     if (options.r70kbd) return shootR70Keyboard(app, window, ui, options);
 
@@ -2991,6 +3068,9 @@ int UiReviewShotsCheck(QApplication &app) {
             options.extended = true;
         } else if (arg == QLatin1String("--r157")) {
             options.r157 = true;
+            options.extended = true;
+        } else if (arg == QLatin1String("--i85")) {
+            options.i85 = true;
             options.extended = true;
         } else if (arg == QLatin1String("--r179c")) {
             options.r179c = true;

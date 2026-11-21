@@ -231,21 +231,17 @@ int UiUiRefreshCheck(QApplication &app) {
             embedded.reject();
             expect(!accountHost->isOpen(), "embedded instance settings retain normal close semantics");
         }
-        QList<TaskCenter::RunningItem> runningItems;
-        TaskCenterPanel running(nullptr, {}, {}, [&runningItems]() { return runningItems; }, {}, {}, nullptr, true);
+        TaskCenterPanel running(nullptr, {}, {}, {}, nullptr, true);
         running.resize(1000, 500);
         running.showEmbedded();
         app.processEvents();
         auto *detailPane = running.findChild<QWidget *>(QStringLiteral("taskCenterDetailPane"));
         expect(detailPane && detailPane->width() == 270,
                "task center detail pane scales with the workspace (27% of 1000)");
-        // 没有实例在跑 ⇒ 左边那一栏默认收起（要求：「左侧没有实例运行时默认不展开」）。
-        auto *runningToggle = running.findChild<QPushButton *>(
-            QStringLiteral("taskCenterRunningCollapse"));
-        auto *runningPane = running.findChild<QWidget *>(QStringLiteral("taskCenterRunningPane"));
-        expect(runningToggle && runningPane && !runningToggle->isChecked()
-                   && !runningPane->isVisibleTo(&running),
-               "running pane starts collapsed when nothing is running");
+        // 运行中的进程统一从导航轨底部的运行状态入口查看，任务中心里没有那一栏和它的开关。
+        expect(!running.findChild<QWidget *>(QStringLiteral("taskCenterRunningPane"))
+                   && !running.findChild<QPushButton *>(QStringLiteral("taskCenterRunningCollapse")),
+               "task center has no running-process pane or toggle");
         running.resize(1400, 500);
         app.processEvents();
         expect(detailPane && detailPane->width() == 378,
@@ -255,33 +251,6 @@ int UiUiRefreshCheck(QApplication &app) {
         running.resize(1000, 500);
         app.processEvents();
         expect(detailPane && detailPane->width() == 270, "detail width is restored after compact layout");
-        TaskCenter::RunningItem game;
-        game.key = QStringLiteral("session-1");
-        game.title = QStringLiteral("Live instance");
-        runningItems.append(game);
-        running.requestRefresh();
-        running.requestRefresh();
-        app.processEvents();
-        expect(running.findChildren<QWidget *>(QStringLiteral("taskCenterRunningRow")).size() == 1,
-               "running instance appears without reopening panel");
-        // 有实例跑起来了 ⇒ 同一句判据的另一头：自动展开（用户没亲手点过）。
-        expect(runningToggle && runningToggle->isChecked() && runningPane->width() == 220,
-               "running pane auto-expands when an instance starts");
-        runningItems.clear();
-        running.requestRefresh();
-        app.processEvents();
-        expect(running.findChildren<QWidget *>(QStringLiteral("taskCenterRunningRow")).isEmpty(),
-               "finished instance disappears without reopening panel");
-        expect(runningToggle && !runningToggle->isChecked() && !runningPane->isVisibleTo(&running),
-               "running pane auto-collapses when the last instance exits");
-        running.hide();
-        runningItems.append(game);
-        running.requestRefresh();
-        app.processEvents();
-        running.show();
-        app.processEvents();
-        expect(running.findChildren<QWidget *>(QStringLiteral("taskCenterRunningRow")).size() == 1,
-               "parked task center resyncs when shown");
         {
             QList<TaskCenter::Item> longTasks;
             TaskCenter::Item longItem;
@@ -291,7 +260,7 @@ int UiUiRefreshCheck(QApplication &app) {
             longItem.capabilities.cancel = true;
             longTasks << longItem;
             TaskCenterPanel longPanel(nullptr, [&longTasks] { return longTasks; }, {},
-                                      {}, {}, {}, nullptr, true);
+                                      {}, nullptr, true);
             longPanel.setRowActionHandler(
                 [](const QString &, TaskCenter::RowAction) {});
             longPanel.resize(1000, 500);
@@ -328,7 +297,7 @@ int UiUiRefreshCheck(QApplication &app) {
             TaskCenter::Item interrupted;
             interrupted.key = QStringLiteral("interrupted"); interrupted.title = QStringLiteral("中断"); interrupted.state = TaskCenter::State::Interrupted;
             tasks = {error, choice, interrupted};
-            TaskCenterPanel panel(nullptr, [&tasks] { return tasks; }, {}, {}, {}, {}, nullptr, true);
+            TaskCenterPanel panel(nullptr, [&tasks] { return tasks; }, {}, {}, nullptr, true);
             panel.setRowActionHandler([&tasks](const QString &key, TaskCenter::RowAction action) {
                 if (action != TaskCenter::RowAction::Viewed) return;
                 for (auto &item : tasks)
@@ -412,7 +381,7 @@ int UiUiRefreshCheck(QApplication &app) {
             failed.unreadFailure = true;
             tasks.append(failed);
             bool acknowledged = false;
-            TaskCenterPanel panel(nullptr, [&tasks] { return tasks; }, {}, {}, {}, {}, nullptr, true);
+            TaskCenterPanel panel(nullptr, [&tasks] { return tasks; }, {}, {}, nullptr, true);
             panel.setRowActionHandler([&acknowledged](const QString &key, TaskCenter::RowAction action) {
                 if (action == TaskCenter::RowAction::Seen && key == QStringLiteral("failed-bottom")) {
                     acknowledged = true;
@@ -444,7 +413,7 @@ int UiUiRefreshCheck(QApplication &app) {
             }
             TaskCenterPanel panel(nullptr, [&] { return tasks; }, [&] {
                 tasks.removeIf([](const auto &item) { return !TaskCenter::stateIsActive(item.state); });
-            }, {}, {}, {}, nullptr, true);
+            }, {}, nullptr, true);
             panel.resize(1000, 500); panel.showEmbedded();
             app.processEvents();
             auto *filter = panel.findChild<QComboBox *>(QStringLiteral("taskCenterFilter"));
@@ -837,7 +806,7 @@ int UiUiRefreshCheck(QApplication &app) {
                 tasks.append(item);
             }
             int originalActions = 0, replacementActions = 0;
-            TaskCenterPanel panel(&host, [&] { return tasks; }, {}, {}, {}, {}, &host, true);
+            TaskCenterPanel panel(&host, [&] { return tasks; }, {}, {}, &host, true);
             panel.setGeometry(host.rect());
             panel.setRowActivatedHandler([](const QString &) {});
             panel.setRowActionHandler([&](const QString &, TaskCenter::RowAction action) {

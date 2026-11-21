@@ -25533,10 +25533,6 @@ Please close the program occupying the port, or change the port in "Common Setti
             <translation>Step %1 / %2 · %3</translation>
         </message>
         <message>
-            <source>运行中的进程</source>
-            <translation>Running processes</translation>
-        </message>
-        <message>
             <source>全部任务</source>
             <translation>All tasks</translation>
         </message>
@@ -25567,22 +25563,6 @@ Please close the program occupying the port, or change the port in "Common Setti
         <message>
             <source>没有符合筛选条件的任务</source>
             <translation>No tasks match the filter criteria</translation>
-        </message>
-        <message>
-            <source>显示运行中的进程</source>
-            <translation>Show running processes</translation>
-        </message>
-        <message>
-            <source>收起运行中的进程</source>
-            <translation>Collapse running processes</translation>
-        </message>
-        <message>
-            <source>运行中的进程 %1</source>
-            <translation>Running processes %1</translation>
-        </message>
-        <message>
-            <source>当前没有运行中的进程</source>
-            <translation>No running processes</translation>
         </message>
         <message>
             <source>任务概览</source>

@@ -25020,10 +25020,6 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>运行中的进程</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>全部任务</source>
         <translation type="unfinished"></translation>
     </message>
@@ -25053,22 +25049,6 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
     </message>
     <message>
         <source>没有符合筛选条件的任务</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>显示运行中的进程</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>收起运行中的进程</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>运行中的进程 %1</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>当前没有运行中的进程</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

@@ -361,29 +361,19 @@ int MwWorkspaceCheck(QApplication &app) {
                       "★ 点返回箭头也收得掉这一页");
             }
         }
-        TaskCenterPanel panel(nullptr, {}, {}, {}, {}, {}, nullptr, true);
+        TaskCenterPanel panel(nullptr, {}, {}, {}, nullptr, true);
         panel.resize(1000, 500);
         panel.showEmbedded();
         app.processEvents();
-        auto *toggle = panel.findChild<QPushButton *>(QStringLiteral("taskCenterRunningCollapse"));
-        auto *pane = panel.findChild<QWidget *>(QStringLiteral("taskCenterRunningPane"));
+        // 运行中的进程统一从导航轨底部的运行状态入口查看，任务中心里不再有那一栏和工具条上的开关。
         auto *toolbar = panel.findChild<QWidget *>(QStringLiteral("taskCenterToolbar"));
-        check(toggle && pane && !toggle->isChecked() && !pane->isVisibleTo(&panel),
-              "running pane starts collapsed when nothing is running");
-        if (toggle && pane) {
-            for (int i = 0; i < 4; ++i) {
-                toggle->click();
-                app.processEvents();
-                // 开局是收着的 ⇒ 第一下是**展开**（i == 0），第三下又展开。
-                const bool expanded = i % 2 == 0;
-                check(toggle->isChecked() == expanded && pane->isVisibleTo(&panel) == expanded &&
-                          (!expanded || pane->width() == 220),
-                      "toggle selection follows running pane visibility");
-                check(toolbar != nullptr && toolbar->isAncestorOf(toggle) && toggle->isVisibleTo(&panel) &&
-                          toggle->width() >= toggle->sizeHint().width(),
-                      "running pane toggle sits in the toolbar with its full text");
-            }
-        }
+        check(panel.findChild<QWidget *>(QStringLiteral("taskCenterRunningPane")) == nullptr &&
+                  panel.findChild<QPushButton *>(QStringLiteral("taskCenterRunningCollapse")) == nullptr,
+              "任务中心没有「运行中的进程」那一栏，工具条上也没有它的开关");
+        check(toolbar != nullptr && toolbar->isAncestorOf(panel.findChild<QWidget *>(QStringLiteral("taskCenterFilter"))) &&
+                  panel.findChild<QWidget *>(QStringLiteral("taskCenterTaskList")) != nullptr &&
+                  panel.findChild<QWidget *>(QStringLiteral("taskCenterDetailPane")) != nullptr,
+              "任务中心只剩工具条（筛选、搜索）、任务列表和详情两列");
         check(fakeNet.notFound == 0, "workspace 的假外网没有收到没路由的请求",
               QStringLiteral("404 了 %1 发：%2")
                   .arg(fakeNet.notFound)

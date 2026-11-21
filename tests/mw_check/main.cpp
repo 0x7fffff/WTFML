@@ -2711,13 +2711,12 @@ int main(int argc, char *argv[]) {
 
         QLabel *runMark = window.findChild<QLabel *>(MainWindowUI::runStateMarkName());
         if (runState != nullptr && runDetail != nullptr && runMark != nullptr) {
-            // 这个进程里没起过游戏：轨底那一格**整格收起**（设计稿轨底只有任务环和工具箱），
-            // 文字仍按「未运行」那一档写好，等有事可说时一露出来就是对的。
+            // 这个进程里没起过游戏：轨底那一格常驻（进程起停时轨上不增减元素），写「未运行」。
             QPushButton *runButton =
                 window.findChild<QPushButton *>(MainWindowUI::runStateButtonName());
-            check(runButton != nullptr && !runButton->isVisible() &&
+            check(runButton != nullptr && !runButton->isHidden() &&
                       runState->text() == MainWindowUI::runStateNotRunningText(),
-                  "没有进程在跑时轨底运行状态那一格收起（文字备着「未运行」）", runState->text());
+                  "没有进程在跑时轨底运行状态那一格照旧在，写「未运行」", runState->text());
             check(runState->text() != MainWindowUI::runStateRunningCountText(1) &&
                       runState->text() != MainWindowUI::runStateRunningCountText(2),
                   "（不会说成「%1 个进程运行中」）",
@@ -3158,10 +3157,12 @@ int main(int argc, char *argv[]) {
             // 控件宽度是 0，钉在字上等于没钉（AD 那节量的就是这个）。
             // 按钮里面那两行字各自封了顶（bottomBarRunStateTextWidth()），
             // 所以长名字最多把字截成省略号，撑不开按钮。
-            check(acRunButton->minimumWidth() == MainWindowUI::bottomBarRunStateColumnWidth() &&
+            // 运行状态那颗按钮在图标轨里要缩到轨宽（issue #85），所以它的宽度改成**封顶**：
+            // 展开轨里就是 184，文字再长也撑不开；图标轨里跟着轨走。
+            check(acRunButton->minimumWidth() == 0 &&
                       acRunButton->maximumWidth() ==
                           MainWindowUI::bottomBarRunStateColumnWidth(),
-                  "AC1 左边那颗按钮的宽度钉死",
+                  "AC1 左边那颗按钮的宽度封顶（展开轨 184，图标轨跟着轨缩）",
                   QStringLiteral("min=%1 max=%2")
                       .arg(acRunButton->minimumWidth())
                       .arg(acRunButton->maximumWidth()));
@@ -3216,9 +3217,9 @@ int main(int argc, char *argv[]) {
             check(acBar->width() == acBarWidthBefore,
                   "AC2 左边换成「3 个实例运行中」+ 两个长名字之后，进度条宽度一点没变",
                   QStringLiteral("%1 → %2").arg(acBarWidthBefore).arg(acBar->width()));
-            check(acRunButton->width() == MainWindowUI::bottomBarRunStateColumnWidth(),
-                  "AC2 左边那颗按钮自己也没被撑宽",
-                  QStringLiteral("%1（该是 %2）")
+            check(acRunButton->width() <= MainWindowUI::bottomBarRunStateColumnWidth(),
+                  "AC2 左边那颗按钮自己也没被撑宽（不超过封顶的 184）",
+                  QStringLiteral("%1（上限 %2）")
                       .arg(acRunButton->width())
                       .arg(MainWindowUI::bottomBarRunStateColumnWidth()));
 

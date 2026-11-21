@@ -26,7 +26,8 @@ int UiBottomBarPopoversChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget 
             // ① 整格是**一颗按钮**：那两行字（右边是头像那组）都装在按钮里面。
             // 这条同时是"挤短进度条"那个 bug 的护栏 —— 宽度钉在**按钮**上，
             // 里面有没有字都一样宽（隐藏的控件在布局里宽度是 0）。
-            check(runState->parentWidget() == runBtn && runDetail->parentWidget() == runBtn,
+            // 文字装在按钮里的 runStateText 格子里（图标轨整块收起），所以认「按钮是祖先」。
+            check(runBtn->isAncestorOf(runState) && runBtn->isAncestorOf(runDetail),
                   "I4 左边那两行字装在那颗按钮里",
                   runState->parentWidget() != nullptr ? runState->parentWidget()->objectName()
                                                       : QStringLiteral("<null>"));
@@ -637,17 +638,17 @@ int UiBottomBarPopoversChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget 
             //
             // NOTE: 这一节用 `click()` 点，不用真鼠标事件：`QAbstractButton::click()`
             // 在 disabled 的时候会**直接返回**（那样断言就白绿了），而这一格用的
-            // 是 WA_TransparentForMouseEvents、按钮本身是 enabled 的 —— 所以
+            // 是 toggle 里把住、按钮本身是 enabled 的 —— 所以
             // `click()` 照样发 clicked()，能不能弹出来全看 toggle 里那道闸。
             {
-                const auto describe = [runBtn]() {
+                const auto describe = [runBtn, &ui]() {
                     return QStringLiteral("收鼠标 %1 / tooltip「%2」")
-                        .arg(runBtn->testAttribute(Qt::WA_TransparentForMouseEvents)
+                        .arg(!ui.runPanelAvailable()
                                  ? QStringLiteral("是")
                                  : QStringLiteral("不是"))
                         .arg(runBtn->toolTip());
                 };
-                check(!runBtn->testAttribute(Qt::WA_TransparentForMouseEvents) &&
+                check(ui.runPanelAvailable() &&
                           runBtn->toolTip() == MainWindowUI::bottomBarRunPanelTip(),
                       "I4 没被告知「没有实例在跑」时，这一格照旧点得开（鼠标收得到、"
                       "悬停那句话也挂着）",
@@ -655,10 +656,10 @@ int UiBottomBarPopoversChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget 
 
                 ui.setRunPanelAvailable(false);
                 QApplication::processEvents();
-                check(runBtn->testAttribute(Qt::WA_TransparentForMouseEvents) &&
-                          runBtn->toolTip().isEmpty(),
-                      "I4 被告知「没有实例在跑」之后：这一格**不再收鼠标**、"
-                      "那句「点一下向上展开」也摘掉了",
+                check(!ui.runPanelAvailable() &&
+                          runBtn->toolTip() == MainWindowUI::runStateNotRunningText(),
+                      "I4 被告知「没有实例在跑」之后：这一格点不开、"
+                      "悬停提示换成「未运行」",
                       describe());
 
                 runBtn->click();
