@@ -211,13 +211,11 @@ void TaskDetailController::openTarget(const QString &key) {
     // 目标就是那一项自己记的那个 id，空的话落到数据目录 —— 一样"点得开"，不给一颗点了
     // 没反应的按钮。
     //
-    // **服务端那一批任务记的是服务端 id，不是实例 id**（安装和备份那两批都走
-    // `beginTask(..., serverId, ...)`），而 `AppPaths::versionDir()` 拼出来的是
-    // `<数据目录>/versions/<id>` —— 对服务端来说那个目录**永远不存在**。所以按下
-    // 「打开目标位置」本来会报一句"那个目录现在不在"（而它明明就在 `servers/<id>`）。
-    // 先按实例认，认不出来再看它是不是一个服务端。
+    // 服务端启动明确记的是服务端 id，两类目标可能同名。安装与备份仍兼容旧记录的查找方式。
     QString dir;
-    if (task.kind == Tasks::TaskKind::Download && QDir::isAbsolutePath(task.targetId)) {
+    if (task.kind == Tasks::TaskKind::ServerLaunch) {
+        dir = AppPaths::serverDir(task.targetId);
+    } else if (task.kind == Tasks::TaskKind::Download && QDir::isAbsolutePath(task.targetId)) {
         dir = task.targetId;
     } else if (task.targetId.isEmpty()) {
         dir = AppPaths::minecraftDir();

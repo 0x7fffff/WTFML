@@ -45,6 +45,7 @@ enum class TaskKind {
     Crash,      // 游戏异常退出之后补的那一项。**一建出来就是终态**，从不"在跑"
     Backup,     // 打一份存档 / 实例快照，或者从一份备份还原回去
     Other,
+    ServerLaunch, // 启动服务端，直到服务端报告就绪
 };
 
 /// 任务的状态。八个，一个不多一个不少 —— 和状态枚举逐字对齐。
@@ -203,6 +204,7 @@ inline int summaryPriority(const TaskSnapshot &task, bool unreadFailure) {
         }
         switch (task.kind) {
         case TaskKind::Launch:
+        case TaskKind::ServerLaunch:
             return 2;
         case TaskKind::Install:
             return 3;

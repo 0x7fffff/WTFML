@@ -13,6 +13,7 @@
 #include "MainWindow.hpp"
 #include "MainWindowUI.hpp"
 #include "OverlayHost.hpp"
+#include "controllers/ActivityCenterController.hpp"
 #include "controllers/ServerWorkspaceController.hpp"
 #include "download/ServerInstall.hpp"
 #include "manage/VersionManager.hpp"
@@ -38,7 +39,7 @@ void ServerRunController::setFileBusy(const QString &serverId, bool busy) {
 }
 
 void ServerRunController::start(const QString &serverId, bool automatic) {
-    if (serverId.isEmpty()) {
+    if (serverId.isEmpty() || m_startupTasks.contains(serverId)) {
         return;
     }
     // 闸⓪：这一份的世界正在备份 / 还原。那一趟现在读 / 换的正是这个世界目录 —— 这时候
@@ -54,12 +55,6 @@ void ServerRunController::start(const QString &serverId, bool automatic) {
         }
         return;
     }
-    // 用户亲手起的 = 新的一轮：上一轮的"连着崩几次"从这里清零。自动重启那一路**不清**
-    // （理由见 `ServerRestart::decide()`：清了就等于不限次数）。
-    if (!automatic) {
-        m_restartAttempts.remove(serverId);
-    }
-    m_stopRequested.remove(serverId);
     // 闸①：装好了没有。判据是 `ServerRegistry::describe()`（= `ServerModel::isInstalled()`），
     // 和那一行上写着「未安装」的是同一个出处。
     const ServerRegistry::Entry entry = ServerRegistry::describe(serverId);
@@ -78,13 +73,28 @@ void ServerRunController::start(const QString &serverId, bool automatic) {
         return;
     }
     // 闸③：EULA。**只有用户自己勾了才写**（见 ensureServerEula）。
+    // 同意框会处理界面事件，先占住这一台的启动位置。
+    m_startupTasks.insert(serverId, Tasks::invalidTaskId());
     if (!m_owner.ensureServerEula(serverId)) {
+        m_startupTasks.remove(serverId);
         return;
     }
+    // 用户亲手起的 = 新的一轮。自动重启必须沿用前一轮的计数（见 `ServerRestart::decide()`）。
+    if (!automatic) {
+        m_restartAttempts.remove(serverId);
+    }
+    m_stopRequested.remove(serverId);
+    const QString shown = entry.name.isEmpty() ? serverId : entry.name;
+    const Tasks::TaskId task = m_owner.beginTask(Tasks::TaskKind::ServerLaunch,
+        MainWindow::tr("启动服务端 %1").arg(shown), serverId, {});
+    auto *tasks = m_owner.m_activityCenter->tasks();
+    m_startupTasks.insert(serverId, task);
+    tasks->setDetail(task, MainWindow::tr("正在准备服务端启动参数…"));
     // 闸④：那条命令拼得出来吗（这一档要的信息在不在我们记的那一份里）。
     QString problem;
     const ServerInstall::Plan plan = m_owner.serverLaunchPlan(serverId, &problem);
     if (!plan.ok) {
+        m_owner.finishTask(m_startupTasks.take(serverId), false, problem);
         InlineMessage::critical(m_owner.m_ui->overlay(), MainWindow::tr("起不了这个服务端"), problem);
         return;
     }
@@ -105,6 +115,7 @@ void ServerRunController::start(const QString &serverId, bool automatic) {
     QString javaReason;
     if (!m_owner.m_javaSettings->installerJavaFor(requiredJavaMajor, configuredJava, &java, &javaReason)) {
         m_owner.appendLog(MainWindow::tr("起这个服务端要的 Java 拿不到：%1").arg(javaReason));
+        m_owner.finishTask(m_startupTasks.take(serverId), false, javaReason);
         InlineMessage::warning(m_owner.m_ui->overlay(), MainWindow::tr("Java 版本不够"), javaReason);
         return;
     }
@@ -121,7 +132,7 @@ void ServerRunController::start(const QString &serverId, bool automatic) {
     const qint64 worldBytes = m_owner.serverWorldBytes(entry.dirPath);
     const int gracefulMs = ServerRun::gracefulStopMs(mods, worldBytes);
     m_owner.appendLog(MainWindow::tr("起服务端 %1：%2 个模组、存档 %3 MB，停下来最多等 %4 秒。")
-                  .arg(entry.name.isEmpty() ? serverId : entry.name)
+                  .arg(shown)
                   .arg(mods)
                   .arg(worldBytes / (1024 * 1024))
                   .arg(gracefulMs / 1000));
@@ -131,6 +142,7 @@ void ServerRunController::start(const QString &serverId, bool automatic) {
         m_owner.appendLog(plan.note);
     }
     m_startedAt.insert(serverId, QDateTime::currentDateTime());
+    tasks->setDetail(task, MainWindow::tr("正在等待服务端就绪…"));
     process->start(serverId, entry.dirPath, java, arguments, gracefulMs);
 }
 
@@ -160,6 +172,26 @@ void ServerRunController::forceKill(const QString &serverId) {
     process->forceKill();
 }
 
+bool ServerRunController::stopAndWait(const QString &serverId) {
+    auto *process = m_owner.m_serverWorkspace->process(serverId);
+    if (process == nullptr) {
+        return false;
+    }
+    if (process->isRunning()) {
+        m_stopRequested.insert(serverId);
+    }
+    return process->stopAndWait();
+}
+
+void ServerRunController::onReady(const QString &serverId) {
+    if (m_stopRequested.contains(serverId)) {
+        return;
+    }
+    if (const auto task = m_startupTasks.take(serverId); task != Tasks::invalidTaskId()) {
+        m_owner.finishTask(task, true);
+    }
+}
+
 void ServerRunController::onExited(const QString &serverId, int exitCode) {
     const ServerRun::ServerProcess *process = m_owner.m_serverWorkspace->process(serverId);
     const ServerRegistry::Entry entry = ServerRegistry::describe(serverId);
@@ -182,6 +214,14 @@ void ServerRunController::onExited(const QString &serverId, int exitCode) {
     if (!ServerRestart::isAbnormal(why)) {
         // 正常退出 / 我们自己停的：这一轮结束，计数没必要留着。
         m_restartAttempts.remove(serverId);
+    }
+    if (const auto task = m_startupTasks.take(serverId); task != Tasks::invalidTaskId()) {
+        if (userStopped) {
+            m_owner.m_activityCenter->tasks()->cancel(task);
+        } else {
+            m_owner.finishTask(task, false,
+                MainWindow::tr("服务端尚未就绪，进程已退出（退出码 %1）。").arg(exitCode));
+        }
     }
     m_owner.updateServerRow(serverId);
     m_owner.updateServerConsole();

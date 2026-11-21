@@ -35,6 +35,8 @@ const char *kindKey(TaskKind kind) {
         return "download";
     case TaskKind::Launch:
         return "launch";
+    case TaskKind::ServerLaunch:
+        return "server-launch";
     case TaskKind::Import:
         return "import";
     case TaskKind::Export:
@@ -62,6 +64,9 @@ TaskKind kindFromKey(const QString &key) {
     }
     if (key == QLatin1String("launch")) {
         return TaskKind::Launch;
+    }
+    if (key == QLatin1String("server-launch")) {
+        return TaskKind::ServerLaunch;
     }
     if (key == QLatin1String("import")) {
         return TaskKind::Import;

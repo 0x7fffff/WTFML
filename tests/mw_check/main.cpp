@@ -75,7 +75,12 @@ int main(int argc, char *argv[]) {
     // 这一支的形状判据是"argv[1] 以 `-` 开头" —— 而下面 `--fake-server` 那一支也长这样，
     // 所以**必须把它摘出去**（不摘的话"服务端"会被当成"等着不起来的那份 java"睡上四分钟：
     // 屏幕上的症状是"起得来、但没有一行输出、也永远不退"，T41 全红得像产品坏了）。
-    if (argc >= 2 && argv[1][0] == '-' && std::strcmp(argv[1], "--fake-server") != 0) {
+    const bool launchedAsServerJava = argc >= 4 &&
+        std::strcmp(argv[argc - 3], "-jar") == 0 &&
+        std::strcmp(argv[argc - 2], "server.jar") == 0 &&
+        std::strcmp(argv[argc - 1], "nogui") == 0;
+    if (argc >= 2 && argv[1][0] == '-' && std::strcmp(argv[1], "--fake-server") != 0 &&
+        !launchedAsServerJava) {
         for (int i = 1; i < argc; ++i) {
             if (std::strcmp(argv[i], "-version") == 0) {
                 std::fprintf(stderr, "openjdk version \"17.0.12\" 2024-07-16\n");
@@ -112,10 +117,10 @@ int main(int argc, char *argv[]) {
     // 我们的 QProcess 起的，它不该去碰沙盒设置，也不该需要图形平台）。
     // NOTE: 输出必须**不缓冲** —— 缓冲住的话父进程的 `readyRead` 要等到进程退出才来，
     // 而"起来了"那一行恰恰是要在它还活着的时候读到的。
-    if (argc >= 3 && std::strcmp(argv[1], "--fake-server") == 0) {
+    if (launchedAsServerJava || (argc >= 3 && std::strcmp(argv[1], "--fake-server") == 0)) {
         std::setvbuf(stdout, nullptr, _IONBF, 0);
         std::setvbuf(stderr, nullptr, _IONBF, 0);
-        const std::string mode = argv[2];
+        const std::string mode = launchedAsServerJava ? "startup-wait" : argv[2];
         std::fprintf(stdout, "[12:00:00] [Server thread/INFO]: Starting minecraft server\n");
         std::fprintf(stdout, "[12:00:01] [Server thread/INFO]: Preparing level \"world\"\n");
         if (mode == "startup-zero") {
@@ -139,6 +144,13 @@ int main(int argc, char *argv[]) {
                 std::fprintf(stdout,
                              "[12:00:02] [Server thread/INFO]: Stopping the server\n");
                 std::fflush(stdout);
+                return 0;
+            }
+            if (mode == "startup-wait" && line == "ready") {
+                std::fprintf(stdout, "Done (1.234s)! For help, type \"help\"\n");
+                continue;
+            }
+            if (mode == "startup-wait" && line == "exit-before-ready") {
                 return 0;
             }
             // ASCII 标记：见 T41.3 那段 —— 窄字符串字面量按执行字符集写、对面按系统

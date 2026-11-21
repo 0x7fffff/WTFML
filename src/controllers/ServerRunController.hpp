@@ -5,9 +5,9 @@
  *
  * 【为什么单独一层】
  *
- * 这里有四格状态是**成套的**：谁的世界正在备份 / 还原（`m_fileBusy`）、这一轮连着崩了
+ * 这里管理谁的世界正在备份 / 还原（`m_fileBusy`）、这一轮连着崩了
  * 几次（`m_restartAttempts`）、这一次退出是不是我们让它停的（`m_stopRequested`）、
- * 以及它是几点起来的（`m_startedAt`）。四格决定两件看得见的事 —— 那一行现在写着什么
+ * 以及它是几点起来的（`m_startedAt`）。这些状态决定两件看得见的事 —— 那一行现在写着什么
  * （跑着 / 崩了 / 停了），以及"崩了之后要不要自己再拉起来"。它们和 `MainWindow` 上其余
  * 几百个成员摆在一起时，漏一格的症状很难认：最典型的是**自动重启次数不清零**，浏览器
  * 里那台服务器崩第三次之后就再也不自己起来了，而日志只说"次数用完了"。
@@ -34,6 +34,8 @@
 #include <QSet>
 #include <QString>
 
+#include "tasks/TaskId.hpp"
+
 class MainWindow;
 
 class ServerRunController final : public QObject {
@@ -46,8 +48,13 @@ public:
     void start(const QString &serverId, bool automatic = false);
     /// 让它停下来（写 `stop`）：先请求优雅退出，写不进去就只剩强杀（见 .cpp 里那段）。
     void stop(const QString &serverId);
+    /// 关窗选择停服时，记录主动停止并等进程退出。
+    bool stopAndWait(const QString &serverId);
     /// 强制结束。**也是"这是我们让它死的"** —— 退出码再难看也不按崩溃算。
     void forceKill(const QString &serverId);
+
+    /// 收到该服务端的就绪信号后完成启动任务。
+    void onReady(const QString &serverId);
 
     /// 进程退出回调（接 `ServerWorkspaceController::ServerProcess::exited`）：
     /// 判 `ServerRestart::Why`、清/加崩溃计数、必要时排那一发自动重启。
@@ -72,6 +79,8 @@ private:
     QHash<QString, int> m_restartAttempts;
     /// 每台是几点起来的（判"跑够久了没有"用）。退出时取走。
     QHash<QString, QDateTime> m_startedAt;
+    /// 服务端报告就绪或提前退出时，结束对应的启动任务。
+    QHash<QString, Tasks::TaskId> m_startupTasks;
     /// 这一次退出是**我们**让它停的（用户按了停止 / 强杀 / 关自动重启）。
     QSet<QString> m_stopRequested;
     /// 世界正在备份 / 还原的那几台。

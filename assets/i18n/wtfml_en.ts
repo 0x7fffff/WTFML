@@ -12437,6 +12437,22 @@ Confirm deletion?</translation>
             <translation>Incomplete startup (process exit code 0)</translation>
         </message>
         <message>
+            <source>启动服务端 %1</source>
+            <translation>Start server %1</translation>
+        </message>
+        <message>
+            <source>正在准备服务端启动参数…</source>
+            <translation>Preparing server launch options…</translation>
+        </message>
+        <message>
+            <source>正在等待服务端就绪…</source>
+            <translation>Waiting for the server to be ready…</translation>
+        </message>
+        <message>
+            <source>服务端尚未就绪，进程已退出（退出码 %1）。</source>
+            <translation>The server exited before it was ready (exit code %1).</translation>
+        </message>
+        <message>
             <source>异常退出（退出码 %1）</source>
             <translation>Abnormal exit (exit code %1)</translation>
         </message>

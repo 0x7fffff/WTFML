@@ -435,6 +435,7 @@ Tasks::TaskCapabilities ActivityCenterController::defaultCapabilities(Tasks::Tas
         caps.cancelBlockedReason = tr("完整性检查在后台只读扫描，不会改动任何文件；它停不了，跑完会统一报结果。");
         break;
     case Tasks::TaskKind::Crash:
+    case Tasks::TaskKind::ServerLaunch:
     case Tasks::TaskKind::Other:
         break;
     }
