@@ -45,7 +45,7 @@ int UiBottomBarGeometryChecks(MainWindowUI &ui, QFrame * &bar) {
             // 藏着的控件几何停在旧值（通常是 0），拿它比大小等于没比。
             progress->show();
             status->show();
-            ui.setRunStateActive(true); // 运行状态那一格平时收着，量它先露出来
+            ui.setRunStateCount(1);
             runState->show();
             runDetail->show();
             mark->show();

@@ -94,7 +94,6 @@ constexpr int kRowInnerSpacing = 6;
 constexpr int kCompactWidth = 520;
 constexpr int kWorkspaceMinWidth = 820;
 constexpr int kWorkspaceMaxWidth = 1120;
-constexpr int kRunningWidth = 220;
 /// 右栏宽度的**下限 / 上限**。真正用多少按工作区宽度算（见 `kDetailWidthPercent`），
 /// 窗口再宽也不停在 260。
 constexpr int kDetailWidth = 260;
@@ -484,16 +483,12 @@ QString TaskCenter::timeText(const QDateTime &when) {
 
 TaskCenterPanel::TaskCenterPanel(QWidget *anchor, const TaskCenter::ItemProvider &provider,
                                  const TaskCenter::ClearFinishedHandler &onClear,
-                                 const TaskCenter::RunningProvider &runningProvider,
-                                 const TaskCenter::RunningActionHandler &runningAction,
                                  const OutsidePressHandler &onOutsidePress, QWidget *parent,
                                  bool embedded)
     : QWidget(parent, embedded ? Qt::Widget : Qt::Popup | Qt::FramelessWindowHint),
       m_anchor(anchor),
       m_provider(provider),
       m_onClear(onClear),
-      m_runningProvider(runningProvider),
-      m_runningAction(runningAction),
       m_onOutsidePress(onOutsidePress),
       m_embedded(embedded) {
     setObjectName(MainWindowUI::taskCenterPanelName());
@@ -515,17 +510,6 @@ TaskCenterPanel::TaskCenterPanel(QWidget *anchor, const TaskCenter::ItemProvider
     auto *toolbar = new QHBoxLayout(m_toolbar);
     toolbar->setContentsMargins(0, 0, 0, 0);
     toolbar->setSpacing(8);
-    // 「运行中的进程」那一栏的开关摆在工具条最前：按下 = 左栏露出来，弹起 = 整栏让给任务列表。
-    // 原来是左栏顶上一颗「收起 / 展开」，收起后那一栏只剩 36 px，按钮被竖着摆到半中间、字也被切。
-    m_collapseRunning = new QPushButton(tr("运行中的进程"), m_toolbar);
-    m_collapseRunning->setObjectName(QStringLiteral("taskCenterRunningCollapse"));
-    m_collapseRunning->setCheckable(true);
-    m_collapseRunning->setChecked(true);
-    // 鼠标点击不留下焦点框；Tab 仍可聚焦并用空格切换。
-    m_collapseRunning->setFocusPolicy(Qt::TabFocus);
-    m_collapseRunning->setFixedHeight(36);
-    Theme::markButton(m_collapseRunning, Theme::ButtonKind::Neutral);
-    toolbar->addWidget(m_collapseRunning);
     m_filter = new QComboBox(m_toolbar);
     m_filter->setFixedHeight(36);
     m_filter->setObjectName(QStringLiteral("taskCenterFilter"));
@@ -567,41 +551,6 @@ TaskCenterPanel::TaskCenterPanel(QWidget *anchor, const TaskCenter::ItemProvider
     outer->addLayout(workspace, 1);
     workspace->setContentsMargins(kPanelPadding, kPanelPadding, kPanelPadding, kPanelPadding);
     workspace->setSpacing(kSectionSpacing);
-
-    // 左列：运行中的进程。工具条上那颗开关可以把整列收掉，给任务列表让位置。
-    m_runningPane = new QWidget(this);
-    m_runningPane->setObjectName(QStringLiteral("taskCenterRunningPane"));
-    m_runningPane->setFixedWidth(kRunningWidth);
-    auto *runningLayout = new QVBoxLayout(m_runningPane);
-    runningLayout->setContentsMargins(0, 0, 0, 0);
-    runningLayout->setSpacing(kRowSpacing);
-    auto *runningHeader = new QHBoxLayout;
-    m_runningTitle = new QLabel(tr("运行中的进程"), m_runningPane);
-    m_runningTitle->setObjectName(QStringLiteral("taskCenterRunningTitle"));
-    runningHeader->addWidget(m_runningTitle);
-    runningHeader->addStretch(1);
-    runningLayout->addLayout(runningHeader);
-    m_runningScroll = new Theme::GutterScrollArea(m_runningPane);
-    m_runningScroll->setFrameShape(QFrame::NoFrame);
-    m_runningScroll->setWidgetResizable(true);
-    m_runningScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    m_runningContent = new QWidget(m_runningScroll);
-    m_runningContent->setLayout(new QVBoxLayout);
-    m_runningScroll->setWidget(m_runningContent);
-    runningLayout->addWidget(m_runningScroll, 1);
-    workspace->addWidget(m_runningPane);
-
-    connect(m_collapseRunning, &QPushButton::toggled, this, [this](bool expanded) {
-        // 这一发只可能是**用户亲手点的**：程序改写勾选状态的那几处都先摆了
-        // QSignalBlocker（见 `applyRunningCollapsed()`）—— 不挡的话"没有实例在跑所以默认
-        // 收起"那一发会被当成用户点过，之后实例真跑起来也再不自动展开。
-        m_runningUserToggled = true;
-        m_runningCollapsed = !expanded;
-        Anim::layoutTransition(this, [this]() {
-            applyRunningCollapsed();
-            place(false);
-        }, expanded);
-    });
 
     // 中列：按时间和状态排列的任务横行。
     m_scroll = new Theme::GutterScrollArea(this);
@@ -698,8 +647,6 @@ void TaskCenterPanel::applyWorkspaceMode() {
     if (!m_embedded) {
         return;
     }
-    m_runningPane->setVisible(!m_compact && !m_runningCollapsed);
-    m_collapseRunning->setVisible(!m_compact);  // 窄屏那一档没有左栏，开关也不露
     if (!m_compact) {
         m_scroll->show();
         m_detailPane->show();
@@ -709,7 +656,6 @@ void TaskCenterPanel::applyWorkspaceMode() {
     }
 
     // 窄屏不再尝试从已经打开的 OverlayHost 再开一层详情页：任务列表和详情在同一页内切换。
-    m_runningPane->hide();
     m_scroll->setVisible(!m_compactDetailOpen);
     m_detailPane->setVisible(m_compactDetailOpen);
     m_detailPane->setMinimumWidth(0);
@@ -730,34 +676,6 @@ void TaskCenterPanel::updateDetailPaneWidth() {
     }
     m_detailPane->setMinimumWidth(wanted);
     m_detailPane->setMaximumWidth(wanted);
-}
-
-void TaskCenterPanel::applyRunningCollapsed() {
-    m_runningPane->setVisible(!m_runningCollapsed && !(m_embedded && m_compact));
-    m_collapseRunning->setToolTip(m_runningCollapsed ? tr("显示运行中的进程")
-                                                     : tr("收起运行中的进程"));
-    m_collapseRunning->setAccessibleName(m_collapseRunning->toolTip());
-    // 勾选状态要和这一套对齐，但**不能惊动 toggled**：那一发是"用户点了"的专用通道。
-    const bool wantChecked = !m_runningCollapsed;
-    if (m_collapseRunning->isChecked() != wantChecked) {
-        const QSignalBlocker blocker(m_collapseRunning);
-        m_collapseRunning->setChecked(wantChecked);
-    }
-}
-
-void TaskCenterPanel::setRunningCollapsed(bool collapsed, bool animate) {
-    if (m_runningCollapsed == collapsed) {
-        return;
-    }
-    m_runningCollapsed = collapsed;
-    if (animate) {
-        Anim::layoutTransition(this, [this]() {
-            applyRunningCollapsed();
-            place(false);
-        }, !collapsed);
-        return;
-    }
-    applyRunningCollapsed();
 }
 
 void TaskCenterPanel::refresh() {
@@ -838,7 +756,6 @@ void TaskCenterPanel::place(bool animate) {
     const QRect available = screen != nullptr ? screen->availableGeometry() : QRect();
     if (available.isValid()) {
         m_scroll->setMaximumHeight(available.height() * kHeightPercent / 100 - 2 * kPanelPadding);
-        m_runningScroll->setMaximumHeight(m_scroll->maximumHeight());
         m_detailScroll->setMaximumHeight(m_scroll->maximumHeight());
     }
 
@@ -941,7 +858,6 @@ void TaskCenterPanel::rebuild() {
         m_onRowAction(m_selectedKey, TaskCenter::RowAction::Viewed);
     const QList<TaskCenter::Item> items =
         m_provider ? m_provider() : QList<TaskCenter::Item>();
-    rebuildRunning();
     QList<TaskCenter::Item> active;
     QList<TaskCenter::Item> finished;
     for (const TaskCenter::Item &item : items) {
@@ -1057,10 +973,9 @@ void TaskCenterPanel::rebuild() {
     rebuildDetail(items);
     syncSelection();
     // 面板**已经露着**的时候整块重建，新做出来的那些控件得自己 show 一下
-    // （理由全文在 `revealBuiltChildren()` 上面那段）。三个容器都要过一遍：
-    // 任务清单、运行中实例那一栏、右边详情。
+    // （理由全文在 `revealBuiltChildren()` 上面那段）。几个容器都要过一遍：
+    // 任务清单、右边详情。
     revealBuiltChildren(m_content);
-    revealBuiltChildren(m_runningContent);
     revealBuiltChildren(m_detailContent);
     revealBuiltChildren(m_detailFooter);
     // A top-aligned list needs no synchronous layout. Only settle geometry when
@@ -1136,103 +1051,6 @@ bool TaskCenterPanel::eventFilter(QObject *watched, QEvent *event) {
         static_cast<QMouseEvent *>(event)->button() == Qt::LeftButton)
         selectTask(QString());
     return QWidget::eventFilter(watched, event);
-}
-
-void TaskCenterPanel::rebuildRunning() {
-    auto *layout = qobject_cast<QVBoxLayout *>(m_runningContent != nullptr
-                                                  ? m_runningContent->layout()
-                                                  : nullptr);
-    if (layout == nullptr) {
-        return;
-    }
-    while (QLayoutItem *item = layout->takeAt(0)) {
-        delete item->widget();
-        delete item;
-    }
-    const QList<TaskCenter::RunningItem> rows =
-        m_runningProvider ? m_runningProvider() : QList<TaskCenter::RunningItem>();
-    // 左栏的默认姿态：没有实例在跑的时候，那一栏整列收掉（工具条上的开关弹起），别让一句
-    // 「当前没有运行中的实例」占着 220 px。实例跑起来之后**自动展开**（同一句判据的另一头）。
-    // NOTE: 用户亲手点过那颗按钮之后就不再替他做主（`m_runningUserToggled`）——
-    // 他展开就是想看着，下一次 rebuild 又收回去等于跟用户抢。
-    // NOTE: 这里**不走动效**：rebuild 可能发生在面板还没露头的时候，而且"重画一行"
-    // 顺手展开一下会看着像整块面板跳了。
-    if (!m_runningUserToggled) {
-        setRunningCollapsed(rows.isEmpty(), /*animate=*/false);
-    }
-    m_collapseRunning->setText(rows.isEmpty() ? tr("运行中的进程")
-                                              : tr("运行中的进程 %1").arg(rows.size()));
-    if (rows.isEmpty()) {
-        auto *empty = new QLabel(tr("当前没有运行中的进程"), m_runningContent);
-        empty->setWordWrap(true);
-        applyMutedFont(empty, -1);
-        layout->addWidget(empty);
-    }
-    for (const TaskCenter::RunningItem &item : rows) {
-        auto *card = new QWidget(m_runningContent);
-        card->setObjectName(QStringLiteral("taskCenterRunningRow"));
-        auto *column = new QVBoxLayout(card);
-        column->setContentsMargins(0, 6, 0, 6);
-        column->setSpacing(4);
-        auto *head = new QHBoxLayout;
-        if (!item.icon.isNull()) {
-            auto *icon = new QLabel(card);
-            icon->setPixmap(item.icon);
-            icon->setFixedSize(24, 24);
-            head->addWidget(icon, 0, Qt::AlignVCenter);
-        }
-        auto *texts = new QVBoxLayout;
-        auto *title = new ElidedLabel(card);
-        title->setText(item.title);
-        texts->addWidget(title);
-        if (!item.subtitle.isEmpty()) {
-            auto *subtitle = new ElidedLabel(card);
-            subtitle->setText(item.subtitle);
-            applyMutedFont(subtitle, -1);
-            if (item.liveSubtitle) {
-                subtitle->setToolTip(item.subtitle);
-                auto *timer = new QTimer(subtitle);
-                connect(timer, &QTimer::timeout, subtitle, [subtitle, provider = item.liveSubtitle] {
-                    if (!subtitle->isVisible()) return;
-                    const QString text = provider();
-                    subtitle->setText(text);
-                    subtitle->setToolTip(text);
-                });
-                timer->start(1000);
-            }
-            texts->addWidget(subtitle);
-        }
-        head->addLayout(texts, 1);
-        column->addLayout(head);
-        if (!item.actions.isEmpty()) {
-            auto *actions = new QHBoxLayout;
-            actions->addStretch(1);
-            for (const TaskCenter::RunningAction &action : item.actions) {
-                auto *button = new QPushButton(card);
-                if (!action.icon.isNull()) {
-                    button->setIcon(QIcon(action.icon));
-                    button->setIconSize(action.icon.size());
-                    Theme::markIconButton(button);
-                } else {
-                    button->setText(action.text);
-                    Theme::markButton(button, Theme::ButtonKind::Ghost);
-                }
-                button->setEnabled(action.enabled);
-                button->setToolTip(action.tooltip);
-                const QString key = item.key;
-                const int actionId = action.action;
-                connect(button, &QPushButton::clicked, button, [this, key, actionId]() {
-                    if (m_runningAction) {
-                        m_runningAction(key, actionId);
-                    }
-                });
-                actions->addWidget(button);
-            }
-            column->addLayout(actions);
-        }
-        layout->addWidget(card);
-    }
-    layout->addStretch(1);
 }
 
 void TaskCenterPanel::rebuildDetail(const QList<TaskCenter::Item> &items) {

@@ -6,6 +6,7 @@
 #include "controllers/ServerWorkspaceController.hpp"
 #include "manage/InstanceMetaFile.hpp"
 #include "server/ServerProcess.hpp"
+#include "TitleBar.hpp"
 #include "controllers/ActivityCenterController.hpp"
 #include "controllers/LaunchController.hpp"
 #include "controllers/TaskDetailController.hpp"
@@ -288,6 +289,159 @@ void runBottomBarPanelTests() {
         }
     };
 
+    // 轨底运行状态入口（issue #85）：count 个进程在跑时，图标轨和展开轨各量一遍。
+    // 量三件事：入口可见且计数对；点开的面板贴着入口、行数 = 计数；两种轨之间入口不跳位。
+    // 窗口先拉到 1280（窄于 1024 时轨被强制收起，展不开），量完还原。
+    int runEntryTop[2] = {0, 0};
+    int runEntryHeight[2] = {0, 0};
+    const Qt::FocusPolicy runEntryFocusPolicy =
+        instancesButton != nullptr ? instancesButton->focusPolicy() : Qt::NoFocus;
+    const auto checkRunEntry = [&](const QString &tag, int count) {
+        auto *rail = w.findChild<TitleBar *>();
+        QWidget *footer = w.ui() != nullptr ? w.ui()->getBottomBar() : nullptr;
+        check(rail != nullptr && footer != nullptr && instancesButton != nullptr,
+              tag + QStringLiteral(" 找得到导航轨、轨底和运行状态入口"));
+        if (rail == nullptr || footer == nullptr || instancesButton == nullptr) {
+            return;
+        }
+        const QSize oldSize = w.size();
+        w.resize(1280, qMax(w.height(), 800));
+        QApplication::processEvents();
+        for (const bool expanded : {false, true}) {
+            rail->setCollapsed(!expanded);
+            QApplication::processEvents();
+            const QString stage = tag + (expanded ? QStringLiteral(" 展开轨") : QStringLiteral(" 图标轨"));
+            QLabel *label = byObjectName<QLabel>(&w, MainWindowUI::runStateLabelName());
+            QWidget *textBox = instancesButton->findChild<QWidget *>(QStringLiteral("runStateText"));
+            check(instancesButton->isVisible() &&
+                      instancesButton->accessibleName() == MainWindowUI::runStateRunningCountText(count),
+                  stage + QStringLiteral("：入口可见，进程数 = ") + QString::number(count),
+                  QStringLiteral("可见 %1 / 读屏 %2")
+                      .arg(instancesButton->isVisible())
+                      .arg(instancesButton->accessibleName()));
+            const bool shapeOk = expanded
+                ? instancesButton->width() == TitleBar::navItemWidth() && textBox != nullptr &&
+                      textBox->isVisible() && label != nullptr &&
+                      label->text() == MainWindowUI::runStateRunningCountText(count)
+                : instancesButton->width() < 80 && textBox != nullptr && !textBox->isVisible();
+            check(shapeOk, stage + QStringLiteral("：样子对（展开 = 整格带字，图标轨 = 只剩图标）"),
+                  QStringLiteral("宽 %1").arg(instancesButton->width()));
+            check(instancesButton->toolTip() == MainWindowUI::bottomBarRunPanelTip(),
+                  stage + QStringLiteral("：悬停提示沿用 bottomBarRunPanelTip()"), instancesButton->toolTip());
+            // 入口和工具箱不重叠，同在轨里。
+            QWidget *tools = w.ui()->getToolboxButton();
+            const int top = instancesButton->mapTo(footer, QPoint(0, 0)).y();
+            runEntryTop[expanded ? 1 : 0] = top;
+            runEntryHeight[expanded ? 1 : 0] = instancesButton->height();
+            check(tools != nullptr && top + instancesButton->height() <= tools->mapTo(footer, QPoint(0, 0)).y() &&
+                      instancesButton->mapTo(footer, QPoint(0, 0)).x() + instancesButton->width() <= footer->width(),
+                  stage + QStringLiteral("：入口在工具箱上面、没挤压它、没伸出轨外"));
+            // 面板贴着这颗入口弹出：左边缘对齐、落在入口上方；行数 = 进程数。
+            QWidget *panel = openPanel(instancesButton);
+            const QPoint buttonTopLeft = instancesButton->mapToGlobal(QPoint(0, 0));
+            check(panel != nullptr && panel->isVisible() && panel->x() == buttonTopLeft.x() &&
+                      panel->geometry().bottom() < buttonTopLeft.y() &&
+                      !rowTitle(panel, count - 1).isEmpty() && rowTitle(panel, count).isEmpty(),
+                  stage + QStringLiteral("：面板贴着入口弹出，行数 = 进程数"),
+                  panel == nullptr ? QStringLiteral("没弹出")
+                                   : QStringLiteral("面板 x=%1 底=%2 / 入口 x=%3 顶=%4")
+                                         .arg(panel->x()).arg(panel->geometry().bottom())
+                                         .arg(buttonTopLeft.x()).arg(buttonTopLeft.y()));
+            if (panel != nullptr) {
+                panel->close();
+                QApplication::processEvents();
+                QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            }
+            // 键盘：焦点环只在键盘焦点属性为真时画；Tab 到入口后回车、空格各开一次面板。
+            instancesButton->setFocus(Qt::TabFocusReason);
+            instancesButton->setProperty("wtfmlKeyboardFocus", false);
+            instancesButton->update();
+            const QImage plain = instancesButton->grab().toImage();
+            instancesButton->setProperty("wtfmlKeyboardFocus", true);
+            instancesButton->update();
+            const QImage ringed = instancesButton->grab().toImage();
+            check(instancesButton->hasFocus() && plain != ringed,
+                  stage + QStringLiteral("：有键盘焦点时画焦点环，没有时不画"));
+            instancesButton->setProperty("wtfmlKeyboardFocus", false);
+            for (const int key : {int(Qt::Key_Return), int(Qt::Key_Space)}) {
+                instancesButton->setFocus(Qt::TabFocusReason);
+                QKeyEvent down(QEvent::KeyPress, key, Qt::NoModifier);
+                QApplication::sendEvent(instancesButton, &down);
+                QKeyEvent up(QEvent::KeyRelease, key, Qt::NoModifier);
+                QApplication::sendEvent(instancesButton, &up);
+                QApplication::processEvents();
+                QWidget *byKey = w.findChild<QWidget *>(MainWindowUI::bottomBarPanelName());
+                check(byKey != nullptr && byKey->isVisible(),
+                      stage + (key == Qt::Key_Return ? QStringLiteral("：回车打开面板") : QStringLiteral("：空格打开面板")));
+                if (byKey != nullptr) {
+                    byKey->close();
+                    QApplication::processEvents();
+                    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+                }
+            }
+        }
+        check(runEntryTop[0] == runEntryTop[1],
+              tag + QStringLiteral("：展开轨与图标轨之间入口不跳位"),
+              QStringLiteral("图标轨顶 %1 / 展开轨顶 %2").arg(runEntryTop[0]).arg(runEntryTop[1]));
+        rail->setCollapsed(true);
+        w.resize(oldSize);
+        QApplication::processEvents();
+    };
+    // 没有进程：入口照旧在（常驻，几何和有进程时一样），写「未运行」，点不开，焦点策略不变。
+    const auto checkRunEntryIdle = [&](const QString &tag) {
+        auto *rail = w.findChild<TitleBar *>();
+        QWidget *footer = w.ui() != nullptr ? w.ui()->getBottomBar() : nullptr;
+        QWidget *tools = w.ui() != nullptr ? w.ui()->getToolboxButton() : nullptr;
+        if (rail == nullptr || footer == nullptr || tools == nullptr || instancesButton == nullptr) {
+            check(false, tag + QStringLiteral(" 找得到轨底的几颗入口"));
+            return;
+        }
+        const QSize oldSize = w.size();
+        w.resize(1280, qMax(w.height(), 800));
+        QApplication::processEvents();
+        for (const bool expanded : {false, true}) {
+            rail->setCollapsed(!expanded);
+            QApplication::processEvents();
+            const QString stage = tag + (expanded ? QStringLiteral(" 展开轨") : QStringLiteral(" 图标轨"));
+            QLabel *label = byObjectName<QLabel>(&w, MainWindowUI::runStateLabelName());
+            QWidget *textBox = instancesButton->findChild<QWidget *>(QStringLiteral("runStateText"));
+            check(instancesButton->isVisible() &&
+                      instancesButton->accessibleName() == MainWindowUI::runStateNotRunningText(),
+                  stage + QStringLiteral("：入口常驻，读屏写「未运行」"), instancesButton->accessibleName());
+            check(instancesButton->toolTip() == MainWindowUI::runStateNotRunningText(),
+                  stage + QStringLiteral("：悬停提示「未运行」"), instancesButton->toolTip());
+            check(expanded ? (textBox != nullptr && textBox->isVisible() && label != nullptr &&
+                              label->isVisible() && label->text() == MainWindowUI::runStateNotRunningText())
+                           : (instancesButton->width() < 80 && textBox != nullptr && !textBox->isVisible()),
+                  stage + QStringLiteral("：展开轨写「未运行」，图标轨只剩弱化图标"));
+            const int top = instancesButton->mapTo(footer, QPoint(0, 0)).y();
+            check(top == runEntryTop[expanded ? 1 : 0] &&
+                      instancesButton->height() == runEntryHeight[expanded ? 1 : 0] &&
+                      top + instancesButton->height() <= tools->mapTo(footer, QPoint(0, 0)).y(),
+                  stage + QStringLiteral("：空闲与运行中几何一样，进程起停时轨上不跳位"),
+                  QStringLiteral("顶 %1 / 运行时 %2，高 %3 / %4")
+                      .arg(top).arg(runEntryTop[expanded ? 1 : 0])
+                      .arg(instancesButton->height()).arg(runEntryHeight[expanded ? 1 : 0]));
+            check(!w.ui()->runPanelAvailable() &&
+                      instancesButton->focusPolicy() == runEntryFocusPolicy,
+                  stage + QStringLiteral("：空闲时点不开，焦点策略不随状态变"));
+            instancesButton->setFocus(Qt::TabFocusReason);
+            for (const int key : {int(Qt::Key_Return), int(Qt::Key_Space)}) {
+                QKeyEvent down(QEvent::KeyPress, key, Qt::NoModifier);
+                QApplication::sendEvent(instancesButton, &down);
+                QKeyEvent up(QEvent::KeyRelease, key, Qt::NoModifier);
+                QApplication::sendEvent(instancesButton, &up);
+                QApplication::processEvents();
+            }
+            QWidget *opened = w.findChild<QWidget *>(MainWindowUI::bottomBarPanelName());
+            check(opened == nullptr || !opened->isVisible(),
+                  stage + QStringLiteral("：空闲时回车、空格什么也不弹"));
+        }
+        rail->setCollapsed(true);
+        w.resize(oldSize);
+        QApplication::processEvents();
+    };
+
     // ---- AH1 三份会话（同一个实例开两份 + 另一个实例一份）----
     EffectiveJavaSettings holderSettings;
     // javaPath = **这个 exe 自己**，argv 里那一个词让它睡够四分钟（见 main() 开头）。
@@ -338,12 +492,12 @@ void runBottomBarPanelTests() {
         // 重画过底栏"的证人 —— 少了它，下面 AH6 那条"停光了点不开"改成"永远点不开"
         // 也能绿。
         check(instancesButton != nullptr &&
-                  !instancesButton->testAttribute(Qt::WA_TransparentForMouseEvents),
+                  w.ui()->runPanelAvailable(),
               "AH2 有会话在跑时，左下那一格点得开（鼠标收得到）",
               instancesButton == nullptr
                   ? QStringLiteral("<没找到那颗按钮>")
                   : QStringLiteral("收鼠标 %1")
-                        .arg(instancesButton->testAttribute(Qt::WA_TransparentForMouseEvents)
+                        .arg(!w.ui()->runPanelAvailable()
                                  ? QStringLiteral("是")
                                  : QStringLiteral("不是")));
         QWidget *panel = openPanel(instancesButton);
@@ -395,6 +549,9 @@ void runBottomBarPanelTests() {
                   "AH2 行尾就三颗（多一颗说明编号和产品对不上了）");
         }
     }
+
+    // ---- AH2b 三份会话（同实例多开 + 另一个实例）在两种轨下的运行状态入口 ----
+    checkRunEntry(QStringLiteral("AH2b 三份会话"), 3);
 
     // ---- AH3 齿轮：开的是**这一行那个实例**的设置 ----
     // 点的是第 0 行（a1.2.6），而"当前选中的实例"是另一个 —— 标题里写的是哪一个，
@@ -588,12 +745,12 @@ void runBottomBarPanelTests() {
     // 发 gameFinished → MainWindow 重画底栏 → setRunPanelAvailable(false)。
     {
         check(instancesButton != nullptr &&
-                  instancesButton->testAttribute(Qt::WA_TransparentForMouseEvents),
+                  !w.ui()->runPanelAvailable(),
               "AH6 一份会话都没在跑时，左下那一格点不开了（鼠标收不到）",
               instancesButton == nullptr
                   ? QStringLiteral("<没找到那颗按钮>")
                   : QStringLiteral("收鼠标 %1")
-                        .arg(instancesButton->testAttribute(Qt::WA_TransparentForMouseEvents)
+                        .arg(!w.ui()->runPanelAvailable()
                                  ? QStringLiteral("是")
                                  : QStringLiteral("不是")));
         if (instancesButton != nullptr) {
@@ -602,6 +759,7 @@ void runBottomBarPanelTests() {
             check(w.findChild<QWidget *>(MainWindowUI::bottomBarPanelName()) == nullptr,
                   "AH6 点它**什么都不弹**（不是弹一块只有那句空话的面板）");
         }
+        checkRunEntryIdle(QStringLiteral("AH6d 进程全部结束后"));
     }
 
     // ---- AH6b 服务端 + 客户端混排进运行进程面板与任务中心「运行中的进程」----
@@ -635,9 +793,10 @@ void runBottomBarPanelTests() {
                   "AH6b 假服务端起来了");
             check(runStateLbl->text() == MainWindowUI::runStateRunningCountText(1)
                       && instancesButton != nullptr
-                      && !instancesButton->testAttribute(Qt::WA_TransparentForMouseEvents),
+                      && w.ui()->runPanelAvailable(),
                   "★★ AH6b 只有服务端在跑时左下角显示「1 个进程运行中」且面板可展开",
                   runStateLbl->text());
+            checkRunEntry(QStringLiteral("AH6b 只有服务端"), 1);
 
             // 隔至少 25ms 再起一个客户端会话，确保客户端启动时间更晚、混排排第 0 行
             QThread::msleep(30);
@@ -647,6 +806,7 @@ void runBottomBarPanelTests() {
             repaintBottomBar(&w);
             check(runStateLbl->text() == MainWindowUI::runStateRunningCountText(2),
                   "★★ AH6b 1 客户端 + 1 服务端合计显示「2 个进程运行中」", runStateLbl->text());
+            checkRunEntry(QStringLiteral("AH6b 客户端 + 服务端"), 2);
 
             QWidget *panel = openPanel(instancesButton);
             check(rowTitle(panel, 0) == QStringLiteral("1.20.1")
@@ -676,7 +836,7 @@ void runBottomBarPanelTests() {
                 QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
             }
 
-            // 验证任务中心「运行中的进程」栏
+            // 任务中心里不再有「运行中的进程」栏（统一从轨底入口查看）
             if (auto *summaryBtn = w.findChild<QPushButton *>(MainWindowUI::taskSummaryButtonName())) {
                 summaryBtn->click();
                 QApplication::processEvents();
@@ -684,19 +844,9 @@ void runBottomBarPanelTests() {
                 QApplication::processEvents();
             }
             if (QWidget *tcPanel = w.findChild<QWidget *>(MainWindowUI::taskCenterPanelName())) {
-                auto *tcTitle = tcPanel->findChild<QLabel *>(QStringLiteral("taskCenterRunningTitle"));
-                auto *tcToggle =
-                    w.findChild<QPushButton *>(QStringLiteral("taskCenterRunningCollapse"));
-                const int tcRows =
-                    tcPanel->findChildren<QWidget *>(QStringLiteral("taskCenterRunningRow")).size();
-                check(tcTitle != nullptr && tcTitle->text() == QStringLiteral("运行中的进程")
-                          && tcToggle != nullptr
-                          && tcToggle->text() == QStringLiteral("运行中的进程 2") && tcRows == 2,
-                      "★★ AH6b 任务中心左栏改名「运行中的进程 2」并同步列出客户端+服务端",
-                      QStringLiteral("title=%1 toggle=%2 rows=%3")
-                          .arg(tcTitle ? tcTitle->text() : QString(),
-                               tcToggle ? tcToggle->text() : QString())
-                          .arg(tcRows));
+                check(tcPanel->findChild<QWidget *>(QStringLiteral("taskCenterRunningPane")) == nullptr &&
+                          w.findChild<QPushButton *>(QStringLiteral("taskCenterRunningCollapse")) == nullptr,
+                      "★★ AH6b 任务中心没有「运行中的进程」栏和它的开关（有进程在跑也一样）");
                 if (w.ui() != nullptr && w.ui()->overlay() != nullptr && w.ui()->overlay()->isOpen()) {
                     w.ui()->overlay()->evict();
                     QApplication::processEvents();
@@ -740,6 +890,21 @@ void runBottomBarPanelTests() {
             pumpUntil([manager] { return manager->runningGames().isEmpty(); }, 5000);
         }
         QDir(AppPaths::serversDir()).removeRecursively();
+    }
+
+    // ---- AH6e 只开一个客户端、同一个实例多开：入口计数跟着变 ----
+    {
+        const int single = manager->startGame(holderArgs, holderSettings, releaseId, QStringLiteral("1.20.1"));
+        repaintBottomBar(&w);
+        checkRunEntry(QStringLiteral("AH6e 一个客户端"), 1);
+        const int again = manager->startGame(holderArgs, holderSettings, releaseId, QStringLiteral("1.20.1"));
+        repaintBottomBar(&w);
+        checkRunEntry(QStringLiteral("AH6e 同一实例多开"), 2);
+        manager->stopGame(single);
+        manager->stopGame(again);
+        pumpUntil([manager] { return manager->runningGames().isEmpty(); }, 5000);
+        repaintBottomBar(&w);
+        checkRunEntryIdle(QStringLiteral("AH6e 全部结束后"));
     }
 
     {

@@ -44,7 +44,7 @@ int MwActivitySelectionCheck() {
             if (button) button->click();
             expect(requested, "repair detail button dispatches the original task key and explicit repair action");
             TaskCenterPanel panel(nullptr, [&] { return QList<TaskCenter::Item>{item}; },
-                {}, {}, {}, {}, nullptr, true);
+                {}, {}, nullptr, true);
             bool panelRequested = false;
             panel.setRowActionHandler([&](const QString &key, TaskCenter::RowAction action) {
                 panelRequested = key == item.key && action == TaskCenter::RowAction::RepairImport;

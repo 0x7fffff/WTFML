@@ -1222,7 +1222,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
                      [button = QPointer<QPushButton>(toolboxButton)](int index) {
                          if (button) button->setChecked(index == toolboxTabIndex());
                      });
-    // 图标轨：任务卡只剩进度环、实例状态那格收起、工具箱只剩图标（tokens.md 第 7 节）。
+    // 图标轨：任务卡只剩进度环、运行状态那格只剩图标和进程数（常驻，空闲时图标弱化）、工具箱只剩图标（tokens.md 第 7 节）。
     const auto applyRailCollapsed = [this](bool collapsed) {
         if (auto *text = taskSummaryButton->findChild<QWidget *>(QStringLiteral("taskSummaryText"))) {
             text->setVisible(!collapsed);
@@ -1230,7 +1230,6 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         if (auto *card = taskSummaryButton->layout()) {
             card->setContentsMargins(collapsed ? QMargins(8, 8, 8, 8) : QMargins(10, 8, 10, 8));
         }
-        runStateButton->setVisible(m_runStateActive && !collapsed);
         m_railCollapsed = collapsed;
         // 图标轨里任务卡只剩进度环：没有任务时也把环留着，否则整颗按钮会缩成一块白框。
         if (progressBar != nullptr) {

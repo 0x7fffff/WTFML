@@ -493,6 +493,87 @@ protected:
     }
 };
 
+/// 轨底「运行状态」那颗按钮。展开轨里是整格（状态方块 + 两行字，装在 `runStateText` 里）；
+/// 图标轨里（宽度 < 80，判据和工具箱那颗一致）文字收起，只画一枚运行图标和进程数徽标。
+/// 两种样子只看**此刻的宽度**，所以轨在 64 和 208 之间做宽度动画时，交接是连续的、没有切换那一帧。
+/// 这一格常驻（issue #85）：进程起停时轨上不增减元素、几何不变；空闲时图标轨画弱化的同一枚图标、不带数字。
+class RunStateButton : public QPushButton {
+public:
+    using QPushButton::QPushButton;
+    static QString textBoxName() { return QStringLiteral("runStateText"); }
+    int count() const { return m_count; }
+    /// 在跑的进程数（客户端、服务端合计）。0 = 空闲。
+    void setCount(int count) {
+        if (m_count == count) return;
+        m_count = count;
+        // 图标轨里没有文字，读屏靠这一句。
+        setAccessibleName(count > 0 ? MainWindowUI::runStateRunningCountText(count)
+                                    : MainWindowUI::runStateNotRunningText());
+        update();
+    }
+
+protected:
+    void showEvent(QShowEvent *event) override {
+        QPushButton::showEvent(event);
+        syncText();
+    }
+    void resizeEvent(QResizeEvent *event) override {
+        QPushButton::resizeEvent(event);
+        syncText();
+    }
+    /// 回车也算一次点击（空格 QAbstractButton 自己认）。
+    void keyPressEvent(QKeyEvent *event) override {
+        if (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter) {
+            click();
+            return;
+        }
+        QPushButton::keyPressEvent(event);
+    }
+    void paintEvent(QPaintEvent *event) override {
+        QPushButton::paintEvent(event);  // 悬停 / 按下的底（样式表）
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        if (compact()) {
+            // 取主题的 ok 色（浅色主题是加深的 #2E875A）：图标和徽标没有字那样的容错，浅色底上要 3:1。
+            const QColor ok = m_count > 0 ? Theme::tokens().ok : Theme::tokens().disabled;
+            const QRectF icon((width() - 20) / 2.0, (height() - 20) / 2.0, 20, 20);
+            VersionIcons::paintLine(p, QStringLiteral("play"), icon, ok);
+            const int count = m_count;
+            if (count > 0) {
+                const QString text = count > 99 ? QStringLiteral("99+") : QString::number(count);
+                QFont badgeFont = font();
+                badgeFont.setPixelSize(10);
+                badgeFont.setWeight(QFont::DemiBold);
+                const int badgeHeight = 14;
+                const int badgeWidth = qMax(badgeHeight, QFontMetrics(badgeFont).horizontalAdvance(text) + 8);
+                const QRectF badge(icon.right() + 7 - badgeWidth, icon.top() - 5, badgeWidth, badgeHeight);
+                p.setPen(Qt::NoPen);
+                p.setBrush(ok);
+                p.drawRoundedRect(badge, badgeHeight / 2.0, badgeHeight / 2.0);
+                p.setFont(badgeFont);
+                p.setPen(Theme::tokens().onPrimary);
+                p.drawText(badge, Qt::AlignCenter, text);
+            }
+        }
+        if (hasFocus() && property("wtfmlKeyboardFocus").toBool()) {
+            QPen ring(Theme::focusRingColor(palette()));
+            ring.setWidthF(2.0);
+            p.setPen(ring);
+            p.setBrush(Qt::NoBrush);
+            p.drawRoundedRect(QRectF(rect()).adjusted(1, 1, -1, -1), Theme::controlRadius(), Theme::controlRadius());
+        }
+    }
+
+private:
+    int m_count = 0;
+    bool compact() const { return width() < 80; }
+    void syncText() {
+        if (QWidget *text = findChild<QWidget *>(textBoxName(), Qt::FindDirectChildrenOnly)) {
+            text->setVisible(!compact());
+        }
+    }
+};
+
 /// 底栏按钮身上那个"跟随登记只做过一次"的印记（见 `applyBottomBarButtonStyle()` 里的闸门）。
 constexpr const char kBottomBarButtonFollowedProperty[] = "wtfmlThemeFollowed";
 
@@ -526,7 +607,10 @@ void applyBottomBarButtonStyle(QPushButton *button, const QPalette &barPalette) 
         QStringLiteral("QPushButton { border: none; background: transparent; text-align: left; "
                        "padding: %3; border-radius: %4px; min-height: %5px; }"
                        "QPushButton:hover { background-color: %1; }"
-                       "QPushButton:pressed { background-color: %2; }")
+                       "QPushButton:pressed { background-color: %2; }"
+                       // 运行状态入口空闲时：不高亮、不按下去（见 setRunPanelAvailable()）
+                       "QPushButton[wtfmlIdle=\"true\"]:hover, QPushButton[wtfmlIdle=\"true\"]:pressed "
+                       "{ background-color: transparent; }")
             .arg(hover.name(QColor::HexArgb), pressed.name(QColor::HexArgb),
                  compact ? QStringLiteral("0 12px") : QStringLiteral("0"))
             .arg(Theme::controlRadius())
@@ -1208,22 +1292,29 @@ void MainWindowUI::setupBottomBar(QWidget *parent) {
     // 钉在按钮上，这一格就一直在。
     // 按钮里那个 layout 的边距要显式清成 0：**套在控件里的 layout 默认会拿样式给的
     // 边距**（套在 layout 里的不会），不清的话这格是 200 加左右两条边距。
-    runStateButton = new QPushButton(bottomBar);
+    runStateButton = new RunStateButton(bottomBar);
     runStateButton->setObjectName(runStateButtonName());
-    runStateButton->setFixedWidth(MainWindowUI::bottomBarRunStateColumnWidth());
+    // 展开轨里整格 184，图标轨里跟着轨走（轨宽动画途中也连续），所以只封顶、不钉死。
+    runStateButton->setMinimumWidth(0);
+    runStateButton->setMaximumWidth(MainWindowUI::bottomBarRunStateColumnWidth());
     // NOTE: **竖直方向必须自己说要铺满**。QPushButton 的竖直 sizePolicy 默认是 Fixed，
     // 而它这会儿的高度提示只有一行字那么点（QSS 把 padding 和 border 都清零了，
     // sizeHint 高 12 px）—— 结果这一格只有 12 px 高，里面那两行字被压成各 6 px
     // （"文字和箭头挤在一起、显示不全"），鼠标划过时那块
     // 高亮框也成了一长条。宽度钉死 + 高度铺满，这一格才真的是"占住底栏那一块"。
-    runStateButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
+    runStateButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     runStateButton->setCursor(Qt::PointingHandCursor);
     runStateButton->setToolTip(MainWindowUI::bottomBarRunPanelTip());
     applyBottomBarButtonStyle(runStateButton, bottomBar->palette());
     QHBoxLayout *runStateRow = new QHBoxLayout(runStateButton);
     runStateRow->setContentsMargins(12, 4, 8, 4);
     runStateRow->setSpacing(MainWindowUI::bottomBarChevronSpacing());
-    runStateRow->addLayout(runStateLayout, 1);
+    // 文字那一块装在一个透明格子里：图标轨里整块收起（见 RunStateButton），只画图标和进程数。
+    auto *runStateTextBox = new QWidget(runStateButton);
+    runStateTextBox->setObjectName(RunStateButton::textBoxName());
+    runStateTextBox->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+    runStateTextBox->setLayout(runStateLayout);
+    runStateRow->addWidget(runStateTextBox, 1);
     // 右侧不挂朝上的小箭头（体验反馈 8）：点得开由悬停底色、手型指针和悬停提示说明。
 
     // 没有实例在跑时这几样藏着。**藏的是字和那颗方块，不是格子** —— 格子（上面那颗
@@ -1501,6 +1592,9 @@ void MainWindowUI::setupBottomBar(QWidget *parent) {
     barLayout->addWidget(taskSummaryButton);
     barLayout->addWidget(runStateButton);
     barLayout->addWidget(toolboxButton);
+    // Tab 顺序和竖排一致：任务卡 → 运行状态 → 工具箱（运行状态是先建的，默认会排到任务卡前面）。
+    QWidget::setTabOrder(taskSummaryButton, runStateButton);
+    QWidget::setTabOrder(runStateButton, toolboxButton);
 }
 
 QString MainWindowUI::folderActionText(int action) {
@@ -1907,44 +2001,10 @@ void MainWindowUI::openTaskCenterPanel() {
             toggleBottomBarPanel(hit);
         }
     };
-    const TaskCenter::RunningProvider runningProvider = [this]() {
-        QList<TaskCenter::RunningItem> result;
-        const QList<PanelRow> rows =
-            m_panelRowsProvider ? m_panelRowsProvider(false) : QList<PanelRow>();
-        for (const PanelRow &row : rows) {
-            if (row.placeholder) {
-                continue;
-            }
-            TaskCenter::RunningItem item;
-            item.key = row.key;
-            item.icon = row.icon;
-            item.title = row.title;
-            item.subtitle = row.subtitle;
-            item.liveSubtitle = row.liveSubtitle;
-            for (int i = 0; i < row.actions.size(); ++i) {
-                const PanelAction &source = row.actions.at(i);
-                TaskCenter::RunningAction action;
-                action.icon = source.icon;
-                action.text = source.text;
-                action.tooltip = source.tooltip;
-                action.enabled = source.enabled;
-                action.action = i;
-                item.actions.append(action);
-            }
-            result.append(item);
-        }
-        return result;
-    };
-    const TaskCenter::RunningActionHandler runningAction =
-        [this](const QString &key, int action) {
-            if (m_panelActionHandler) {
-                m_panelActionHandler(false, key, action);
-            }
-        };
     if (overlayHost->isOpen()) {
         // 覆盖页开着（实例设置等）时**不挤掉它**：任务中心作为提示层叠在上面，
         // 关掉就回原页，背景不重开、不播换页动画。
-        const auto openOverPage = [this, runningProvider, runningAction, onOutsidePress] {
+        const auto openOverPage = [this, onOutsidePress] {
         QWidget *content = overlayHost->openPrompt(true, /*fullSize=*/true);
         if (content == nullptr) return;
         auto *promptLayout = qobject_cast<QVBoxLayout *>(content->layout());
@@ -1956,8 +2016,8 @@ void MainWindowUI::openTaskCenterPanel() {
         workspaceLayout->setSpacing(8);
         promptLayout->addWidget(workspace, 1);
         auto *panel = new TaskCenterPanel(taskSummaryButton, m_taskCenterProvider,
-                                          m_taskCenterClearHandler, runningProvider,
-                                          runningAction, onOutsidePress, workspace, /*embedded=*/true);
+                                          m_taskCenterClearHandler, onOutsidePress,
+                                          workspace, /*embedded=*/true);
         panel->setRowActivatedHandler(m_taskCenterRowActivated);
         panel->setRowActionHandler(m_taskCenterRowAction);
         panel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
@@ -2001,7 +2061,7 @@ void MainWindowUI::openTaskCenterPanel() {
         Anim::layoutTransition(overlayHost->parentWidget(), openOverPage, true, tabWidget->geometry());
         return;
     }
-    const auto openNow = [this, runningProvider, runningAction, onOutsidePress]() {
+    const auto openNow = [this, onOutsidePress]() {
     QWidget *page = overlayHost->openPage(QCoreApplication::translate("MainWindowPanels", "任务中心"));
     if (page == nullptr) {
         return;
@@ -2012,8 +2072,8 @@ void MainWindowUI::openTaskCenterPanel() {
         return;
     }
     auto *panel = new TaskCenterPanel(taskSummaryButton, m_taskCenterProvider,
-                                      m_taskCenterClearHandler, runningProvider, runningAction,
-                                      onOutsidePress, page, /*embedded=*/true);
+                                      m_taskCenterClearHandler, onOutsidePress, page,
+                                      /*embedded=*/true);
     // 点一行进详情页。★ **要在 popUp() 之前挂**：`rebuild()`（popUp() 里第一件事）就是按
     // 这个处理器决定那几行"可不可点"的 —— 挂晚了的话这一面板里的行没手型光标、点了也没
     // 反应，得关掉重开一次才行。
@@ -2304,10 +2364,9 @@ void MainWindowUI::toggleActivityPopover() {
     popover->refresh();
 }
 
-void MainWindowUI::setRunStateActive(bool active) {
-    m_runStateActive = active;
-    if (runStateButton != nullptr) {
-        runStateButton->setVisible(active && (bar == nullptr || !bar->isCollapsed()));
+void MainWindowUI::setRunStateCount(int count) {
+    if (auto *button = dynamic_cast<RunStateButton *>(runStateButton)) {
+        button->setCount(count);
     }
 }
 
@@ -2316,12 +2375,16 @@ void MainWindowUI::setRunPanelAvailable(bool available) {
         return;
     }
     m_runPanelAvailable = available;
-    // 点不动的那一格**收的是鼠标**（理由见头文件里那段 NOTE：不用 setEnabled 是为了不让
-    // 里面那几行字跟着变灰）。顺带把 hover 高亮、手型指针、tooltip 一起收掉了 —— 它们
-    // 都挂在"这个控件收不收得到鼠标"上。
-    runStateButton->setAttribute(Qt::WA_TransparentForMouseEvents, !available);
-    // 点不动的格子不该再挂着"点一下向上展开实例列表"（鼠标都到不了它身上，也弹不出来）。
-    runStateButton->setToolTip(available ? MainWindowUI::bottomBarRunPanelTip() : QString());
+    // 点不动的那一格仍收鼠标：悬停要能显示「未运行」（图标轨里这一格没有字，靠它说明状态）。
+    // 点不开由 toggleBottomBarPanel() 里的 m_runPanelAvailable 把住；这里收掉手型指针和悬停 / 按下底色。
+    // 不用 setEnabled：那会让里面的字跟着变灰；焦点策略也不随状态变。
+    runStateButton->setCursor(available ? Qt::PointingHandCursor : Qt::ArrowCursor);
+    runStateButton->setProperty("wtfmlIdle", !available);
+    runStateButton->style()->unpolish(runStateButton);
+    runStateButton->style()->polish(runStateButton);
+    runStateButton->update();
+    runStateButton->setToolTip(available ? MainWindowUI::bottomBarRunPanelTip()
+                                         : MainWindowUI::runStateNotRunningText());
 }
 
 
