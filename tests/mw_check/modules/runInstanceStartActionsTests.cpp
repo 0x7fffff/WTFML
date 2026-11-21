@@ -1,5 +1,7 @@
 #include "Support.hpp"
 #include "TextMarks.hpp"
+#include "controllers/ActivityCenterController.hpp"
+#include "controllers/LaunchController.hpp"
 #include "util/SecretRedactor.hpp"
 void runInstanceStartActionsTests() {
     const QString originalDir = AppPaths::minecraftDir();
@@ -361,6 +363,52 @@ void runInstanceStartActionsTests() {
                       answerer4.answered.isEmpty() ? QString() : answerer4.answered.at(0).text);
                 check(readBytesAt(jarPathB) == realJarBytes,
                       "T19.6 它那个坏 jar 也换回来了");
+            }
+
+            {
+                auto *launcher = w.findChild<LaunchController *>();
+                auto *activity = w.findChild<ActivityCenterController *>();
+                check(launcher && activity, "T19 启动控制器与任务账本就绪");
+                if (launcher && activity) {
+                    auto *tasks = activity->tasks();
+                    const int selected = combo->findData(idA);
+                    combo->setCurrentIndex(selected);
+                    QFile::remove(libPath);
+                    writeFileAt(jarPathA, bogusJarA);
+                    bool reachedJava = false;
+                    const auto watch = QObject::connect(tasks, &Tasks::TaskManager::taskChanged, &w,
+                        [&](Tasks::TaskId id) {
+                            const auto row = tasks->snapshot(id);
+                            if (!reachedJava && row.kind == Tasks::TaskKind::Launch && row.steps.size() > 2
+                                && row.steps.at(2).state == Tasks::TaskStepState::Running) {
+                                reachedJava = true;
+                                launcher->abortStart(LaunchController::StartCancelSource::TaskCenter);
+                            }
+                        });
+                    PromptAnswerer answerer({0, 0});
+                    answerer.start();
+                    launcher->onStartButtonClicked();
+                    answerer.stop();
+                    QObject::disconnect(watch);
+                    check(reachedJava && readBytesAt(libPath) == realLibBytes
+                              && readBytesAt(jarPathA) == realJarBytes,
+                          "T19 启动时补回缺失的库和同大小的坏 JAR，再进入 Java 阶段");
+
+                    const QString remoteLibrary = remoteDir.filePath(QStringLiteral("maven/t19/t19lib-1.0.jar"));
+                    const bool removed = QFile::remove(libPath) && QFile::remove(remoteLibrary);
+                    check(removed, "T19 缺失的依赖库无法从测试源补回");
+                    PromptAnswerer failure({0});
+                    failure.start();
+                    launcher->onStartButtonClicked();
+                    failure.stop();
+                    check(!failure.answered.isEmpty() &&
+                              failure.answered.first().title == QStringLiteral("无法启动") &&
+                              failure.answered.first().text.contains(QStringLiteral("synth:t19lib:1.0")) &&
+                              !QFile::exists(libPath),
+                          "T19 补文件失败时停止启动并显示缺失的依赖库");
+                    writeFileAt(remoteLibrary, realLibBytes);
+                    writeFileAt(libPath, realLibBytes);
+                }
             }
 
             // ---------- ④ 没有 version.json：一句人话，而且一个批次都不开 ----------

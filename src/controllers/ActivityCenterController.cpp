@@ -52,12 +52,10 @@ void ActivityCenterController::loadHistory() {
     // （那一栏看的是落盘的 `attentionAcknowledged`）。两处说的不是一回事，用户就会漏掉
     // 那件真的失败过的事。
     //
-    // 重建的判据和 `finish()` 里那一句对齐（只认 Failed；Interrupted 是"启动器被关掉时
-    // 还在跑"，面板把它算进「需要处理」，但没有单独的红点语义），并且尊重已经落盘的
-    // `attentionAcknowledged`（点过「知道了」的不再变回未读）。
+    // 「需要处理」认详情确认，底栏红点还认列表里已经看过的失败。
     QSet<Tasks::TaskId> unread;
     for (const Tasks::TaskSnapshot &task : m_tasks.all()) {
-        if (task.state == Tasks::TaskState::Failed && !task.attentionAcknowledged) {
+        if (task.state == Tasks::TaskState::Failed && !task.failureSeen && !task.attentionAcknowledged) {
             unread.insert(task.id);
         }
     }
@@ -224,7 +222,7 @@ bool ActivityCenterController::markSeen(const QString &key) {
     bool ok = false;
     const auto id = key.toULongLong(&ok);
     if (!ok || !m_unreadFailures.remove(id)) return false;
-    emit activityChanged();
+    if (!m_tasks.markFailureSeen(id)) emit activityChanged();
     return true;
 }
 

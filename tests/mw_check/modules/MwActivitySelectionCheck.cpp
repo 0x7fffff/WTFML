@@ -95,6 +95,14 @@ int MwActivitySelectionCheck() {
         expect(activity.markSeen(QString::number(failed)), "visible failure clears unread indication");
         expect(!activity.item(activity.tasks()->snapshot(failed), false, false, false).attentionAcknowledged,
                "viewport visibility does not resolve attention");
+        {
+            ActivityCenterController seenOnly;
+            seenOnly.tasks()->setHistoryPath(path);
+            seenOnly.loadHistory();
+            expect(!seenOnly.isUnreadFailure(failed) && seenOnly.isUnreadFailure(other) &&
+                       !seenOnly.item(seenOnly.tasks()->snapshot(failed), false, false, false).attentionAcknowledged,
+                   "visible failure stays seen after restart and still needs attention");
+        }
         activity.markAllViewed();
         expect(!activity.item(activity.tasks()->snapshot(failed), false, false, false).attentionAcknowledged,
                "opening the task center does not acknowledge error attention");

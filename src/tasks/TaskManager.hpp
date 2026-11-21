@@ -101,6 +101,7 @@ public:
     /// 会话）。**不落盘**（见 `TaskSnapshot::sessionId`）。
     bool setSessionId(TaskId id, int sessionId);
     bool acknowledgeAttention(TaskId id);
+    bool markFailureSeen(TaskId id);
 
     /// 整表换掉步骤。
     bool setSteps(TaskId id, const QList<TaskStep> &steps);

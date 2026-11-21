@@ -396,6 +396,14 @@ bool TaskManager::acknowledgeAttention(TaskId id) {
     return true;
 }
 
+bool TaskManager::markFailureSeen(TaskId id) {
+    auto *task = find(id);
+    if (task == nullptr || task->state != TaskState::Failed || task->failureSeen) return false;
+    task->failureSeen = true;
+    touch(id, true);
+    return true;
+}
+
 bool TaskManager::setDetail(TaskId id, const QString &detail) {
     TaskSnapshot *task = find(id);
     if (task == nullptr || !isActiveState(task->state) || task->detail == detail) {
@@ -450,6 +458,12 @@ bool TaskManager::setStepState(TaskId id, int index, TaskStepState state, const 
     if (task == nullptr || !isActiveState(task->state) || index < 0
         || index >= task->steps.size()) {
         return false;
+    }
+    if (task->kind == TaskKind::Launch && state == TaskStepState::Done &&
+        task->steps.at(index).state == TaskStepState::Running) {
+        // 步骤结束与计数清零一起发布，避免进度先退回本步起点。
+        task->doneUnits = 0;
+        task->totalUnits = 0;
     }
     task->steps[index].state = state;
     task->steps[index].note = note;

@@ -30,6 +30,9 @@ public:
     /// @param source 谁要取消。它只决定日志那一句和任务终态，不改流程。任务中心与主页
     ///   卡片走 `TaskCenter`；关窗那一问走 `LauncherClosing`。
     void abortStart(StartCancelSource source);
+    bool ownsStartupRepair(const QString &versionId) const {
+        return !m_startupRepairVersion.isEmpty() && m_startupRepairVersion == versionId;
+    }
     /// 启动流程早退时给那件任务收尾（`TaskAbortGuard` 调的就是这一句）：中途被取消的
     /// 按「已取消」收（用户自己按的，不是失败），其余早退照旧按失败收。
     void finishAbortedStart(Tasks::TaskId launchTask, const QString &failReason = QString());
@@ -40,7 +43,10 @@ public:
     bool abortRequestedForTest() const { return m_abortRequested; }
     StartCancelSource cancelSourceForTest() const { return m_cancelSource; }
 private:
+ QString verifyStartupFiles(const QString &versionId, const QJsonObject &versionJson,
+                            Tasks::TaskId launchTask);
  MainWindow *m_owner = nullptr;
+ QString m_startupRepairVersion;
  /// 这一条启动路**此刻正在走**。判据在 `onStartButtonClicked()` 开头（见那儿的长注释）：
  /// 换令牌 / 下 Java 那两段同步等待里会转起嵌套事件循环，那个循环不排用户输入，
  /// 「启动」按钮照样点得动 —— 不挡的话同一条路会并行走两遍。
@@ -51,6 +57,6 @@ private:
  StartCancelSource m_cancelSource = StartCancelSource::None;
  /// 给 `GlobalJavaSettings::ensureJavaForVersion()` 的合作式取消位：它跑在工作线程上，
  /// 取消时靠这一位让下载循环在下一个数据块上停下并删掉半截压缩包。同样每趟开头清掉。
- std::atomic_bool m_abortJavaDownload{false};
+ std::atomic_bool m_abortWork{false};
 };
 

@@ -240,7 +240,10 @@ MainWindowUI::LaunchCard MainWindow::launchCardFor(const Tasks::TaskSnapshot &ta
     const bool counted = task.totalUnits > 0 && (step == 1 || step == 2);
     switch (step) {
     case 0: card.stage = tr("校验登录"); break;
-    case 1: card.stage = counted ? tr("补全文件与资源") : tr("检查文件"); break;
+    case 1:
+        card.stage = !task.detail.isEmpty() ? task.detail
+                    : (counted ? tr("补全文件与资源") : tr("检查文件"));
+        break;
     case 2: card.stage = tr("准备 Java"); break;
     default: card.stage = tr("等待游戏窗口"); break;
     }

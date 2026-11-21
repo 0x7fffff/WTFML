@@ -17,6 +17,7 @@
 #include "MainWindowUI.hpp"
 #include "OverlayHost.hpp"
 #include "controllers/InstallOccupancy.hpp"
+#include "controllers/LaunchController.hpp"
 #include "controllers/ActivityCenterController.hpp"
 #include "controllers/MainWindowViewData.hpp"
 #include "controllers/PresetController.hpp"
@@ -53,6 +54,7 @@ void DownloadCompletionController::clear() {
 
 void DownloadCompletionController::onFinished(const QString &versionId, bool success,
                                                const QString &errorMessage) {
+    if (m_owner.m_launchController->ownsStartupRepair(versionId)) return;
     // Keep the original installation task and busy guard alive until the asynchronous
     // preset download step completes. Re-enter once to use the existing finalization.
     if (success && m_owner.m_presetController && !m_modsReady &&

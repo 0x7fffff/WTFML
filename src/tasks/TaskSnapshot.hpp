@@ -132,6 +132,7 @@ struct TaskSnapshot {
     TaskCapabilities capabilities;
     QString errorSummary;   // 失败那一句话（只有 Failed 有）
     bool attentionAcknowledged = false; // 失败/中断详情已查看，与业务终态分开保存。
+    bool failureSeen = false;             // 失败已在列表里出现，用于跨会话隐藏红点。
 };
 
 // —— 下面几条都是**纯函数**（不看时钟、不看盘、不看 QObject）——
@@ -180,6 +181,18 @@ inline bool retryOffered(const TaskSnapshot &task, TaskId failedBatchOwner, bool
 /// 这条是验收里那句「无 Content-Length 的 Fabric 下载显示'已下载多少'，不显示假
 /// 百分比」的唯一出处。四分五裂地各写一遍"总数小于等于 0 就别画百分号"迟早会漏一处。
 inline int percentOf(const TaskSnapshot &task) {
+    if (task.kind == TaskKind::Launch && !task.steps.isEmpty()) {
+        if (task.state == TaskState::Succeeded) return 100;
+        qsizetype completed = 0;
+        while (completed < task.steps.size() &&
+               task.steps.at(completed).state == TaskStepState::Done) {
+            ++completed;
+        }
+        const double partial = completed < task.steps.size() && task.totalUnits > 0
+            ? double(qBound<qint64>(0, task.doneUnits, task.totalUnits)) / double(task.totalUnits)
+            : 0.0;
+        return int(100.0 * (double(completed) + partial) / double(task.steps.size()));
+    }
     if (task.totalUnits <= 0) {
         return -1;
     }

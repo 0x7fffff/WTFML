@@ -24,6 +24,8 @@
 #include <QMetaObject>
 #include <QPointer>
 #include <QScreen>
+#include <QScopeGuard>
+#include <QScopedValueRollback>
 #include <QThread>
 
 #include <atomic>
@@ -236,7 +238,11 @@ void LaunchController::abortStart(StartCancelSource source) {
     m_abortRequested = true;
     // 正在下 Java 运行时的（换令牌与 natives 之后那一大段）也一起停：那一段在工作线程上，
     // 它只认这个合作式取消位（见 `ensureJavaForVersion()` 里的 `cancel` 参数）。
-    m_abortJavaDownload.store(true, std::memory_order_relaxed);
+    m_abortWork.store(true, std::memory_order_relaxed);
+    if (!m_startupRepairVersion.isEmpty() &&
+        m_owner->m_versionManager->busyVersionId() == m_startupRepairVersion) {
+        m_owner->m_versionManager->cancelActiveDownload();
+    }
     // 排着的那一发"加入世界"也一起作废：这一趟都被取消了，它没有"下一次"可等 ——
     // 留着它，用户下次自己点「启动」时游戏会莫名其妙地进一个他早就放弃的世界。
     m_owner->m_pendingQuickPlay = QuickPlay::Target();
@@ -250,6 +256,72 @@ void LaunchController::finishAbortedStart(Tasks::TaskId launchTask, const QStrin
         return;
     }
     m_owner->finishTask(launchTask, false, failReason);
+}
+
+QString LaunchController::verifyStartupFiles(const QString &versionId, const QJsonObject &versionJson,
+                                            Tasks::TaskId launchTask) {
+    auto *versions = m_owner->m_versionManager;
+    auto *downloads = versions->downloads();
+    auto *tasks = m_owner->m_activityCenter->tasks();
+    const QList<Library> libraries = downloads->extractLibraries(versionJson);
+    const AssetIndex assets = downloads->extractAssetIndex(versionJson);
+    const auto inspect = [&] {
+        VersionIntegrity::Report report;
+        runOffUiThread([&] {
+            const auto files = VersionIntegrity::plan(versionJson, versionId, libraries, assets);
+            for (const auto &file : files) {
+                if (m_abortWork.load(std::memory_order_relaxed)) break;
+                const auto verdict = VersionIntegrity::check(file);
+                ++report.checked;
+                if (!verdict.ok()) report.problems.append(verdict);
+            }
+        });
+        return report;
+    };
+    auto report = inspect();
+    if (m_abortRequested || report.ok()) return {};
+    const auto summary = [](const VersionIntegrity::Report &result) {
+        QStringList files;
+        for (const auto &problem : result.problems) {
+            if (files.size() == 8) break;
+            files.append(problem.label + QStringLiteral(" · ") + problem.detail());
+        }
+        return result.summary() + QStringLiteral("\n\n") + files.join(QLatin1Char('\n'));
+    };
+    if (m_owner->m_downloadInFlight || versions->isDownloading() ||
+        m_owner->m_installOccupancy.modifying(versionId)) {
+        return MainWindow::tr("已有下载或安装任务正在进行，请结束后再检查这个实例。")
+            + QStringLiteral("\n\n") + summary(report);
+    }
+
+    const QScopedValueRollback repairOwner(m_startupRepairVersion, versionId);
+    const QScopedValueRollback downloadBusy(m_owner->m_downloadInFlight, true);
+    m_owner->m_installOccupancy.setBatch(InstallOccupancy::Batch::Repair, versionId);
+    const auto releaseOccupancy = qScopeGuard([&] {
+        m_owner->m_installOccupancy.clearBatch(InstallOccupancy::Batch::Repair);
+    });
+    QEventLoop repair;
+    bool finished = false;
+    bool success = false;
+    QString error;
+    connect(versions, &VersionManager::versionDownloadFinished, &repair,
+            [&](const QString &id, bool ok, const QString &message) {
+        if (id != versionId) return;
+        finished = true;
+        success = ok;
+        error = message;
+        repair.quit();
+    });
+    tasks->setDetail(launchTask, MainWindow::tr("补全文件与资源"));
+    const auto clearDetail = qScopeGuard([&] { tasks->setDetail(launchTask, {}); });
+    versions->repairVersionFiles(versionId, report.problemPaths());
+    if (!finished) repair.exec();
+    if (m_abortRequested) return {};
+    if (!success) return summary(report) + QStringLiteral("\n\n") + error;
+
+    // 资源索引补回来后才能列出它的对象，重新核对也能发现下载器未能修复的本地文件。
+    report = inspect();
+    return m_abortRequested || report.ok() ? QString() : summary(report);
 }
 
 void LaunchController::onStartButtonClicked() {
@@ -274,7 +346,7 @@ void LaunchController::onStartButtonClicked() {
     // 上一趟（关窗 / 任务中心 / 卡片）留下的取消不能带到这一趟里来（见 `abortStart()`）。
     m_abortRequested = false;
     m_cancelSource = StartCancelSource::None;
-    m_abortJavaDownload.store(false, std::memory_order_relaxed);
+    m_abortWork.store(false, std::memory_order_relaxed);
     // 检查点：每一处**刚从一个嵌套事件循环里出来**的地方都用它判一次。用户在那段等待里
     // （换令牌最长 15 秒、natives 最长 180 秒、下 Java 可能几分钟）点任务中心的「取消」，
     // 或者点关闭并确认之后，路就停在这里，不再把游戏拉起来、也不再往下写盘。
@@ -514,6 +586,19 @@ void LaunchController::onStartButtonClicked() {
         return;
     }
 
+    m_owner->beginFolderSwitchHold();
+    const auto folderHold = qScopeGuard([this] { m_owner->endFolderSwitchHold(); });
+    const QString integrityProblem = verifyStartupFiles(versionId, versionJson, launchTask);
+    if (shouldStop()) {
+        logCancelledStart();
+        return;
+    }
+    if (!integrityProblem.isEmpty()) {
+        failReason = integrityProblem;
+        InlineMessage::warning(m_owner->m_ui->overlay(), tr("无法启动"), integrityProblem);
+        return;
+    }
+
     // 旧格式（1.18.2 及以下）的 natives 必须先落地，否则会被 checkPreLaunch 拦下。
     // 该方法自带守卫，已经解压过的版本直接返回，不会重复解压。
     //
@@ -547,7 +632,6 @@ void LaunchController::onStartButtonClicked() {
                 launcher->prepareNatives(versionJson, versionId, &nativeErrors, onNativeProgress);
         });
         stageActive->store(false);
-        m_owner->m_activityCenter->tasks()->setProgress(launchTask, 0, 0);
     }
     // natives 那一段（旧版解压最长 180 秒）也转过嵌套事件循环：取消要在这里就停下，
     // 别再把 ASCII 别名、启动前检查那几笔写盘做完才收（那些都是"起步之后才做"的活）。
@@ -738,10 +822,9 @@ void LaunchController::onStartButtonClicked() {
             javaReady = javaStore->ensureJavaForVersion(javaSettings, javaMajorVersion, javaComponent,
                                                         allowAutoSelect, &javaError,
                                                         allowMismatchedPath, true, onJavaProgress,
-                                                        &m_abortJavaDownload);
+                                                        &m_abortWork);
         });
         stageActive->store(false);
-        m_owner->m_activityCenter->tasks()->setProgress(launchTask, 0, 0);
     }
     if (shouldStop()) {
         logCancelledStart();

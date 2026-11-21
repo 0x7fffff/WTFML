@@ -968,8 +968,8 @@ void runTaskLedgerTests() {
             Tasks::collapsedSummary({launch}, {}, now, 8000);
         check(activeSummary.currentStep == QStringLiteral("检查启动文件")
                   && activeSummary.currentStepIndex == 1 && activeSummary.stepCount == 5
-                  && activeSummary.percent == 30,
-              "AO2 collapsedSummary 带出当前步骤和确定百分比（30%）",
+                  && activeSummary.percent == 26,
+              "AO2 完成一步，第二步做了 30%，总进度为 26%",
               QStringLiteral("step=%1 idx=%2/%3 pct=%4")
                   .arg(activeSummary.currentStep)
                   .arg(activeSummary.currentStepIndex)
@@ -980,12 +980,12 @@ void runTaskLedgerTests() {
             Tasks::applySyncWait(activeSummary, QStringLiteral("正在准备游戏文件..."));
         check(waitCountable.id == 42 && waitCountable.state == Tasks::TaskState::Running
                   && waitCountable.title == QStringLiteral("正在准备游戏文件...")
-                  && waitCountable.percent == 30
+                  && waitCountable.percent == 26
                   && waitCountable.currentStep == QStringLiteral("检查启动文件"),
-              "★★ AO3 同步等待期间只要有活动可数任务就保留百分比（30%）且文案照旧",
+              "★★ AO3 同步等待保留按步骤计算的总进度（26%）",
               QStringLiteral("title=%1 pct=%2").arg(waitCountable.title).arg(waitCountable.percent));
 
-        // 不可数活动任务（totalUnits == 0 -> percent == -1）：同步等待仍维持 -1，不编造 0%
+        // 步骤没有细分计数时，保留已完成步骤的进度。
         Tasks::TaskSnapshot unknownLaunch = launch;
         unknownLaunch.doneUnits = 0;
         unknownLaunch.totalUnits = 0;
@@ -993,9 +993,22 @@ void runTaskLedgerTests() {
             Tasks::collapsedSummary({unknownLaunch}, {}, now, 8000);
         const Tasks::TaskSummary waitUnknown =
             Tasks::applySyncWait(unknownSummary, QStringLiteral("正在准备游戏文件..."));
-        check(waitUnknown.percent == -1 && waitUnknown.title == QStringLiteral("正在准备游戏文件..."),
-              "AO4 活动任务不可数时同步等待仍为 -1（不确定态）",
+        check(waitUnknown.percent == 20 && waitUnknown.title == QStringLiteral("正在准备游戏文件..."),
+              "AO4 当前步骤没有计数，保留已完成一步的进度（20%）",
               QString::number(waitUnknown.percent));
+
+        QTemporaryDir startupHistory;
+        Tasks::TaskManager steps;
+        steps.setHistoryPath(startupHistory.filePath(QStringLiteral("task-history.json")));
+        const auto startup = steps.begin(Tasks::TaskKind::Launch, QStringLiteral("启动"), {}, launch.steps);
+        steps.setProgress(startup, 10, 10);
+        check(Tasks::percentOf(steps.snapshot(startup)) == 40, "AO4b 文件计数只推到本步末尾");
+        steps.setStepState(startup, 1, Tasks::TaskStepState::Done);
+        steps.setStepState(startup, 2, Tasks::TaskStepState::Running);
+        check(Tasks::percentOf(steps.snapshot(startup)) == 40, "AO4b 进入 Java 阶段时进度连续");
+        steps.setProgress(startup, 25, 100);
+        steps.fail(startup, QStringLiteral("error"));
+        check(Tasks::percentOf(steps.snapshot(startup)) == 45, "AO4b 失败保留 Java 阶段的进度");
 
         // 刚完成的任务（8s 时间窗里 percent=100）不能被下一次同步等待误借走 100%
         Tasks::TaskSnapshot finished = launch;
