@@ -96,6 +96,9 @@ public:
     int homeRecentCount() const { return m_homeRecentCount; }
     void setHomeFavoriteCount(int count);
     void setHomeRecentCount(int count);
+    /// 主页实例带是否收起（主页那颗收起 / 展开按钮；与上面两个数量互不相干）。
+    bool homeQuickCollapsed() const { return m_homeQuickCollapsed; }
+    void setHomeQuickCollapsed(bool collapsed);
 
     // ------------------------------------------------------------------
     // 「游戏文件夹」（实例页左边那张列表）
@@ -435,6 +438,7 @@ private:
     QString m_language;
     int m_homeFavoriteCount = 3;
     int m_homeRecentCount = 3;
+    bool m_homeQuickCollapsed = false;
     QStringList m_folders;
     QString m_currentFolder;
     QStringList m_folderNames;

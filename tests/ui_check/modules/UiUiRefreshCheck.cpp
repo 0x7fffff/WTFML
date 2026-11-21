@@ -1,5 +1,6 @@
 #include "Support.hpp"
 #include "ActivityPopover.hpp"
+#include "MainWindowPageLayout.hpp"
 #include <QVariantAnimation>
 #include "TaskCenterPanel.hpp"
 #include <QMouseEvent>
@@ -648,6 +649,82 @@ int UiUiRefreshCheck(QApplication &app) {
             }
             expect(preview.findChild<QWidget *>(QStringLiteral("homeQuickPopup")) == nullptr,
                    "the strip has no per-card popup any more");
+        }
+        // 实例带的版本串：卡片宽度同时计入名字行和版本行，较长的版本串完整显示（196~320 之间）。
+        {
+            MainWindowUI::HomeQuickItem wide = quick;
+            wide.key = QStringLiteral("wide-version");
+            wide.name = QStringLiteral("Pack");
+            wide.detail = QStringLiteral("Minecraft 1.21.11-pre1 / NeoForge 21.11.0");
+            ui.setHomeQuickRows({quick}, {wide}, {quick});
+            settle();
+            auto *favSection = home->findChild<QWidget *>(QStringLiteral("homeFavoriteSection"));
+            auto *wideCard = favSection ? favSection->findChild<QPushButton *>(QStringLiteral("homeQuickCard_wide-version"))
+                                        : nullptr;
+            auto *wideVersion = wideCard ? wideCard->findChild<QLabel *>(QStringLiteral("homeQuickTileVersion")) : nullptr;
+            const int need = wideVersion ? wideVersion->fontMetrics().horizontalAdvance(wideVersion->text()) : -1;
+            expect(wideCard && wideVersion && wideVersion->text() == QStringLiteral("NeoForge 1.21.11-pre1") &&
+                       wideVersion->width() >= need && wideCard->width() > MainWindowPageLayout::kHomeTileWidth &&
+                       wideCard->width() <= MainWindowPageLayout::kHomeTileMaxWidth,
+                   "a card whose version line is wider than its name widens to show the whole version");
+            ui.setHomeQuickRows({quick}, {longCard}, {quick});
+            settle();
+        }
+        // 实例带收起 / 展开：点箭头卡片排隐藏、页签留着，再点恢复；收起时点页签先展开再切过去。
+        {
+            auto *toggle = home->findChild<QPushButton *>(QStringLiteral("homeQuickToggle"));
+            auto *cards = home->findChild<QWidget *>(QStringLiteral("homeQuickCards"));
+            auto *favTab = home->findChild<QPushButton *>(QStringLiteral("homeQuickFavoriteTab"));
+            auto *recentTab = home->findChild<QPushButton *>(QStringLiteral("homeQuickRecentTab"));
+            auto *favSection = home->findChild<QWidget *>(QStringLiteral("homeFavoriteSection"));
+            auto *recentSection = home->findChild<QWidget *>(QStringLiteral("homeQuickRecentSection"));
+            auto *viewer = home->findChild<QWidget *>(MainWindowUI::skinViewerName());
+            auto *launch = home->findChild<QWidget *>(QStringLiteral("homeCurrentLaunch"));
+            QList<bool> reported;
+            ui.setHomeQuickCollapsedHandler([&reported](bool collapsed) { reported.append(collapsed); });
+            expect(toggle && cards && favTab && recentTab && favSection && recentSection && viewer && launch,
+                   "the strip exposes its toggle, card body, tabs and both pages");
+            if (toggle && cards && favTab && recentTab && favSection && recentSection && viewer && launch) {
+                const auto feetGap = [&] {
+                    return viewer->mapTo(&preview, QPoint(0, viewer->height())).y() -
+                           launch->mapTo(&preview, QPoint(0, launch->height())).y();
+                };
+                ui.setHomeQuickMode(MainWindowUI::HomeQuickMode::Recent);
+                settle();
+                expect(cards->isVisibleTo(&preview) && recentSection->isVisibleTo(&preview) &&
+                           toggle->toolTip() == QStringLiteral("收起最近与收藏") &&
+                           toggle->accessibleName() == toggle->toolTip(),
+                       "expanded strip shows its cards and the toggle offers to collapse");
+                const int gapBefore = feetGap();
+                const int tabsTop = recentTab->mapTo(&preview, QPoint(0, 0)).y();
+                toggle->click();
+                settle();
+                expect(ui.homeQuickCollapsed() && !cards->isVisibleTo(&preview) && !recentSection->isVisibleTo(&preview) &&
+                           recentTab->isVisibleTo(&preview) && favTab->isVisibleTo(&preview) &&
+                           toggle->toolTip() == QStringLiteral("展开最近与收藏") && reported == QList<bool>{true},
+                       "clicking the toggle hides the card row, keeps the tabs and reports the collapsed state");
+                expect(feetGap() == gapBefore && recentTab->mapTo(&preview, QPoint(0, 0)).y() > tabsTop,
+                       "collapsing moves the strip down while the figure's feet stay level with the launch button");
+                toggle->click();
+                settle();
+                expect(!ui.homeQuickCollapsed() && cards->isVisibleTo(&preview) && recentSection->isVisibleTo(&preview) &&
+                           reported == QList<bool>({true, false}) && feetGap() == gapBefore &&
+                           recentTab->mapTo(&preview, QPoint(0, 0)).y() == tabsTop,
+                       "clicking again restores the card row to exactly where it was");
+                toggle->click();
+                settle();
+                favTab->click();
+                settle();
+                expect(!ui.homeQuickCollapsed() && cards->isVisibleTo(&preview) && favSection->isVisibleTo(&preview) &&
+                           !recentSection->isVisibleTo(&preview) && reported == QList<bool>({true, false, true, false}),
+                       "clicking a tab while collapsed expands the strip and switches to that page");
+                // 启动时还原：不播动画，直接是收起的样子，也不再回调落盘。
+                ui.setHomeQuickCollapsedHandler(nullptr);
+                ui.setHomeQuickCollapsed(true, false);
+                expect(!cards->isVisibleTo(&preview), "restoring a saved collapsed state hides the cards at once");
+                ui.setHomeQuickCollapsed(false, false);
+                settle();
+            }
         }
         settle();
         ui.openHomeInstancePicker({}, {instance}, {}, {});

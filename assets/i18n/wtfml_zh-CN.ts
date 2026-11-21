@@ -13841,6 +13841,14 @@ Minecraft %2 / %3 %4</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>展开最近与收藏</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>收起最近与收藏</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>当前</source>
         <translation type="unfinished"></translation>
     </message>

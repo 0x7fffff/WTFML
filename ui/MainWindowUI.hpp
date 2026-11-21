@@ -67,6 +67,7 @@ namespace SettingsParts {
 class SlidingTabs;
 class SavedToast;
 class CommitOnFocusOut;
+class FoldMotion;
 }  // namespace SettingsParts
 
 /**
@@ -1699,6 +1700,13 @@ public:
     }
     HomeQuickMode homeQuickMode() const { return m_homeQuickMode; }
     void setHomeQuickMode(HomeQuickMode mode);
+    /// 实例带（卡片那一排）收起 / 展开；页签那一排留着。`animate=false` 用于启动时还原。
+    bool homeQuickCollapsed() const { return m_homeQuickCollapsed; }
+    void setHomeQuickCollapsed(bool collapsed, bool animate = true);
+    /// 收起状态变了时通知（落盘用）。
+    void setHomeQuickCollapsedHandler(std::function<void(bool)> handler) {
+        m_homeQuickCollapsedHandler = std::move(handler);
+    }
     struct HomePickerFolder {
         QString path;
         QString title;
@@ -3924,6 +3932,10 @@ private:
     QWidget *homeHeroArea = nullptr;
     QSpacerItem *homeLaunchSpacer = nullptr;
     QWidget *homeQuickSection = nullptr;
+    QPushButton *homeQuickToggle = nullptr;
+    QWidget *homeQuickCards = nullptr;
+    SettingsParts::FoldMotion *homeQuickFold = nullptr;
+    void syncHomeQuickToggleText();
     QPushButton *homeQuickCurrentTab = nullptr;
     QPushButton *homeQuickRecentTab = nullptr;
     QPushButton *homeQuickFavoriteTab = nullptr;
@@ -4184,6 +4196,8 @@ private:
     /// 「那一行行尾那颗小按钮被点了」该告诉谁（见 setTaskCenterRowActionHandler()）。
     TaskCenter::RowActionHandler m_taskCenterRowAction;
     HomeQuickActionHandler m_homeQuickActionHandler;
+    std::function<void(bool)> m_homeQuickCollapsedHandler;
+    bool m_homeQuickCollapsed = false;
     HomeQuickMode m_homeQuickMode = HomeQuickMode::Current;
     /// 「文件夹齿轮菜单里某一项被点了」该告诉谁（见 setFolderActionHandler()）。
     FolderActionHandler m_folderActionHandler;

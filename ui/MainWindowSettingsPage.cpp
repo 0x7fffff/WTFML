@@ -3,6 +3,7 @@
 // 输入失焦或回车即存，右上淡出「已保存」；少用项收进每页底部「高级」展开行。
 // 部件在 SettingsPageParts.*；这里只摆控件。
 #include "MainWindowUI.hpp"
+#include "HomeQuickLimit.hpp"
 #include <QCoreApplication>
 #include "InputSizing.hpp"
 
@@ -743,11 +744,11 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
     const auto addCount = [&](const QString &label, const QString &name, QSpinBox **out) {
         auto *spin = new QSpinBox(form);
         spin->setObjectName(name);
-        spin->setRange(0, 5);
+        spin->setRange(0, kHomeQuickMaxCount);
         spin->setSuffix(QCoreApplication::translate("MainWindowSettingsPage", " 个"));
         spin->setSpecialValueText(QCoreApplication::translate("MainWindowSettingsPage", "隐藏"));  // 0 直接显示「隐藏」
         WheelGuard::install(spin);
-        // 0–5 的小整数：「− 值 +」步进器（值仍在这颗 QSpinBox 上，范围 / valueChanged / 持久化不动）。
+        // 0–kHomeQuickMaxCount 的小整数：「− 值 +」步进器（值仍在这颗 QSpinBox 上，范围 / valueChanged / 持久化不动）。
         addRow(quick, label, Theme::makeNumberStepper(form, spin, 72), Placement::Natural);
         *out = spin;
     };

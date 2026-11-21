@@ -1081,6 +1081,7 @@ int MwDownloadRetryCheck();
 int MwActivitySelectionCheck();
 int MwWorkspaceCheck(QApplication &app);
 int MwPlayerSkinChecks(MainWindow &window);
+int MwHomeQuickCollapseChecks(MainWindow &window);
 int MwJavaPreferencesChecks(const bool settingsWired, MainWindow &window, QPushButton * &javaManageButton, QLabel * &javaLabel, QCheckBox * &javaWarn, QComboBox * &memoryMode, QLabel * &memoryHint, QSpinBox * &maxSpin, QComboBox * &behaviourCombo, QComboBox * &sourceCombo, QPlainTextEdit * &jvmEdit, MemorySlider * &maxSlider);
 int MwMemoryPreferencesChecks(const bool settingsWired, const QString &kDecorated, MainWindow &window, QComboBox * &installed, QComboBox * &memoryMode, QLabel * &memoryHint, QSpinBox * &maxSpin, QComboBox * &behaviourCombo, QComboBox * &sourceCombo, QPlainTextEdit * &jvmEdit, SettingsParts::CommitOnFocusOut * &applyJvm, MemorySlider * &maxSlider);
 int MwJavaSelectionChecks(const QDir &root);

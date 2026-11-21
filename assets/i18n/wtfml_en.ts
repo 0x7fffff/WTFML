@@ -14264,6 +14264,14 @@ Are you sure to delete?</translation>
             <translation>Play</translation>
         </message>
         <message>
+            <source>展开最近与收藏</source>
+            <translation>Expand recent and favorites</translation>
+        </message>
+        <message>
+            <source>收起最近与收藏</source>
+            <translation>Collapse recent and favorites</translation>
+        </message>
+        <message>
             <source>当前</source>
             <translation>Current</translation>
         </message>

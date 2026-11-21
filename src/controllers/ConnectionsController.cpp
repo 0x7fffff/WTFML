@@ -89,6 +89,10 @@ QList<Tasks::TaskStep> taskStepsFromNames(const QStringList &names, int runningI
 void ConnectionsController::setup() {
     // UI 按钮信号
     connect(m_owner->m_ui->getStartButton(), &QPushButton::clicked, m_owner, &MainWindow::onStartButtonClicked);
+    // 主页实例带的收起状态：启动时直接还原（不播动画），之后每次开合落盘。
+    m_owner->m_ui->setHomeQuickCollapsed(m_owner->m_settings->homeQuickCollapsed(), false);
+    m_owner->m_ui->setHomeQuickCollapsedHandler(
+        [owner = m_owner](bool collapsed) { owner->m_settings->setHomeQuickCollapsed(collapsed); });
     if (QSpinBox *spin = m_owner->m_ui->getHomeFavoriteCountSpin()) {
         spin->setValue(m_owner->m_settings->homeFavoriteCount());
         connect(spin, qOverload<int>(&QSpinBox::valueChanged), m_owner, [this](int value) {

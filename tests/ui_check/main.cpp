@@ -3117,9 +3117,11 @@ int main(int argc, char *argv[]) {
             MainWindowUI::HomeQuickItem first = real;
             first.key = QStringLiteral("wide-a");
             first.name = QStringLiteral("1.20.1-Forge 47.2.0");
+            first.detail = QStringLiteral("Minecraft 1.20.1 / Forge 47.2.0");
             MainWindowUI::HomeQuickItem second = real;
             second.key = QStringLiteral("wide-b");
             second.name = QStringLiteral("1.21.4-Fabric 0.16.9");
+            second.detail = QStringLiteral("Minecraft 1.21.4 / NeoForge 21.4.62");
             ui.setHomeQuickRows({first}, {}, {first, second});
             // 两次：第一次摆卡片、第二次让实例带那条内层按新的自然宽重新定位（它是在
             // LayoutRequest 里改自己几何的，和窗口 resize 挤在同一轮）。
@@ -3148,6 +3150,10 @@ int main(int argc, char *argv[]) {
                                                    : name->fontMetrics().horizontalAdvance(name->text());
                 cardsOk = cardsOk && name != nullptr && name->width() >= needed &&
                           card->width() >= 196 && card->width() <= 320;
+                // 版本串也整句放得下（卡片宽度同时计入名字行和版本行）。
+                QLabel *version = card->findChild<QLabel *>(QStringLiteral("homeQuickTileVersion"));
+                cardsOk = cardsOk && version != nullptr &&
+                          version->width() >= version->fontMetrics().horizontalAdvance(version->text());
                 used += card->width();
                 detail << QStringLiteral("卡 %1 / 名字 %2（要 %3）")
                               .arg(card->width())

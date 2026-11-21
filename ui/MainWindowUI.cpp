@@ -22,6 +22,7 @@
 #include "OverlayHost.hpp"
 #include "PopupPlacement.hpp"
 #include "Popups.hpp"
+#include "SettingsPageParts.hpp"
 #include "RoundAvatar.hpp"
 #include "SkinModel.hpp"
 #include "TaskProgressBar.hpp"
@@ -60,6 +61,8 @@
 #include <QSet>
 #include <QTimer>
 #include <QVBoxLayout>
+#include <QVariantAnimation>
+#include <QEasingCurve>
 #include <algorithm>
 #include <functional>
 
@@ -713,6 +716,71 @@ protected:
             p.drawRoundedRect(QRectF(rect()).adjusted(1, 1, -1, -1), 8, 8);
         }
     }
+};
+
+/// 页签那一排里的「收起 / 展开」箭头：直接画在风景上，平时和悬停都不铺底，只在悬停时墨色从
+/// heroInk2 换成 heroInk（和 HomeStripTab 一致）。展开时箭头朝上（点了往上收），收起时朝下；
+/// 开合时箭头随折叠动画翻过去。
+class HomeStripToggle final : public QPushButton {
+public:
+    explicit HomeStripToggle(QWidget *parent) : QPushButton(parent) {
+        m_turn = new QVariantAnimation(this);
+        m_turn->setDuration(200);
+        m_turn->setEasingCurve(QEasingCurve::OutCubic);
+        QObject::connect(m_turn, &QVariantAnimation::valueChanged, this, [this](const QVariant &v) {
+            m_angle = v.toReal();
+            update();
+        });
+    }
+    void setCollapsed(bool collapsed, bool animate) {
+        const qreal target = collapsed ? 180.0 : 0.0;
+        m_turn->stop();
+        if (animate && Anim::enabled() && isVisible()) {
+            m_turn->setStartValue(m_angle);
+            m_turn->setEndValue(target);
+            m_turn->start();
+        } else {
+            m_angle = target;
+            update();
+        }
+    }
+    QSize sizeHint() const override { return QSize(28, 28); }
+    QSize minimumSizeHint() const override { return sizeHint(); }
+
+protected:
+    void paintEvent(QPaintEvent *) override {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        QPen pen(heroInk(!underMouse()));
+        pen.setWidthF(1.6);
+        pen.setCapStyle(Qt::RoundCap);
+        pen.setJoinStyle(Qt::RoundJoin);
+        p.setPen(pen);
+        p.translate(QRectF(rect()).center());
+        p.rotate(m_angle);
+        const QPointF chevron[] = {{-5.0, 2.5}, {0.0, -2.5}, {5.0, 2.5}};
+        p.drawPolyline(chevron, 3);
+        p.resetTransform();
+        if (hasFocus() && property("wtfmlKeyboardFocus").toBool()) {
+            QPen ring(Theme::focusRingColor(palette()));
+            ring.setWidthF(2.0);
+            p.setPen(ring);
+            p.setBrush(Qt::NoBrush);
+            p.drawRoundedRect(QRectF(rect()).adjusted(1, 1, -1, -1), 8, 8);
+        }
+    }
+    void enterEvent(QEnterEvent *event) override {
+        QPushButton::enterEvent(event);
+        update();
+    }
+    void leaveEvent(QEvent *event) override {
+        QPushButton::leaveEvent(event);
+        update();
+    }
+
+private:
+    QVariantAnimation *m_turn = nullptr;
+    qreal m_angle = 0.0;
 };
 
 /// 实例带那一排卡片的"取景框"：卡片按自己的宽度一张挨一张排，排不下就从右边裁掉，
@@ -1446,7 +1514,7 @@ QWidget *MainWindowUI::setupHomePage() {
         homeQuickSection->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
         auto *quickColumn = new QVBoxLayout(homeQuickSection);
         quickColumn->setContentsMargins(0, 0, 0, 0);
-        quickColumn->setSpacing(6);
+        quickColumn->setSpacing(0);  // 页签与卡片的 6 px 放在折叠体顶边距里，收起时一起收走，落定那一下不跳
         auto *quickTabs = new QHBoxLayout;
         quickTabs->setContentsMargins(12, 0, 24, 0);
         quickTabs->setSpacing(6);
@@ -1461,8 +1529,11 @@ QWidget *MainWindowUI::setupHomePage() {
             QFont tabFont = button->font();
             tabFont.setPixelSize(14);
             button->setFont(tabFont);
-            QObject::connect(button, &QPushButton::clicked, button,
-                             [this, mode]() { setHomeQuickMode(mode); });
+            // 收起时点页签：先展开再切过去。
+            QObject::connect(button, &QPushButton::clicked, button, [this, mode]() {
+                setHomeQuickCollapsed(false);
+                setHomeQuickMode(mode);
+            });
             quickTabs->addWidget(button);
             return button;
         };
@@ -1478,6 +1549,14 @@ QWidget *MainWindowUI::setupHomePage() {
         homeQuickFavoriteTab = makeQuickTab(QCoreApplication::translate("MainWindowUI", "收藏"),
                                              QStringLiteral("homeQuickFavoriteTab"),
                                              HomeQuickMode::Favorite);
+        homeQuickToggle = new HomeStripToggle(homeQuickSection);
+        homeQuickToggle->setObjectName(QStringLiteral("homeQuickToggle"));
+        homeQuickToggle->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+        homeQuickToggle->setCursor(Qt::PointingHandCursor);
+        QObject::connect(homeQuickToggle, &QPushButton::clicked, homeQuickToggle,
+                         [this]() { setHomeQuickCollapsed(!m_homeQuickCollapsed); });
+        quickTabs->addWidget(homeQuickToggle);
+        syncHomeQuickToggleText();
         quickTabs->addStretch(1);
         // 「管理 ›」：去实例页（导航，不在主页里展开列表）。
         homeInstanceSelectButton = new QPushButton(QCoreApplication::translate("MainWindowUI", "管理"), homeQuickSection);
@@ -1496,11 +1575,19 @@ QWidget *MainWindowUI::setupHomePage() {
         followHeroInk(homeInstanceSelectButton, true);
         quickTabs->addWidget(homeInstanceSelectButton);
         quickColumn->addLayout(quickTabs);
-        const auto makeQuickPage = [quickColumn, this](const QString &name, QWidget **sectionOut,
+        // 两排卡片装在同一个折叠体里（同一时间只显示其中一排）；收起 / 展开走 FoldMotion。
+        homeQuickCards = new QWidget(homeQuickSection);
+        homeQuickCards->setObjectName(QStringLiteral("homeQuickCards"));
+        auto *cardsLayout = new QVBoxLayout(homeQuickCards);
+        cardsLayout->setContentsMargins(0, 6, 0, 0);
+        cardsLayout->setSpacing(0);
+        quickColumn->addWidget(homeQuickCards);
+        homeQuickFold = new SettingsParts::FoldMotion(homeQuickCards);
+        const auto makeQuickPage = [cardsLayout, this](const QString &name, QWidget **sectionOut,
                                                        QHBoxLayout **rowOut) {
-            auto *section = new HomeStripRow(homeQuickSection);
+            auto *section = new HomeStripRow(homeQuickCards);
             section->setObjectName(name);
-            quickColumn->addWidget(section);
+            cardsLayout->addWidget(section);
             *sectionOut = section;
             *rowOut = section->row();
         };
@@ -2431,7 +2518,9 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
             QFont subFont = sub->font();
             subFont.setPixelSize(Theme::textSize(Theme::TextRole::Caption));
             sub->setFont(subFont);
-            sub->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+            // 和名字一样按自己宽度排：卡片宽度取名字行与版本行里较宽的一行，放不下再收省略号。
+            sub->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Preferred);
+            sub->setMinimumWidth(1);
             sub->setAttribute(Qt::WA_TransparentForMouseEvents);
             followHeroInk(sub, true);
             identity->addWidget(sub);
@@ -2479,6 +2568,24 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
     if (homeQuickRecentTab != nullptr) homeQuickRecentTab->setVisible(hasCards(recent));
     if (homeQuickSection != nullptr) homeQuickSection->setVisible(hasCards(favorites) || hasCards(recent));
     setHomeQuickMode(m_homeQuickMode);
+}
+
+void MainWindowUI::syncHomeQuickToggleText() {
+    if (homeQuickToggle == nullptr) return;
+    const QString text = m_homeQuickCollapsed
+        ? QCoreApplication::translate("MainWindowUI", "展开最近与收藏")
+        : QCoreApplication::translate("MainWindowUI", "收起最近与收藏");
+    homeQuickToggle->setToolTip(text);
+    homeQuickToggle->setAccessibleName(text);
+}
+
+void MainWindowUI::setHomeQuickCollapsed(bool collapsed, bool animate) {
+    if (collapsed == m_homeQuickCollapsed) return;
+    m_homeQuickCollapsed = collapsed;
+    syncHomeQuickToggleText();
+    if (auto *toggle = dynamic_cast<HomeStripToggle *>(homeQuickToggle)) toggle->setCollapsed(collapsed, animate);
+    if (homeQuickFold != nullptr) homeQuickFold->setOpen(!collapsed, animate);
+    if (m_homeQuickCollapsedHandler) m_homeQuickCollapsedHandler(collapsed);
 }
 
 void MainWindowUI::setHomeQuickMode(HomeQuickMode mode) {

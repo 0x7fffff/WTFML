@@ -2755,6 +2755,8 @@ int main(int argc, char *argv[]) {
 
     header("X. 主页右栏那个小人 + 底栏头像：接线");
     if (const int result = MwPlayerSkinChecks(window); result != 0) return result;
+    header("X2. 主页实例带：收起状态落盘、数量上限");
+    if (const int result = MwHomeQuickCollapseChecks(window); result != 0) return result;
 
     // ---------- 设置页的控件（按 objectName，L/M 两节共用） ----------
     // 设置页「Java 版本」那一格从下拉框换成了「Java 管理…」这颗按钮

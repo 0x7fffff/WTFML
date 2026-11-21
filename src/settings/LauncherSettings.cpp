@@ -5,6 +5,7 @@
  */
 
 #include "LauncherSettings.hpp"
+#include "../ui/HomeQuickLimit.hpp"
 #include "../ui/UiLanguage.hpp"
 #include "util/ServerPing.hpp"
 #include "util/SettingsSyncRetry.hpp"
@@ -21,6 +22,7 @@ static constexpr const char kLastLaunched[] = "Version/LastLaunched";
 static constexpr const char kLastSelected[] = "Version/LastSelected";
 static constexpr const char kHomeFavoriteCount[] = "Home/FavoriteCount";
 static constexpr const char kHomeRecentCount[] = "Home/RecentCount";
+static constexpr const char kHomeQuickCollapsed[] = "Home/QuickCollapsed";
 // NOTE: 原先还有 `Version/NameShowCustom`…`Version/NameShowLoaderVersion` 四个键
 // （「版本名格式」那四个开关）。UI 问题 #14 删掉了那一组设置，这四个键**不再读也不再写**；
 // 盘上留着的旧值没人看，显示名一律按出厂那一份拼。
@@ -138,7 +140,7 @@ void LauncherSettings::setLastSelectedVersion(const QString &versionId) {
 }
 
 void LauncherSettings::setHomeFavoriteCount(int count) {
-    count = qBound(0, count, 5);
+    count = qBound(0, count, kHomeQuickMaxCount);
     if (m_homeFavoriteCount != count) {
         m_homeFavoriteCount = count;
         save();
@@ -146,9 +148,16 @@ void LauncherSettings::setHomeFavoriteCount(int count) {
 }
 
 void LauncherSettings::setHomeRecentCount(int count) {
-    count = qBound(0, count, 5);
+    count = qBound(0, count, kHomeQuickMaxCount);
     if (m_homeRecentCount != count) {
         m_homeRecentCount = count;
+        save();
+    }
+}
+
+void LauncherSettings::setHomeQuickCollapsed(bool collapsed) {
+    if (m_homeQuickCollapsed != collapsed) {
+        m_homeQuickCollapsed = collapsed;
         save();
     }
 }
@@ -470,8 +479,9 @@ void LauncherSettings::load() {
     QSettings settings;
     m_lastLaunchedVersion = settings.value(kLastLaunched, m_lastLaunchedVersion).toString();
     m_lastSelectedVersion = settings.value(kLastSelected, m_lastSelectedVersion).toString();
-    m_homeFavoriteCount = qBound(0, settings.value(kHomeFavoriteCount, 3).toInt(), 5);
-    m_homeRecentCount = qBound(0, settings.value(kHomeRecentCount, 3).toInt(), 5);
+    m_homeFavoriteCount = qBound(0, settings.value(kHomeFavoriteCount, 3).toInt(), kHomeQuickMaxCount);
+    m_homeRecentCount = qBound(0, settings.value(kHomeRecentCount, 3).toInt(), kHomeQuickMaxCount);
+    m_homeQuickCollapsed = settings.value(kHomeQuickCollapsed, false).toBool();
     // 默认值同样取当前成员：load() 被调第二次而盘上是空的时，值应该留着而不是被抹掉。
     m_folders = settings.value(kFolders, m_folders).toStringList();
     m_serverFavorites.clear();
@@ -589,6 +599,7 @@ QVariantMap LauncherSettings::persistedValues() const {
     values.insert(QString::fromLatin1(kServerFavorites), m_serverFavorites);
     values.insert(QString::fromLatin1(kHomeFavoriteCount), QVariant(m_homeFavoriteCount));
     values.insert(QString::fromLatin1(kHomeRecentCount), QVariant(m_homeRecentCount));
+    values.insert(QString::fromLatin1(kHomeQuickCollapsed), QVariant(m_homeQuickCollapsed));
     values.insert(QString::fromLatin1(kFolders), m_folders);
     values.insert(QString::fromLatin1(kCurrentFolder), m_currentFolder);
     values.insert(QString::fromLatin1(kFolderNames), m_folderNames);
