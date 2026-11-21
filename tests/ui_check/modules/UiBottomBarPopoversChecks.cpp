@@ -26,7 +26,8 @@ int UiBottomBarPopoversChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget 
             // ① 整格是**一颗按钮**：那两行字（右边是头像那组）都装在按钮里面。
             // 这条同时是"挤短进度条"那个 bug 的护栏 —— 宽度钉在**按钮**上，
             // 里面有没有字都一样宽（隐藏的控件在布局里宽度是 0）。
-            check(runState->parentWidget() == runBtn && runDetail->parentWidget() == runBtn,
+            // 文字装在按钮里的 runStateText 格子里（图标轨整块收起），所以认「按钮是祖先」。
+            check(runBtn->isAncestorOf(runState) && runBtn->isAncestorOf(runDetail),
                   "I4 左边那两行字装在那颗按钮里",
                   runState->parentWidget() != nullptr ? runState->parentWidget()->objectName()
                                                       : QStringLiteral("<null>"));

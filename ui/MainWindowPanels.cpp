@@ -42,6 +42,7 @@
 #include <QScrollArea>
 #include <QSet>
 #include <QTimer>
+#include <QVariantAnimation>
 #include <QVBoxLayout>
 #include <algorithm>
 
@@ -492,6 +493,137 @@ protected:
                    Qt::AlignVCenter | Qt::AlignLeft, text());
     }
 };
+
+/// 轨底「运行状态」那颗按钮。展开轨里是整格（状态方块 + 两行字，装在 `runStateText` 里）；
+/// 图标轨里（宽度 < 80，判据和工具箱那颗一致）文字收起，只画一枚运行图标和进程数徽标。
+/// 两种样子只看**此刻的宽度**，所以轨在 64 和 208 之间做宽度动画时，交接是连续的、没有切换那一帧。
+/// 进程数由 MainWindow 写进动态属性 `wtfmlRunCount`（和 `wtfmlOpen`、`wtfmlKeyboardFocus` 同一个路数）。
+class RunStateButton : public QPushButton {
+public:
+    using QPushButton::QPushButton;
+    static constexpr const char *kCountProperty = "wtfmlRunCount";
+    static QString textBoxName() { return QStringLiteral("runStateText"); }
+
+protected:
+    bool event(QEvent *event) override {
+        if (event->type() == QEvent::DynamicPropertyChange &&
+            static_cast<QDynamicPropertyChangeEvent *>(event)->propertyName() == kCountProperty) {
+            const int count = property(kCountProperty).toInt();
+            // 图标轨里没有文字，读屏靠这一句。
+            setAccessibleName(count > 0 ? MainWindowUI::runStateRunningCountText(count) : QString());
+            update();
+        }
+        return QPushButton::event(event);
+    }
+    void showEvent(QShowEvent *event) override {
+        QPushButton::showEvent(event);
+        syncText();
+    }
+    void resizeEvent(QResizeEvent *event) override {
+        QPushButton::resizeEvent(event);
+        syncText();
+    }
+    /// 回车也算一次点击（空格 QAbstractButton 自己认）。
+    void keyPressEvent(QKeyEvent *event) override {
+        if (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter) {
+            click();
+            return;
+        }
+        QPushButton::keyPressEvent(event);
+    }
+    void paintEvent(QPaintEvent *event) override {
+        QPushButton::paintEvent(event);  // 悬停 / 按下的底（样式表）
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        if (compact()) {
+            // 取主题的 ok 色（浅色主题是加深的 #2E875A）：图标和徽标没有字那样的容错，浅色底上要 3:1。
+            const QColor ok = Theme::tokens().ok;
+            const QRectF icon((width() - 20) / 2.0, (height() - 20) / 2.0, 20, 20);
+            VersionIcons::paintLine(p, QStringLiteral("play"), icon, ok);
+            const int count = property(kCountProperty).toInt();
+            if (count > 0) {
+                const QString text = count > 99 ? QStringLiteral("99+") : QString::number(count);
+                QFont badgeFont = font();
+                badgeFont.setPixelSize(10);
+                badgeFont.setWeight(QFont::DemiBold);
+                const int badgeHeight = 14;
+                const int badgeWidth = qMax(badgeHeight, QFontMetrics(badgeFont).horizontalAdvance(text) + 8);
+                const QRectF badge(icon.right() + 7 - badgeWidth, icon.top() - 5, badgeWidth, badgeHeight);
+                p.setPen(Qt::NoPen);
+                p.setBrush(ok);
+                p.drawRoundedRect(badge, badgeHeight / 2.0, badgeHeight / 2.0);
+                p.setFont(badgeFont);
+                p.setPen(Theme::tokens().onPrimary);
+                p.drawText(badge, Qt::AlignCenter, text);
+            }
+        }
+        if (hasFocus() && property("wtfmlKeyboardFocus").toBool()) {
+            QPen ring(Theme::focusRingColor(palette()));
+            ring.setWidthF(2.0);
+            p.setPen(ring);
+            p.setBrush(Qt::NoBrush);
+            p.drawRoundedRect(QRectF(rect()).adjusted(1, 1, -1, -1), Theme::controlRadius(), Theme::controlRadius());
+        }
+    }
+
+private:
+    bool compact() const { return width() < 80; }
+    void syncText() {
+        if (QWidget *text = findChild<QWidget *>(textBoxName(), Qt::FindDirectChildrenOnly)) {
+            text->setVisible(!compact());
+        }
+    }
+};
+
+/// 运行状态那颗按钮出现 / 收起：高度在 `kRunStateRevealMs` 内从 1 长到整高（或反过来），收完才 hide()。
+/// 两种轨共用。动效关着（验证工程）时立即切换。
+/// 动画途中反向会从当前高度接着走，不跳。
+constexpr int kRunStateRevealMs = 180;
+void revealRunStateButton(QPushButton *button, bool show) {
+    constexpr const char *kAnimName = "runStateReveal";
+    const auto settle = [button](bool visible) {
+        button->setMinimumHeight(TitleBar::navItemHeight());
+        button->setMaximumHeight(QWIDGETSIZE_MAX);
+        button->setVisible(visible);
+    };
+    if (auto *running = button->findChild<QVariantAnimation *>(kAnimName)) {
+        if (running->property("show").toBool() == show) {
+            return;  // 底栏每次重画都会再喊一遍同一个状态，别重启正在走的这一段
+        }
+        running->disconnect();  // 被打断的那一段不能再走它的收尾（会把按钮摆回旧的终态）
+        running->stop();
+        running->deleteLater();
+        running->setObjectName(QString());
+    }
+    if (!Anim::enabled() || !button->parentWidget()->isVisible()) {
+        settle(show);
+        return;
+    }
+    if (show == button->isVisible() && button->maximumHeight() == QWIDGETSIZE_MAX) {
+        return;
+    }
+    const int full = qMax(button->sizeHint().height(), TitleBar::navItemHeight());
+    const int from = button->isVisible() ? button->height() : 1;
+    const int to = show ? full : 1;
+    const auto fix = [button](int height) {
+        button->setMinimumHeight(height);
+        button->setMaximumHeight(height);
+    };
+    fix(from);
+    button->setVisible(true);
+    auto *animation = new QVariantAnimation(button);
+    animation->setObjectName(kAnimName);
+    animation->setProperty("show", show);
+    animation->setDuration(kRunStateRevealMs);
+    animation->setEasingCurve(QEasingCurve(QEasingCurve::OutCubic));
+    animation->setStartValue(from);
+    animation->setEndValue(to);
+    QObject::connect(animation, &QVariantAnimation::valueChanged, button, [fix](const QVariant &value) {
+        fix(qMax(1, value.toInt()));
+    });
+    QObject::connect(animation, &QVariantAnimation::finished, button, [settle, show]() { settle(show); });
+    animation->start(QAbstractAnimation::DeleteWhenStopped);
+}
 
 /// 底栏按钮身上那个"跟随登记只做过一次"的印记（见 `applyBottomBarButtonStyle()` 里的闸门）。
 constexpr const char kBottomBarButtonFollowedProperty[] = "wtfmlThemeFollowed";
@@ -1208,22 +1340,29 @@ void MainWindowUI::setupBottomBar(QWidget *parent) {
     // 钉在按钮上，这一格就一直在。
     // 按钮里那个 layout 的边距要显式清成 0：**套在控件里的 layout 默认会拿样式给的
     // 边距**（套在 layout 里的不会），不清的话这格是 200 加左右两条边距。
-    runStateButton = new QPushButton(bottomBar);
+    runStateButton = new RunStateButton(bottomBar);
     runStateButton->setObjectName(runStateButtonName());
-    runStateButton->setFixedWidth(MainWindowUI::bottomBarRunStateColumnWidth());
+    // 展开轨里整格 184，图标轨里跟着轨走（轨宽动画途中也连续），所以只封顶、不钉死。
+    runStateButton->setMinimumWidth(0);
+    runStateButton->setMaximumWidth(MainWindowUI::bottomBarRunStateColumnWidth());
     // NOTE: **竖直方向必须自己说要铺满**。QPushButton 的竖直 sizePolicy 默认是 Fixed，
     // 而它这会儿的高度提示只有一行字那么点（QSS 把 padding 和 border 都清零了，
     // sizeHint 高 12 px）—— 结果这一格只有 12 px 高，里面那两行字被压成各 6 px
     // （"文字和箭头挤在一起、显示不全"），鼠标划过时那块
     // 高亮框也成了一长条。宽度钉死 + 高度铺满，这一格才真的是"占住底栏那一块"。
-    runStateButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
+    runStateButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     runStateButton->setCursor(Qt::PointingHandCursor);
     runStateButton->setToolTip(MainWindowUI::bottomBarRunPanelTip());
     applyBottomBarButtonStyle(runStateButton, bottomBar->palette());
     QHBoxLayout *runStateRow = new QHBoxLayout(runStateButton);
     runStateRow->setContentsMargins(12, 4, 8, 4);
     runStateRow->setSpacing(MainWindowUI::bottomBarChevronSpacing());
-    runStateRow->addLayout(runStateLayout, 1);
+    // 文字那一块装在一个透明格子里：图标轨里整块收起（见 RunStateButton），只画图标和进程数。
+    auto *runStateTextBox = new QWidget(runStateButton);
+    runStateTextBox->setObjectName(RunStateButton::textBoxName());
+    runStateTextBox->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+    runStateTextBox->setLayout(runStateLayout);
+    runStateRow->addWidget(runStateTextBox, 1);
     // 右侧不挂朝上的小箭头（体验反馈 8）：点得开由悬停底色、手型指针和悬停提示说明。
 
     // 没有实例在跑时这几样藏着。**藏的是字和那颗方块，不是格子** —— 格子（上面那颗
@@ -1501,6 +1640,9 @@ void MainWindowUI::setupBottomBar(QWidget *parent) {
     barLayout->addWidget(taskSummaryButton);
     barLayout->addWidget(runStateButton);
     barLayout->addWidget(toolboxButton);
+    // Tab 顺序和竖排一致：任务卡 → 运行状态 → 工具箱（运行状态是先建的，默认会排到任务卡前面）。
+    QWidget::setTabOrder(taskSummaryButton, runStateButton);
+    QWidget::setTabOrder(runStateButton, toolboxButton);
 }
 
 QString MainWindowUI::folderActionText(int action) {
@@ -2306,8 +2448,9 @@ void MainWindowUI::toggleActivityPopover() {
 
 void MainWindowUI::setRunStateActive(bool active) {
     m_runStateActive = active;
+    // 两种轨都露：展开轨是整格，图标轨是运行图标 + 进程数（RunStateButton 按宽度换样子）。
     if (runStateButton != nullptr) {
-        runStateButton->setVisible(active && (bar == nullptr || !bar->isCollapsed()));
+        revealRunStateButton(runStateButton, active);
     }
 }
 

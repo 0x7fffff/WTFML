@@ -283,6 +283,8 @@ void MainWindow::updateBottomBarRunState() {
     // 左下那一格现在点不点得开 = 运行进程面板里有没有进程（客户端或服务端任一在跑即可展开）。
     m_ui->setRunPanelAvailable(anyRunning);
     m_ui->setRunStateActive(anyRunning);
+    // 图标轨里这一格只画图标和进程数；数和上面那句「%1 个进程运行中」是同一份（见 RunStateButton）。
+    m_ui->getRunStateButton()->setProperty("wtfmlRunCount", totalCount);
 
     if (!anyRunning) {
         runStateLabel->setText(MainWindowUI::runStateNotRunningText());
