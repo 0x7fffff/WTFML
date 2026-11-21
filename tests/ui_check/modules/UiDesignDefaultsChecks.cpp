@@ -213,7 +213,9 @@ void headerFollowsColumnChecks() {
         const QImage shot = editor.grab().toImage();
         for (int col = 0; table != nullptr && col < 2; ++col) {
             const ColumnInk ink = columnInk(&editor, shot, table, table->horizontalHeader(), col);
-            ownOk &= ink.headLeft >= 0 && qAbs(ink.headLeft - ink.cellLeft) <= 1;
+            // 首列那一格最左边是勾选框，不是文字：勾选框的指示器比表头字左缘再让 2px 是
+            // QStyle 自己画的 inset，不拿它当「表头没对齐」。服务器列表首列同样按 2px 判。
+            ownOk &= ink.headLeft >= 0 && qAbs(ink.headLeft - ink.cellLeft) <= 2;
             detail << QStringLiteral("预设设置表列%1 表头 %2 / 格 %3").arg(col).arg(ink.headLeft).arg(ink.cellLeft);
         }
         ownOk &= table != nullptr;
