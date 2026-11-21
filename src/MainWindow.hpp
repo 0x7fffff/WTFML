@@ -2653,10 +2653,10 @@ private:
     // ---------- 「账号与外观」那个窗 ----------
     // / 把这个窗建出来并接好线（幂等：已经建过就什么都不做）。
     void setupAccountSkinDialog();
-    /// 刷新这个窗里的三样东西：账号列表（本地）、3D 预览（走和主页同一条路）、
-    /// 披风列表（页面可见时：@p allowTokenRefresh 为 true 走 loadSavedToken 按 6 小时窗口刷新后拉取；
-    /// false 则只用未过期的本地令牌直接拉取，已过期时在失败行提示，不刷新令牌）。窗还没建时只刷新主页预览。
-    void refreshAccountSkin(bool allowTokenRefresh = true);
+    /// 先读本地账号和外观缓存。显式刷新时跳过披风列表缓存的有效期，必要时续期令牌。
+    void refreshAccountSkin(bool forceCapeRefresh = false);
+    void applyCachedCapes(const QString &uuid);
+    void changeCape(const QString &capeId);
     /// 只按本地账号列表重建这个窗里的账号行（「需要重新登录」标记变化时用，不联网、不碰预览与披风）。
     void refreshAccountRows();
     /// 这个窗顶部那句话应该写什么（当前身份）。**唯一一处**决定它 —— 离线身份、未登录、
@@ -3000,6 +3000,8 @@ private:
     AccountSkinDialog *m_accountSkinDialog = nullptr;
     /// 换披风是一秒内连点就重复发请求的重灾区：短时间只放一次。
     QElapsedTimer m_lastCapeAction;
+    QString m_capeTokenRefreshUuid;
+    bool m_capeWriteInFlight = false;
     // 底栏头像那块图。**不能**在 updateBottomBar() 里现算：那个函数每次进度刷新
     // （几百毫秒一次）都会被调，现算等于一直在重渲染同一张 8×8 的皮肤。
     // NOTE: 这一格只属于"底栏要的那张图"，不是外观那条路上的状态：外观说

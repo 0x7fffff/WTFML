@@ -6,6 +6,7 @@
 #include "SkinApi.hpp"
 
 #include "AuthManager.hpp"  // 只为了 403 那套话术共用一处（appRegistrationHint）
+#include "../net/ControlGet.hpp"
 
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -19,6 +20,7 @@ QString g_baseUrlOverride;
 // 披风列表就在档案那份响应里；单独一条披风列表路由不存在）。
 constexpr const char kActiveCapePath[] = "/minecraft/profile/capes/active";
 constexpr const char kSkinsPath[] = "/minecraft/profile/skins";
+constexpr int kCapeFreshnessMs = 2 * 60 * 1000;
 
 /// 披风/皮肤项的 state 值。"ACTIVE" = 现在显示着的这一件。
 bool isActiveState(const QString &state) {
@@ -207,24 +209,62 @@ bool SkinApi::fetchCurrentSkin(const QString &token, SkinSummary *out, QString *
     return true;
 }
 
-bool SkinApi::fetchOwnedCapes(const QString &token, QList<OwnedCape> *out, QString *errorOut) {
-    // 打的是**档案**那个地址：披风列表在它里面（`capes[]`），没有一条独立的"列披风"路由。
-    // 不能打 `/minecraft/profile/capes`：那条路由不存在，404 会被界面
-    // 说成"这个账号没有可改的 Minecraft 档案"—— 看着像账号没买游戏，实际是路径不存在。
-    // 详见 .hpp 文件头那一段（也记着"别按对称性猜路由"这条）。
-    const HttpClient::Reply reply =
-        HttpClient::send(m_network, QUrl(baseUrl() + profilePath()),
-                         HttpClient::Verb::Get, {}, {}, token.toUtf8());
-    if (!reply.ok()) {
-        if (errorOut != nullptr) {
-            *errorOut = failureText(reply, tr("读取披风失败"));
+void SkinApi::requestOwnedCapes(const QString &uuid, const QString &token) {
+    if (m_capeRequests.contains(uuid)) {
+        return;
+    }
+    QNetworkRequest request{QUrl(baseUrl() + profilePath())};
+    request.setRawHeader("Accept", "application/json");
+    request.setRawHeader("Authorization", QByteArrayLiteral("Bearer ") + token.toUtf8());
+    auto *job = RequestBudget::ControlGet::start(
+        this, m_network, request, HttpClient::kDefaultTimeoutMs,
+        [this, uuid](QNetworkReply *response, const QString &jobError) {
+            m_capeRequests.remove(uuid);
+            HttpClient::Reply reply;
+            reply.networkError = jobError;
+            if (response != nullptr) {
+                reply.status = response->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+                if (reply.status <= 0 ||
+                    (reply.ok() && response->error() != QNetworkReply::NoError)) {
+                    reply.status = -1;
+                    reply.networkError = response->errorString();
+                } else {
+                    reply.raw = response->readAll();
+                }
+            }
+            if (!reply.ok()) {
+                emit ownedCapesFinished(uuid, failureText(reply, tr("读取披风失败")));
+                return;
+            }
+            if (QJsonDocument::fromJson(reply.raw).isNull()) {
+                emit ownedCapesFinished(uuid, tr("披风列表响应格式无效。"));
+                return;
+            }
+            m_capeCache.insert(uuid, {parseCapes(reply.raw), QDeadlineTimer(kCapeFreshnessMs)});
+            emit ownedCapesFinished(uuid, {});
+        });
+    m_capeRequests.insert(uuid, job);
+}
+
+const QList<OwnedCape> *SkinApi::cachedCapes(const QString &uuid, bool freshOnly) const {
+    const auto it = m_capeCache.constFind(uuid);
+    return it == m_capeCache.cend() || (freshOnly && it->freshness.hasExpired())
+        ? nullptr : &it->capes;
+}
+
+void SkinApi::discardCapes(const QString &uuid) {
+    delete m_capeRequests.take(uuid);
+    m_capeCache.remove(uuid);
+}
+
+void SkinApi::updateCachedCape(const QString &uuid, const QString &capeId) {
+    delete m_capeRequests.take(uuid);
+    const auto entry = m_capeCache.find(uuid);
+    if (entry != m_capeCache.end()) {
+        for (OwnedCape &cape : entry->capes) {
+            cape.active = cape.id == capeId;
         }
-        return false;
     }
-    if (out != nullptr) {
-        *out = parseCapes(reply.raw);
-    }
-    return true;
 }
 
 bool SkinApi::setActiveCape(const QString &token, const QString &capeId, QString *errorOut) {

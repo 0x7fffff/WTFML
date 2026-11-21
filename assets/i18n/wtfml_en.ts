@@ -25097,6 +25097,10 @@ Please close the program occupying the port, or change the port in "Common Setti
             <translation>Failed to read cloak</translation>
         </message>
         <message>
+            <source>披风列表响应格式无效。</source>
+            <translation>The server returned an invalid cape list.</translation>
+        </message>
+        <message>
             <source>更换披风失败</source>
             <translation>Failed to change cloak</translation>
         </message>

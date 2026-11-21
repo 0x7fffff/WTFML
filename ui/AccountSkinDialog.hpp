@@ -94,13 +94,14 @@ public:
     /// @param slim 是不是纤细（Alex）模型。
     void setLooks(const QImage &skin, const QImage &cape, bool slim);
 
-    /// 重建披风列表（"不显示披风"是列表下面那个按钮，不占一行）。
-    void setCapes(const QList<CapeRow> &capes);
+    /// 同一账号后台刷新时保留仍存在的选中项。
+    void setCapes(const QList<CapeRow> &capes, bool keepSelection = false);
+    void clearCapes();
+    void setCapeLoading(const QString &text);
     /// 某件披风的贴图（64×32）到了：那一格改画贴图正面，不再是占位色条。
     void setCapeTexture(const QString &url, const QImage &texture);
 
-    /// 有一件请求在走（登录中、正在拉列表）。按钮一起灰掉 —— 同步请求期间界面本来就
-    /// 点不动，这一句是给**登录**那条异步路用的（浏览器可能几十秒才回来）。
+    /// 浏览器登录期间暂时锁住会修改当前账号的操作。
     void setBusy(bool busy, const QString &what = QString());
 
     /**
@@ -351,6 +352,7 @@ private:
     QPushButton *m_offlineSkinResetButton = nullptr;
     QComboBox *m_variantCombo = nullptr;
     QListWidget *m_capeList = nullptr;
+    QLabel *m_capeLoadingLabel = nullptr;
     QPushButton *m_applyCapeButton = nullptr;
     QPushButton *m_closeButton = nullptr;
     QWidget *m_rowActions = nullptr;

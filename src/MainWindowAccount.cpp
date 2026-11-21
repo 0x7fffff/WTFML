@@ -44,11 +44,10 @@
 #include "server/ServerRegistry.hpp"
 #include "util/ImageDecode.hpp"
 
-#include <QApplication>
-#include <QEventLoop>
 #include <QFile>
 #include <QFileInfo>
 #include <QImage>
+#include <QScopedValueRollback>
 
 using namespace MainWindowViewData;
 
@@ -71,26 +70,16 @@ void MainWindow::onAccountSkinButtonClicked() {
         if (overlay == nullptr) {
             return;  // 没有覆盖层就开不了（主界面建的时候就有，正常到不了这一支）
         }
-        // 页面把内容区整块盖掉，不是独立窗口。登录那一步会把浏览器推到前台、用户要
-        // 在两边来回切 —— 界面一直是活的，浏览器本来也是外面的独立窗，谁都拦不着它。
-        //
-        // NOTE: 顺序是**先摆出来、再刷新**。refreshAccountSkin() 最后那一段会去拉披风列表
-        // （真联网，最长能等十几秒），倒过来做的话头一次点这个入口就是"什么也没发生"
-        // —— 页面还没画出来，那个请求已经在跑了，用户只会以为按钮点坏了。
-        // 这里排一发队：开页是**非阻塞**的（`OverlayHost::showPage()`），返回之后主循环照常
-        // 转，这一发就排在"页面已经在屏幕上"之后跑。
-        // NOTE: 打开账号页不刷新令牌：当前令牌未过期时直接用本地令牌拉披风列表，
-        // 已过期则在失败行提示「登录凭据已过期，披风列表未更新。」。
-        QMetaObject::invokeMethod(this, [this] { refreshAccountSkin(false); }, Qt::QueuedConnection);
-        // 那一发刷新排在页面摆上来之后；先把「皮肤」那一行摆对，免得开页的第一帧
-        // 露的是正版才有的「上传皮肤…」（离线账号按下去只会失败）。
+        // 首帧先摆好皮肤操作，列表等页面出现后再后台查询。
         m_accountSkinDialog->setOfflineSkinState(offlineIdentity(),
                                                  OfflineSkin::hasSkin(AccountStore::activeUuid()));
         // 这一版微软登录用不了（没配应用 ID）时，「添加账号」菜单里「微软账号」置灰并带上原因。
         m_accountSkinDialog->setOnlineLoginUnavailable(AuthManager::loginConfigurationError());
         if (!overlay->showPage(m_accountSkinDialog, AccountSkinDialog::windowTitle())) {
             appendLog(tr("无法打开账号与外观页：界面已被另一页占用。"));
+            return;
         }
+        QMetaObject::invokeMethod(this, [this] { refreshAccountSkin(); }, Qt::QueuedConnection);
     });
 }
 
@@ -108,7 +97,7 @@ void MainWindow::setupAccountSkinDialog() {
     connect(m_accountSkinDialog, &AccountSkinDialog::removeRequested, this,
             &MainWindow::onAccountRemoveRequested);
     connect(m_accountSkinDialog, &AccountSkinDialog::refreshRequested, this,
-            [this] { refreshAccountSkin(); });
+            [this] { refreshAccountSkin(/*forceCapeRefresh=*/true); });
     connect(m_accountSkinDialog, &AccountSkinDialog::skinUploadRequested, this,
             &MainWindow::onSkinUploadRequested);
     connect(m_accountSkinDialog, &AccountSkinDialog::offlineSkinPickRequested, this,
@@ -119,6 +108,20 @@ void MainWindow::setupAccountSkinDialog() {
             &MainWindow::onCapeSelectRequested);
     connect(m_accountSkinDialog, &AccountSkinDialog::hideCapeRequested, this,
             &MainWindow::onCapeHideRequested);
+    connect(m_skinApi, &SkinApi::ownedCapesFinished, this,
+            [this](const QString &uuid, const QString &error) {
+                if (uuid != AccountStore::activeUuid() ||
+                    !m_authManager->loggedIn() || m_authManager->loginInFlight()) {
+                    return;
+                }
+                m_accountSkinDialog->setCapeLoading({});
+                m_accountSkinDialog->setStatusError(error);
+                if (error.isEmpty()) {
+                    applyCachedCapes(uuid);
+                } else {
+                    appendLog(tr("拉取披风列表失败：%1").arg(error));
+                }
+            });
     // 披风格画真贴图：走皮肤那套贴图缓存（按地址认领，别的贴图回来对不上地址就不理）。
     connect(m_skinStore, &PlayerSkinStore::textureReady, m_accountSkinDialog,
             [this](const QString &url, const QString &path) {
@@ -170,142 +173,81 @@ void MainWindow::refreshAccountRows() {
     m_accountSkinDialog->setAccounts(rows);
 }
 
-void MainWindow::refreshAccountSkin(bool allowTokenRefresh) {
-    // NOTE: **这一句只挡窗里那些东西**（账号列表 / 状态行 / 披风），预览那一份照刷 ——
-    // 主页那个小人、底栏头像、那个窗里的 3D 预览**都只在
-    // startPlayerSkinLoad() → applyPlayerSkin() 里更新**，这一句 return 若把预览也挡掉，
-    // 没点开过「账号与外观…」的会话里切账号根本不换脸，一直停在上一个人的脸上
-    // （从"未登录"切过去时停的就是那张兜底占位图）。
+void MainWindow::refreshAccountSkin(bool forceCapeRefresh) {
+    const QString uuid = AccountStore::activeUuid();
+    const bool online = !uuid.isEmpty() && !offlineIdentity() && m_authManager->loggedIn();
     if (m_accountSkinDialog == nullptr) {
-        startPlayerSkinLoad();  // 窗没建 → 没有列表/状态行/披风要刷，但脸得换
+        startPlayerSkinLoad();
+        return;
+    }
+    if (m_authManager->loginInFlight()) {
         return;
     }
 
-    // 1) 账号列表：**纯本地**（读 SavedAccounts 那个键），不联网、不碰令牌。
     refreshAccountRows();
-    const QList<SavedAccount> accounts = AccountStore::accounts();
-
-    // 2) 状态行回到"当前身份"那一档，忙态也在这里松开 —— 能走到这一句就说明上一步那个
-    // 同步请求已经回来了（下面第 4 步会再离开这个方法去联网）。
+    const bool offline = offlineIdentity();
     m_accountSkinDialog->setBusy(false);
     m_accountSkinDialog->setStatusText(accountSkinStatusText());
-    m_accountSkinDialog->setStatusError(QString());
-    // 「皮肤」那一行露哪一档（正版：上传；离线：换一张 / 恢复默认）。判据和下面那句
-    // `if (offlineIdentity())` 同一个出处，只是这里要的是"有没有自己挑过"那一格。
-    {
-        const QString activeUuid = AccountStore::activeUuid();
-        m_accountSkinDialog->setOfflineSkinState(
-            offlineIdentity(), OfflineSkin::hasSkin(activeUuid));
+    m_accountSkinDialog->setStatusError({});
+    m_accountSkinDialog->setCapeLoading({});
+    m_accountSkinDialog->setOfflineSkinState(offline, OfflineSkin::hasSkin(uuid));
+    if (!online || m_accountSkinDialog->capesOwner() != uuid) {
+        m_accountSkinDialog->clearCapes();
     }
-
-    // 3) 3D 预览走**和主页同一条路**（同一份缓存、同一次后台刷新）：applyPlayerSkin()
-    // 会把同一份贴图同时喂给主页那个小人和这个窗里的预览。
-    //
-    // NOTE: 离线账号那一档不联网：手选的本地皮肤 → 本地算出来的默认皮肤 → 内置 Steve。
-    // 这也正是这个窗**只在离线账号那一档开**的原因（见 onAccountSkinButtonClicked()
-    // 里那段）：正版那一档开窗会顺带拉披风，那才是真联网的那一下。
     startPlayerSkinLoad();
-
-    // 4) 披风列表要令牌，是这一整块里唯一会真的去联网的地方（过期令牌也是在这里顺带刷新的）。
-    // 一个账号都没有时也跳过：没有令牌可换，硬走下去只会把「还没有登录过…」那句原因写进副题，
-    // 和「未登录」、「微软账号」置灰的说明说成三遍。
-    if (offlineIdentity() || accounts.isEmpty()) {
-        // 当前是离线账号 = "别联网"，而拉披风列表正是联网。跳过。
-        m_accountSkinDialog->setCapes({});
-        m_accountSkinDialog->setCapesOwner(QString());
+    if (!online) {
         return;
     }
-    // 为什么非得另立一条判据：上面那句 `m_accountSkinDialog == nullptr` 分不出"关掉了" ——
-    // 这个对话框是**建一次就留着**的（setupAccountSkinDialog() 见非空就返回，父对象是本
-    // 窗口），页面关掉只是把它藏起来，指针永远不为空。于是"开过一次账号页、之后从右面板
-    // 切账号"这一条路上，每一次切换都会在**没有人看着的那个页面上**点起忙态、然后同步
-    // 等一次网络往返（loadSavedToken 还可能真去换一次令牌）：用户看到的是"切个账号整个
-    // 启动器卡几秒"，而卡住的理由（「正在获取披风列表…」）摆在一个藏起来的页面里。
-    //
-    // NOTE: 判据是"**现在真摆在眼前**"（isVisible），和 OverlayHost 里 retargetCoveredPage()
-    // 那条 NOTE 同一条规矩：页面收在别的选项卡上时它不在屏幕上，一样跳过。
-    // NOTE: 上半截（账号列表 / 状态行 / 3D 预览）**照样刷了** —— 那些不联网。披风列表会在
-    // 用户真的打开这一页时补上：开页那条路必走一次本函数（见 onAccountSkinButtonClicked），
-    // 而那时页面已经在屏幕上了。
+    if (m_accountSkinDialog->capesOwner() != uuid) {
+        applyCachedCapes(uuid);
+    }
     if (!m_accountSkinDialog->isVisible()) {
         return;
     }
-
-    // 失败时的收尾：「已登录为…」那一句保持不变，原因另起一行（后面跟「重试」）；披风列表留着上次
-    // 取到的内容，只有它属于另一个账号时才清掉（不能让用户在 B 账号下看到 A 的披风）。
-    const QString activeUuid = AccountStore::activeUuid();
-    const auto failRefresh = [this, &activeUuid](const QString &reason) {
-        if (m_accountSkinDialog->capesOwner() != activeUuid) {
-            m_accountSkinDialog->setCapes({});
-            m_accountSkinDialog->setCapesOwner(QString());
-        }
-        m_accountSkinDialog->setBusy(false);
-        m_accountSkinDialog->setStatusText(accountSkinStatusText());
-        m_accountSkinDialog->setStatusError(reason);
-    };
-
-    QString error;
-    QString token;
-    if (!allowTokenRefresh) {
-        if (!m_authManager->loggedIn()) {
-            m_accountSkinDialog->setCapes({});
-            m_accountSkinDialog->setCapesOwner(QString());
+    QString token = m_authManager->savedAccessToken();
+    if (token.isEmpty() || m_authManager->tokenSecondsLeft() <= 0) {
+        if (!forceCapeRefresh || (!m_capeTokenRefreshUuid.isEmpty() && m_capeTokenRefreshUuid != uuid)) {
+            m_accountSkinDialog->setStatusError(tr("登录凭据已过期，披风列表未更新。"));
             return;
         }
-        // 开页与切号：不触发令牌刷新。令牌尚未过期就用现有令牌直接拉披风，已过期则在失败行提示。
-        if (m_authManager->tokenSecondsLeft() <= 0 || m_authManager->savedAccessToken().isEmpty()) {
-            failRefresh(tr("登录凭据已过期，披风列表未更新。"));
+        m_accountSkinDialog->setCapeLoading(tr("正在获取披风列表…"));
+        if (m_capeTokenRefreshUuid == uuid) {
             return;
         }
-        token = m_authManager->savedAccessToken();
-    }
-
-    // 下面这两下是**同步**的（补忙态）：loadSavedToken() 可能要真去换一次令牌、
-    // fetchOwnedCapes() 一定发一次 GET —— 两个函数都是"调完才返回"，于是点「刷新」之后的
-    // 这几秒钟里 UI 线程一直在这两行里面出不来：窗不重绘、什么都按不动，Windows 过一会儿
-    // 还会给标题挂上"(无响应)"。
-    //
-    // NOTE: 到这儿必须先把忙态点起来并 processEvents 一次：第 2 步的 setBusy(false)
-    // 之后到这里谁也没把忙态点起来的话，用户看到的是一个画着旧内容、点什么都没反应的窗。
-    // 忙态 + 一次 processEvents（排掉用户输入）和 enterSyncWait() 是同一个手法：
-    // 进去之前先把话说出来。下面每条返回路上都要松开它。
-    m_accountSkinDialog->setBusy(true, tr("正在获取披风列表…"));
-    QApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
-
-    if (allowTokenRefresh) {
+        QScopedValueRollback refreshGuard(m_capeTokenRefreshUuid, uuid);
+        QString error;
         token = m_authManager->loadSavedToken(&error);
+        if (AccountStore::activeUuid() != uuid || m_authManager->loginInFlight()) {
+            return;
+        }
         if (token.isEmpty()) {
-            // 没登录（或者令牌换不出来）。
-            failRefresh(error);
+            m_accountSkinDialog->setCapeLoading({});
+            m_accountSkinDialog->setStatusError(error);
             return;
         }
     }
-
-    QList<OwnedCape> capes;
-    if (!m_skinApi->fetchOwnedCapes(token, &capes, &error)) {
-        // 背景刷新失败**不弹窗**（这是这个窗里唯一一条不弹窗的错误路）：账号列表和预览
-        // 都已经正常出来了，弹一个窗拦在中间会让用户以为整个模块坏了。正文写在状态行里，
-        // 日志留一行备查。
-        appendLog(tr("拉取披风列表失败：%1").arg(error));
-        failRefresh(error);
+    if (!forceCapeRefresh && m_skinApi->cachedCapes(uuid, /*freshOnly=*/true)) {
         return;
     }
+    m_accountSkinDialog->setCapeLoading(tr("正在获取披风列表…"));
+    m_skinApi->requestOwnedCapes(uuid, token);
+}
 
-    QList<AccountSkinDialog::CapeRow> capeRows;
-    capeRows.reserve(capes.size());
-    for (const OwnedCape &cape : capes) {
-        AccountSkinDialog::CapeRow row;
-        row.id = cape.id;
-        row.alias = cape.alias;
-        row.url = cape.url;
-        row.active = cape.active;
-        capeRows.append(row);
+void MainWindow::applyCachedCapes(const QString &uuid) {
+    const auto *capes = m_skinApi->cachedCapes(uuid);
+    if (capes == nullptr) {
+        return;
     }
-    m_accountSkinDialog->setCapes(capeRows);
-    m_accountSkinDialog->setCapesOwner(activeUuid);
-    for (const AccountSkinDialog::CapeRow &row : capeRows) m_skinStore->fetchTexture(row.url);
-    // 到这里那一趟联网才算走完（这一条是上面那个忙态唯一的"成功"出口）。
-    m_accountSkinDialog->setBusy(false);
+    QList<AccountSkinDialog::CapeRow> rows;
+    rows.reserve(capes->size());
+    for (const OwnedCape &cape : *capes) {
+        rows.append({cape.id, cape.alias, cape.active, cape.url});
+    }
+    m_accountSkinDialog->setCapes(rows, m_accountSkinDialog->capesOwner() == uuid);
+    m_accountSkinDialog->setCapesOwner(uuid);
+    for (const auto &row : rows) {
+        m_skinStore->fetchTexture(row.url);
+    }
 }
 
 void MainWindow::onAccountLoginRequested() {
@@ -495,12 +437,8 @@ void MainWindow::onAccountSwitchRequested(const QString &uuid) {
     }
     updateBottomBar();
     appendLog(tr("已切换到账号「%1」。").arg(AccountStore::nameOf(uuid)));
-    if (m_accountSkinDialog != nullptr) {
-        m_accountSkinDialog->setCapes({});
-        m_accountSkinDialog->setCapesOwner(QString());
-    }
     // 切号不刷新令牌；若页开着且当前令牌未过期，用本地令牌拉新账号的披风，已过期则在失败行提示。
-    refreshAccountSkin(false);
+    refreshAccountSkin();
 }
 
 void MainWindow::onAccountRemoveRequested(const QString &uuid) {
@@ -532,8 +470,9 @@ void MainWindow::onAccountRemoveRequested(const QString &uuid) {
         m_authManager->reloadStoredAccount();
         updateBottomBar();
     }
+    m_skinApi->discardCapes(uuid);
     appendLog(tr("已删除账号「%1」。").arg(name));
-    refreshAccountSkin(false);
+    refreshAccountSkin();
 }
 
 namespace {
@@ -656,46 +595,59 @@ void MainWindow::onOfflineSkinResetRequested() {
 }
 
 void MainWindow::onCapeSelectRequested(const QString &capeId) {
-    if (capeId.isEmpty()) {
-        return;
+    if (!capeId.isEmpty()) {
+        changeCape(capeId);
     }
-    if (m_lastCapeAction.isValid() && m_lastCapeAction.elapsed() < 1500) {
-        appendLog(tr("换披风太频繁，请稍后再试。"));
-        return;
-    }
-    m_lastCapeAction.start();
-    QString error;
-    const QString token = m_authManager->loadSavedToken(&error);
-    if (token.isEmpty()) {
-        InlineMessage::warning(m_ui->overlay(), tr("更换披风失败"), error);
-        return;
-    }
-    if (!m_skinApi->setActiveCape(token, capeId, &error)) {
-        InlineMessage::warning(m_ui->overlay(), tr("更换披风失败"), error);
-        return;
-    }
-    appendLog(tr("已更换披风。"));
-    refreshAccountSkin();
 }
 
 void MainWindow::onCapeHideRequested() {
-    if (m_lastCapeAction.isValid() && m_lastCapeAction.elapsed() < 1500) {
+    changeCape({});
+}
+
+void MainWindow::changeCape(const QString &capeId) {
+    const QString uuid = AccountStore::activeUuid();
+    if (uuid.isEmpty() || m_accountSkinDialog == nullptr || m_accountSkinDialog->capesOwner() != uuid ||
+        !m_authManager->loggedIn() || m_authManager->loginInFlight()) {
+        return;
+    }
+    if (m_capeWriteInFlight || !m_capeTokenRefreshUuid.isEmpty() ||
+        (m_lastCapeAction.isValid() && m_lastCapeAction.elapsed() < 1500)) {
         appendLog(tr("换披风太频繁，请稍后再试。"));
         return;
     }
+    QScopedValueRollback writeGuard(m_capeWriteInFlight, true);
     m_lastCapeAction.start();
+    const bool hide = capeId.isEmpty();
+    const QString title = hide ? tr("取消披风失败") : tr("更换披风失败");
     QString error;
-    const QString token = m_authManager->loadSavedToken(&error);
+    QString token = m_authManager->savedAccessToken();
+    if (token.isEmpty() || m_authManager->tokenSecondsLeft() <= 0) {
+        token = m_authManager->loadSavedToken(&error);
+    }
+    if (AccountStore::activeUuid() != uuid || m_authManager->loginInFlight()) {
+        return;
+    }
     if (token.isEmpty()) {
-        InlineMessage::warning(m_ui->overlay(), tr("取消披风失败"), error);
+        InlineMessage::warning(m_ui->overlay(), title, error);
         return;
     }
-    if (!m_skinApi->hideCape(token, &error)) {
-        InlineMessage::warning(m_ui->overlay(), tr("取消披风失败"), error);
+    const bool ok = hide ? m_skinApi->hideCape(token, &error)
+                         : m_skinApi->setActiveCape(token, capeId, &error);
+    if (ok) {
+        m_skinApi->updateCachedCape(uuid, capeId);
+        appendLog(hide ? tr("已取消披风（不显示）。") : tr("已更换披风。"));
+    }
+    if (AccountStore::activeUuid() != uuid || m_authManager->loginInFlight()) {
         return;
     }
-    appendLog(tr("已取消披风（不显示）。"));
-    refreshAccountSkin();
+    if (!ok) {
+        InlineMessage::warning(m_ui->overlay(), title, error);
+        return;
+    }
+    m_accountSkinDialog->setCapeLoading({});
+    m_accountSkinDialog->setStatusError({});
+    applyCachedCapes(uuid);
+    startPlayerSkinLoad();
 }
 
 void MainWindow::onLoginStarted() {
@@ -707,6 +659,7 @@ void MainWindow::onLoginStarted() {
     // 超时兜底也在那边 —— 浏览器再也不回来时它会发一次 loginFailed()，
     // 忙态由 onLoginFailed() 松开。
     if (m_accountSkinDialog != nullptr) {
+        m_accountSkinDialog->setCapeLoading({});
         m_accountSkinDialog->setBusy(true, tr("正在等浏览器完成登录…"));
     }
 }
@@ -728,6 +681,8 @@ void MainWindow::onLoginSucceeded(const QString &playerName) {
         appendLog(tr("保存账号到列表失败：%1").arg(accountError));
     }
     if (m_accountSkinDialog != nullptr) {
+        m_skinApi->discardCapes(AccountStore::activeUuid());
+        m_accountSkinDialog->clearCapes();
         refreshAccountSkin();
     }
     // 用户刚在浏览器里看到过「登录成功」，这里再说一声是为了把**登录到的是哪个账户**
@@ -754,12 +709,7 @@ void MainWindow::onLoginFailed(const QString &errorMessage) {
     // 幂等的：画出来还是原来那张默认脸、占位名字。
     if (!offlineIdentity() && !m_authManager->loggedIn()) {
         updateBottomBar();
-        // 外观同理：脸还是上一个人的（m_avatarPixmap 只在 applyPlayerSkin() 里换），
-        // 这里走的是"未登录 ⇒ 默认外观"那一支，**不联网**（见 startPlayerSkinLoad() 里
-        // !loggedIn() 那个早退）。刻意**不调** refreshAccountSkin()：那一支最后会去
-        // loadSavedToken() 拉披风，而盘上此刻正躺着**新账号**那半份微软凭据 —— 一次同步的
-        // 令牌刷新会把"登录失败"当场变成"其实登上了另一个人"，用户看到的弹窗就成了假话。
-        startPlayerSkinLoad();
+        refreshAccountSkin();
     }
     // 登录失败是**挡住启动**的错误（没有令牌就点不动「启动游戏」），按产品约定必须弹窗。
     // 正文是 AuthManager 那边给的、能直接给用户看的话（"这个微软账户还没注册过 Xbox 账户，
