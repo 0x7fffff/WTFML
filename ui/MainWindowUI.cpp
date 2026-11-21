@@ -1113,7 +1113,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     // NOTE: 只在**已经露着头**的时候动。搭界面这一路会挨个 `addTab()`，`currentChanged`
     // 在那时候就会响，而那些页还没上屏、几何也没定下来，给它们装效果纯属白干
     // （`tabWidget` 是 `centralWidget` 里生出来的，这条判据在它身上同样说得通）。
-    QObject::connect(tabWidget, &QTabWidget::currentChanged, tabWidget, [this](int) {
+    QObject::connect(tabWidget, &QTabWidget::currentChanged, tabWidget, [this](int index) {
         Anim::cancelLayoutTransition(tabWidget->parentWidget());
         if (overlayHost && overlayHost->promptOpen() && overlayHost->promptFullSize()) {
             if (TaskCenterPanel *panel = taskCenterPanel()) {
@@ -1123,12 +1123,24 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
                 workspace->deleteLater();
             }
         }
-        // 切回停放着整页的那颗选项卡：整页自己淡进来（OverlayHost::onAnchorTabChanged），
-        // 底下的 QTabWidget 再盖一层幕布会从页面周围露出来。其余换页（包括从整页切走）照常动。
-        if (tabWidget->isVisible()
-            && (overlayHost == nullptr || !overlayHost->pageOpen() || overlayHost->parked())) {
-            Anim::pageAppear(tabWidget);
-        }
+        if (!Anim::enabled() || !tabWidget->isVisible()) return;
+
+        // 让同一个切页信号上的后续槽先更新内容（如设置页的 Java 与内存），再排版和拍首帧。
+        QMetaObject::invokeMethod(tabWidget, [this, index] {
+            const QPointer<QTabWidget> tabs(tabWidget);
+            if (!Anim::enabled() || tabs->currentIndex() != index || !tabs->isVisible()) return;
+            const QPointer<QWidget> page(tabs->currentWidget());
+            if (!page || !page->isVisible()) return;
+
+            // 切回停放着整页的选项卡时，由 OverlayHost 播放整页淡入。
+            const auto canAnimate = [this] {
+                return overlayHost == nullptr || !overlayHost->pageOpen() || overlayHost->parked();
+            };
+            if (!canAnimate()) return;
+            DesignDefaults::settlePageLayout(page);
+            if (!tabs || !page || tabs->currentWidget() != page || !page->isVisible() || !canAnimate()) return;
+            Anim::pageAppear(tabs);
+        }, Qt::QueuedConnection);
     });
 
     // 内层那几层换页（下载页右栏、游戏栏、设置页右栏、实例页客户端 / 服务端）不用再接：

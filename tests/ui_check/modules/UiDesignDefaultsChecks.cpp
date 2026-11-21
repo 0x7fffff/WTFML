@@ -4,14 +4,19 @@
 #include "DesignDefaults.hpp"
 #include "InstanceSettingsDialog.hpp"
 #include "PresetOptionsEditor.hpp"
+#include "SettingsPageParts.hpp"
+#include "TitleBar.hpp"
 
 #include <QComboBox>
+#include <QEvent>
 #include <QEventLoop>
 #include <QHeaderView>
 #include <QImage>
 #include <QLabel>
 #include <QListWidget>
+#include <QMainWindow>
 #include <QPlainTextEdit>
+#include <QScrollArea>
 #include <QStackedWidget>
 #include <QStandardItemModel>
 #include <QTabWidget>
@@ -243,6 +248,106 @@ QStackedWidget *twoPages(QWidget *parent) {
     return stack;
 }
 
+class DeferredSettingsPage : public QScrollArea {
+protected:
+    void showEvent(QShowEvent *event) override {
+        QScrollArea::showEvent(event);
+        m_needsLayout = true;
+        QCoreApplication::postEvent(this, new QEvent(QEvent::LayoutRequest));
+    }
+
+    bool event(QEvent *event) override {
+        if (event->type() == QEvent::LayoutRequest && m_needsLayout) {
+            m_needsLayout = false;
+            widget()->setMaximumWidth(QWIDGETSIZE_MAX);
+        }
+        return QScrollArea::event(event);
+    }
+
+private:
+    bool m_needsLayout = false;
+};
+
+class SettingsRowPaintProbe : public SettingsParts::SettingsRow {
+public:
+    using SettingsRow::SettingsRow;
+    int firstPaintWidth = -1;
+    bool firstPaintStacked = false;
+
+protected:
+    void paintEvent(QPaintEvent *event) override {
+        if (firstPaintWidth < 0) {
+            firstPaintWidth = width();
+            firstPaintStacked = stacked();
+        }
+        SettingsRow::paintEvent(event);
+    }
+};
+
+void stackFirstSnapshotCheck() {
+    QStackedWidget stack;
+    stack.resize(SettingsParts::kStackBelow + 160, 360);
+    stack.addWidget(new QWidget);
+    auto *page = new DeferredSettingsPage;
+    auto *form = new QWidget;
+    form->setMaximumWidth(SettingsParts::kStackBelow - 40);
+    auto *layout = new QVBoxLayout(form);
+    auto *row = new SettingsRowPaintProbe({QStringLiteral("界面语言"), {}, {}}, new QComboBox, form);
+    layout->addWidget(row);
+    layout->addStretch();
+    page->setWidgetResizable(true);
+    page->setWidget(form);
+    stack.addWidget(page);
+    stack.show();
+    QApplication::processEvents();
+
+    // 「首帧」由切页同步抓取。处理事件前先读探针，避免量到幕布下面后来排好的页面。
+    stack.setCurrentWidget(page);
+    const bool snapped = curtainShown(page);
+    const int firstWidth = row->firstPaintWidth;
+    const bool firstStacked = row->firstPaintStacked;
+    QApplication::processEvents();
+    check(snapped && !firstStacked && firstWidth >= SettingsParts::kStackBelow && firstWidth == row->width(),
+          "DD15 设置子页首次换页快照已按最终宽度排成横排",
+          QStringLiteral("首帧行宽 %1，最终行宽 %2，首帧叠放 %3")
+              .arg(firstWidth).arg(row->width()).arg(firstStacked));
+}
+
+void settingsNavigationSnapshotCheck(QApplication &app) {
+    QMainWindow window;
+    MainWindowUI ui(&window);
+    window.resize(1280, 800);
+    auto *tabs = ui.getTabWidget();
+    const int settingsIndex = MainWindowUI::settingsTabIndex();
+    auto *settings = tabs->widget(settingsIndex);
+    auto *form = settings->findChild<QWidget *>(MainWindowUI::settingsFormName(QStringLiteral("launch")));
+    auto *bar = window.findChild<TitleBar *>();
+    auto *layout = form != nullptr ? qobject_cast<QVBoxLayout *>(form->layout()) : nullptr;
+    check(layout != nullptr && bar != nullptr, "DD16 设置页和主导航已就绪");
+    if (layout == nullptr || bar == nullptr) return;
+
+    // 模拟进入设置后，同一个切页信号的后续槽更新内容和布局。
+    form->setMaximumWidth(SettingsParts::kStackBelow - 40);
+    auto *row = new SettingsRowPaintProbe({QStringLiteral("首帧检查"), {}, {}}, new QComboBox, form);
+    layout->insertWidget(0, row);
+    QObject::connect(tabs, &QTabWidget::currentChanged, form, [form, settingsIndex](int index) {
+        if (index == settingsIndex) form->setMaximumWidth(MainWindowUI::settingsFormMaxWidth());
+    });
+    window.show();
+    app.processEvents();
+
+    emit bar->navRequested(settingsIndex);
+    QCoreApplication::sendPostedEvents(tabs, QEvent::MetaCall);
+    const bool snapped = curtainShown(tabs);
+    const int firstWidth = row->firstPaintWidth;
+    const bool firstStacked = row->firstPaintStacked;
+    app.processEvents();
+    check(snapped && !firstStacked && firstWidth >= SettingsParts::kStackBelow && firstWidth == row->width(),
+          "DD16 从主导航首次进入设置时，首帧使用更新后的表单布局",
+          QStringLiteral("首帧行宽 %1，最终行宽 %2，首帧叠放 %3")
+              .arg(firstWidth).arg(row->width()).arg(firstStacked));
+}
+
 void stackChecks() {
     QWidget window;
     window.resize(640, 480);
@@ -295,6 +400,8 @@ int UiDesignDefaultsChecks(QApplication &app) {
     viewChecks();
     Anim::setEnabled(true);
     stackChecks();
+    stackFirstSnapshotCheck();
+    settingsNavigationSnapshotCheck(app);
     Anim::setEnabled(false);
     headerAlignChecks(app);
     headerFollowsColumnChecks();

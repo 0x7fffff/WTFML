@@ -40,6 +40,8 @@ bool optedOut(const QWidget *widget);
 
 /// 样式 polish 时调：按控件种类补上默认。可重复调用（焦点环那条会反复 unpolish / polish）。
 void apply(QWidget *widget);
+/// 在换页快照前完成新页面及滚动区排队的布局请求。
+void settlePageLayout(QWidget *page);
 
 /**
  * 默认行代理：悬停 / 选中画成内缩圆角块（和 `VersionTreeDelegate` 的 navRow 同一档：
