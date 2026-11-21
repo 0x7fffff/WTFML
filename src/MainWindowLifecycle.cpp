@@ -35,6 +35,7 @@
 #include "controllers/IntegrityController.hpp"
 #include "controllers/LaunchController.hpp"
 #include "controllers/PresetController.hpp"
+#include "controllers/ServerRunController.hpp"
 #include "controllers/ServerWorkspaceController.hpp"
 #include "controllers/ToolboxController.hpp"
 #include "launcher/LauncherManager.hpp"
@@ -228,7 +229,7 @@ void MainWindow::closeEvent(QCloseEvent *event) {
             // 是"存档写完了没有"。
             QStringList notStopped;
             for (int index = 0; index < serverIds.size(); ++index) {
-                if (!m_serverWorkspace->stopAndWait(serverIds.at(index))) {
+                if (!m_serverRun->stopAndWait(serverIds.at(index))) {
                     notStopped.append(names.at(index));
                 }
             }

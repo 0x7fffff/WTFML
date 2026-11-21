@@ -10,11 +10,14 @@
 
 #include <QAbstractItemView>
 #include <QApplication>
+#include <QEvent>
 #include <QHeaderView>
 #include <QItemDelegate>
+#include <QLayout>
 #include <QListView>
 #include <QPainter>
 #include <QPlainTextEdit>
+#include <QPointer>
 #include <QStackedWidget>
 #include <QStyleOption>
 #include <QStyledItemDelegate>
@@ -90,20 +93,34 @@ void applyStack(QStackedWidget *stack) {
     stack->setProperty(kStackWired, true);
     // 退出口在每次换页时现查：属性可以在 polish 之后才挂上。
     QObject::connect(stack, &QStackedWidget::currentChanged, stack, [stack](int) {
-        if (DesignDefaults::optedOut(stack)) return;
+        if (!Anim::enabled() || DesignDefaults::optedOut(stack)) return;
         // QTabWidget 里那个栈：选项卡自己退出了（自己接 pageAppear），这一层就不再动它。
         if (const auto *tabs = qobject_cast<const QTabWidget *>(stack->parentWidget());
             tabs != nullptr && DesignDefaults::optedOut(tabs)) {
             return;
         }
-        QWidget *page = stack->currentWidget();
-        if (page != nullptr && page->isVisible()) Anim::pageAppear(page);
+        const QPointer<QStackedWidget> owner(stack);
+        const QPointer<QWidget> page(stack->currentWidget());
+        if (!page || !page->isVisible()) return;
+
+        DesignDefaults::settlePageLayout(page);
+        if (!owner || !page || owner->currentWidget() != page || !page->isVisible()) return;
+        Anim::pageAppear(page);
     });
 }
 
 }  // namespace
 
 namespace DesignDefaults {
+
+void settlePageLayout(QWidget *page) {
+    const QPointer<QWidget> guard(page);
+    // 「新页可见」后，滚动区还会更新内容宽度，表单收到新宽度后再排一轮。
+    for (int pass = 0; pass < 4 && guard && guard->isVisible(); ++pass) {
+        if (QLayout *layout = guard->layout()) layout->activate();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::LayoutRequest);
+    }
+}
 
 void optOut(QWidget *widget) {
     if (widget != nullptr) widget->setProperty(optOutProperty(), true);

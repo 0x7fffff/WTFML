@@ -1,4 +1,6 @@
 #include "Support.hpp"
+#include "ListRowDelegate.hpp"
+#include "controllers/ActivityCenterController.hpp"
 #include "controllers/ServerSettingsController.hpp"
 #include "controllers/ServerWorkspaceController.hpp"
 void runServerSettingsPageTests() {
@@ -22,6 +24,7 @@ void runServerSettingsPageTests() {
     info.flavor = ServerInstall::Flavor::Vanilla;
     info.flavorKnown = true;
     info.gameVersion = QStringLiteral("1.20.1");
+    info.javaPath = QCoreApplication::applicationFilePath();
     QString problem;
     check(ServerRegistry::createServer(serverId, info, &problem),
           "T42 前提：盘上摆了一个服务端", problem);
@@ -426,6 +429,72 @@ void runServerSettingsPageTests() {
     // 收页之后盘上那份文件还在（这一节写的是真盘）。
     check(propsTextOnDisk().contains(QStringLiteral("pvp=false")),
           "★ T42.8 收页之后盘上那份 `server.properties` 还是改过的那一份");
+
+    // 用服务端列表的实际启动入口，让假 Java 等到测试发来就绪信号。
+    auto *tree = w.findChild<QTreeWidget *>(MainWindowUI::serverListName());
+    auto *delegate = tree ? qobject_cast<ListRowDelegate *>(tree->itemDelegate()) : nullptr;
+    auto *workspace = w.findChild<ServerWorkspaceController *>();
+    auto *activity = w.findChild<ActivityCenterController *>();
+    const QModelIndex row = tree ? tree->model()->index(0, 0) : QModelIndex();
+    const bool startFixtureReady = delegate && workspace && activity &&
+        row.data(Qt::UserRole).toString() == serverId && ServerRegistry::acceptEula(serverId);
+    check(startFixtureReady, "T42.12 服务端列表有一份已同意 EULA 的启动夹具");
+    if (startFixtureReady) {
+        const auto toggleServer = [&] { delegate->actionTriggered(row, ListRowDelegate::Action::Launch); };
+        auto *tasks = activity->tasks();
+        const auto activeLaunch = [&] {
+            for (const auto &task : tasks->active()) {
+                if (task.kind == Tasks::TaskKind::ServerLaunch && task.targetId == serverId) {
+                    return task.id;
+                }
+            }
+            return Tasks::invalidTaskId();
+        };
+        toggleServer();
+        auto *process = workspace->process(serverId);
+        const auto readyTask = activeLaunch();
+        check(readyTask != Tasks::invalidTaskId() && process &&
+                  process->status() == ServerModel::Status::Starting &&
+                  tasks->snapshot(readyTask).detail.contains(QStringLiteral("就绪")),
+              "T42.12 服务端尚未就绪时，任务中心显示启动任务");
+        if (process && process->isRunning()) {
+            check(process->sendCommand(QStringLiteral("ready")) && pumpUntil([&] {
+                      return tasks->snapshot(readyTask).state == Tasks::TaskState::Succeeded;
+                  }, 5000), "T42.12 收到服务端就绪信号才标记成功");
+            toggleServer();
+            check(pumpUntil([&] { return !process->isRunning(); }, 5000) &&
+                      tasks->snapshot(readyTask).state == Tasks::TaskState::Succeeded,
+                  "T42.12 停服后启动任务继续保留成功记录");
+        }
+        if (process && !process->isRunning()) {
+            toggleServer();
+            const auto cancelledTask = activeLaunch();
+            toggleServer();
+            check(pumpUntil([&] {
+                      return !process->isRunning() &&
+                             tasks->snapshot(cancelledTask).state == Tasks::TaskState::Cancelled;
+                  }, 5000), "T42.12 启动期间主动停止，任务记为已取消");
+        }
+        if (process && !process->isRunning()) {
+            toggleServer();
+            const auto failedTask = activeLaunch();
+            QTimer dismiss;
+            QObject::connect(&dismiss, &QTimer::timeout, [] {
+                if (auto *prompt = currentPrompt()) {
+                    if (auto *button =
+                            prompt->findChild<QPushButton *>(InlineMessageBox::buttonName(0))) {
+                        button->click();
+                    }
+                }
+            });
+            dismiss.start(25);
+            check(process->sendCommand(QStringLiteral("exit-before-ready")) && pumpUntil([&] {
+                      const auto task = tasks->snapshot(failedTask);
+                      return task.state == Tasks::TaskState::Failed &&
+                             task.errorSummary.contains(QStringLiteral("退出码 0"));
+                  }, 5000), "T42.12 未就绪便退出，退出码为 0 也记为启动失败");
+        }
+    }
 
     w.close();
     QApplication::processEvents();

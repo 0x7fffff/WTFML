@@ -57,11 +57,6 @@ void ServerWorkspaceController::removeProcess(const QString &serverId) {
     }
 }
 
-bool ServerWorkspaceController::stopAndWait(const QString &serverId) {
-    ServerRun::ServerProcess *running = process(serverId);
-    return running != nullptr && running->stopAndWait();
-}
-
 bool ServerWorkspaceController::detach(const QString &serverId) {
     ServerRun::ServerProcess *running = process(serverId);
     if (running == nullptr) {

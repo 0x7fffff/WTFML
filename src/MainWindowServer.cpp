@@ -953,6 +953,9 @@ void MainWindow::updateServerRow(const QString &serverId) {
 }
 
 void MainWindow::onServerStatusChanged(const QString &serverId, ServerModel::Status status) {
+    if (status == ServerModel::Status::Running) {
+        m_serverRun->onReady(serverId);
+    }
     updateServerRow(serverId);
     updateServerConsole();
     // 设置页正开着这一个服务端：顶上那两句状态和整页只读闸要同一次跟着翻。**只翻这一套**

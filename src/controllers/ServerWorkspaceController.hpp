@@ -21,7 +21,6 @@ public:
     ServerRun::ServerProcess *process(const QString &serverId) const;
     QStringList runningServerIds() const;
     void removeProcess(const QString &serverId);
-    bool stopAndWait(const QString &serverId);
     bool detach(const QString &serverId);
 
     static ServerInstall::Plan launchPlan(const QString &serverId, QString *problem = nullptr);

@@ -12090,6 +12090,22 @@ Minecraft %2 / %3 %4</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>启动服务端 %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>正在准备服务端启动参数…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>正在等待服务端就绪…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>服务端尚未就绪，进程已退出（退出码 %1）。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>异常退出（退出码 %1）</source>
         <translation type="unfinished"></translation>
     </message>
