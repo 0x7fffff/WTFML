@@ -141,7 +141,7 @@ int runToolFeatureChecks() {
     const auto items = activity.items([](const Tasks::TaskSnapshot &) { return true; }, false, {});
     expect(items.size() == 3 && items[1].key == QString::number(c) && !items[1].queueGroup.isEmpty(), "activity presentation matches executor queue order");
     QWidget anchor;
-    TaskCenterPanel panel(&anchor, [&] { return activity.items([](const Tasks::TaskSnapshot &) { return true; }, false, {}); }, [] {}, {}, {}, {}, &anchor, true);
+    TaskCenterPanel panel(&anchor, [&] { return activity.items([](const Tasks::TaskSnapshot &) { return true; }, false, {}); }, [] {}, {}, &anchor, true);
     panel.setRowActionHandler([&](const QString &key, TaskCenter::RowAction action) {
         if (action == TaskCenter::RowAction::MoveUp || action == TaskCenter::RowAction::MoveDown)
             activity.moveQueued(key.toULongLong(), action == TaskCenter::RowAction::MoveUp ? -1 : 1);

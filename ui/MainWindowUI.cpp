@@ -1210,7 +1210,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
                      [button = QPointer<QPushButton>(toolboxButton)](int index) {
                          if (button) button->setChecked(index == toolboxTabIndex());
                      });
-    // 图标轨：任务卡只剩进度环、运行状态那格只剩图标和进程数（有进程时才露）、工具箱只剩图标（tokens.md 第 7 节）。
+    // 图标轨：任务卡只剩进度环、运行状态那格只剩图标和进程数（常驻，空闲时图标弱化）、工具箱只剩图标（tokens.md 第 7 节）。
     const auto applyRailCollapsed = [this](bool collapsed) {
         if (auto *text = taskSummaryButton->findChild<QWidget *>(QStringLiteral("taskSummaryText"))) {
             text->setVisible(!collapsed);

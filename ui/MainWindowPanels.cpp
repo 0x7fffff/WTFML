@@ -42,7 +42,6 @@
 #include <QScrollArea>
 #include <QSet>
 #include <QTimer>
-#include <QVariantAnimation>
 #include <QVBoxLayout>
 #include <algorithm>
 
@@ -497,24 +496,23 @@ protected:
 /// 轨底「运行状态」那颗按钮。展开轨里是整格（状态方块 + 两行字，装在 `runStateText` 里）；
 /// 图标轨里（宽度 < 80，判据和工具箱那颗一致）文字收起，只画一枚运行图标和进程数徽标。
 /// 两种样子只看**此刻的宽度**，所以轨在 64 和 208 之间做宽度动画时，交接是连续的、没有切换那一帧。
-/// 进程数由 MainWindow 写进动态属性 `wtfmlRunCount`（和 `wtfmlOpen`、`wtfmlKeyboardFocus` 同一个路数）。
+/// 这一格常驻（issue #85）：进程起停时轨上不增减元素、几何不变；空闲时图标轨画弱化的同一枚图标、不带数字。
 class RunStateButton : public QPushButton {
 public:
     using QPushButton::QPushButton;
-    static constexpr const char *kCountProperty = "wtfmlRunCount";
     static QString textBoxName() { return QStringLiteral("runStateText"); }
+    int count() const { return m_count; }
+    /// 在跑的进程数（客户端、服务端合计）。0 = 空闲。
+    void setCount(int count) {
+        if (m_count == count) return;
+        m_count = count;
+        // 图标轨里没有文字，读屏靠这一句。
+        setAccessibleName(count > 0 ? MainWindowUI::runStateRunningCountText(count)
+                                    : MainWindowUI::runStateNotRunningText());
+        update();
+    }
 
 protected:
-    bool event(QEvent *event) override {
-        if (event->type() == QEvent::DynamicPropertyChange &&
-            static_cast<QDynamicPropertyChangeEvent *>(event)->propertyName() == kCountProperty) {
-            const int count = property(kCountProperty).toInt();
-            // 图标轨里没有文字，读屏靠这一句。
-            setAccessibleName(count > 0 ? MainWindowUI::runStateRunningCountText(count) : QString());
-            update();
-        }
-        return QPushButton::event(event);
-    }
     void showEvent(QShowEvent *event) override {
         QPushButton::showEvent(event);
         syncText();
@@ -537,10 +535,10 @@ protected:
         p.setRenderHint(QPainter::Antialiasing, true);
         if (compact()) {
             // 取主题的 ok 色（浅色主题是加深的 #2E875A）：图标和徽标没有字那样的容错，浅色底上要 3:1。
-            const QColor ok = Theme::tokens().ok;
+            const QColor ok = m_count > 0 ? Theme::tokens().ok : Theme::tokens().disabled;
             const QRectF icon((width() - 20) / 2.0, (height() - 20) / 2.0, 20, 20);
             VersionIcons::paintLine(p, QStringLiteral("play"), icon, ok);
-            const int count = property(kCountProperty).toInt();
+            const int count = m_count;
             if (count > 0) {
                 const QString text = count > 99 ? QStringLiteral("99+") : QString::number(count);
                 QFont badgeFont = font();
@@ -567,6 +565,7 @@ protected:
     }
 
 private:
+    int m_count = 0;
     bool compact() const { return width() < 80; }
     void syncText() {
         if (QWidget *text = findChild<QWidget *>(textBoxName(), Qt::FindDirectChildrenOnly)) {
@@ -574,56 +573,6 @@ private:
         }
     }
 };
-
-/// 运行状态那颗按钮出现 / 收起：高度在 `kRunStateRevealMs` 内从 1 长到整高（或反过来），收完才 hide()。
-/// 两种轨共用。动效关着（验证工程）时立即切换。
-/// 动画途中反向会从当前高度接着走，不跳。
-constexpr int kRunStateRevealMs = 180;
-void revealRunStateButton(QPushButton *button, bool show) {
-    constexpr const char *kAnimName = "runStateReveal";
-    const auto settle = [button](bool visible) {
-        button->setMinimumHeight(TitleBar::navItemHeight());
-        button->setMaximumHeight(QWIDGETSIZE_MAX);
-        button->setVisible(visible);
-    };
-    if (auto *running = button->findChild<QVariantAnimation *>(kAnimName)) {
-        if (running->property("show").toBool() == show) {
-            return;  // 底栏每次重画都会再喊一遍同一个状态，别重启正在走的这一段
-        }
-        running->disconnect();  // 被打断的那一段不能再走它的收尾（会把按钮摆回旧的终态）
-        running->stop();
-        running->deleteLater();
-        running->setObjectName(QString());
-    }
-    if (!Anim::enabled() || !button->parentWidget()->isVisible()) {
-        settle(show);
-        return;
-    }
-    if (show == button->isVisible() && button->maximumHeight() == QWIDGETSIZE_MAX) {
-        return;
-    }
-    const int full = qMax(button->sizeHint().height(), TitleBar::navItemHeight());
-    const int from = button->isVisible() ? button->height() : 1;
-    const int to = show ? full : 1;
-    const auto fix = [button](int height) {
-        button->setMinimumHeight(height);
-        button->setMaximumHeight(height);
-    };
-    fix(from);
-    button->setVisible(true);
-    auto *animation = new QVariantAnimation(button);
-    animation->setObjectName(kAnimName);
-    animation->setProperty("show", show);
-    animation->setDuration(kRunStateRevealMs);
-    animation->setEasingCurve(QEasingCurve(QEasingCurve::OutCubic));
-    animation->setStartValue(from);
-    animation->setEndValue(to);
-    QObject::connect(animation, &QVariantAnimation::valueChanged, button, [fix](const QVariant &value) {
-        fix(qMax(1, value.toInt()));
-    });
-    QObject::connect(animation, &QVariantAnimation::finished, button, [settle, show]() { settle(show); });
-    animation->start(QAbstractAnimation::DeleteWhenStopped);
-}
 
 /// 底栏按钮身上那个"跟随登记只做过一次"的印记（见 `applyBottomBarButtonStyle()` 里的闸门）。
 constexpr const char kBottomBarButtonFollowedProperty[] = "wtfmlThemeFollowed";
@@ -658,7 +607,10 @@ void applyBottomBarButtonStyle(QPushButton *button, const QPalette &barPalette) 
         QStringLiteral("QPushButton { border: none; background: transparent; text-align: left; "
                        "padding: %3; border-radius: %4px; min-height: %5px; }"
                        "QPushButton:hover { background-color: %1; }"
-                       "QPushButton:pressed { background-color: %2; }")
+                       "QPushButton:pressed { background-color: %2; }"
+                       // 运行状态入口空闲时：不高亮、不按下去（见 setRunPanelAvailable()）
+                       "QPushButton[wtfmlIdle=\"true\"]:hover, QPushButton[wtfmlIdle=\"true\"]:pressed "
+                       "{ background-color: transparent; }")
             .arg(hover.name(QColor::HexArgb), pressed.name(QColor::HexArgb),
                  compact ? QStringLiteral("0 12px") : QStringLiteral("0"))
             .arg(Theme::controlRadius())
@@ -2049,44 +2001,10 @@ void MainWindowUI::openTaskCenterPanel() {
             toggleBottomBarPanel(hit);
         }
     };
-    const TaskCenter::RunningProvider runningProvider = [this]() {
-        QList<TaskCenter::RunningItem> result;
-        const QList<PanelRow> rows =
-            m_panelRowsProvider ? m_panelRowsProvider(false) : QList<PanelRow>();
-        for (const PanelRow &row : rows) {
-            if (row.placeholder) {
-                continue;
-            }
-            TaskCenter::RunningItem item;
-            item.key = row.key;
-            item.icon = row.icon;
-            item.title = row.title;
-            item.subtitle = row.subtitle;
-            item.liveSubtitle = row.liveSubtitle;
-            for (int i = 0; i < row.actions.size(); ++i) {
-                const PanelAction &source = row.actions.at(i);
-                TaskCenter::RunningAction action;
-                action.icon = source.icon;
-                action.text = source.text;
-                action.tooltip = source.tooltip;
-                action.enabled = source.enabled;
-                action.action = i;
-                item.actions.append(action);
-            }
-            result.append(item);
-        }
-        return result;
-    };
-    const TaskCenter::RunningActionHandler runningAction =
-        [this](const QString &key, int action) {
-            if (m_panelActionHandler) {
-                m_panelActionHandler(false, key, action);
-            }
-        };
     if (overlayHost->isOpen()) {
         // 覆盖页开着（实例设置等）时**不挤掉它**：任务中心作为提示层叠在上面，
         // 关掉就回原页，背景不重开、不播换页动画。
-        const auto openOverPage = [this, runningProvider, runningAction, onOutsidePress] {
+        const auto openOverPage = [this, onOutsidePress] {
         QWidget *content = overlayHost->openPrompt(true, /*fullSize=*/true);
         if (content == nullptr) return;
         auto *promptLayout = qobject_cast<QVBoxLayout *>(content->layout());
@@ -2098,8 +2016,8 @@ void MainWindowUI::openTaskCenterPanel() {
         workspaceLayout->setSpacing(8);
         promptLayout->addWidget(workspace, 1);
         auto *panel = new TaskCenterPanel(taskSummaryButton, m_taskCenterProvider,
-                                          m_taskCenterClearHandler, runningProvider,
-                                          runningAction, onOutsidePress, workspace, /*embedded=*/true);
+                                          m_taskCenterClearHandler, onOutsidePress,
+                                          workspace, /*embedded=*/true);
         panel->setRowActivatedHandler(m_taskCenterRowActivated);
         panel->setRowActionHandler(m_taskCenterRowAction);
         panel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
@@ -2143,7 +2061,7 @@ void MainWindowUI::openTaskCenterPanel() {
         Anim::layoutTransition(overlayHost->parentWidget(), openOverPage, true, tabWidget->geometry());
         return;
     }
-    const auto openNow = [this, runningProvider, runningAction, onOutsidePress]() {
+    const auto openNow = [this, onOutsidePress]() {
     QWidget *page = overlayHost->openPage(QCoreApplication::translate("MainWindowPanels", "任务中心"));
     if (page == nullptr) {
         return;
@@ -2154,8 +2072,8 @@ void MainWindowUI::openTaskCenterPanel() {
         return;
     }
     auto *panel = new TaskCenterPanel(taskSummaryButton, m_taskCenterProvider,
-                                      m_taskCenterClearHandler, runningProvider, runningAction,
-                                      onOutsidePress, page, /*embedded=*/true);
+                                      m_taskCenterClearHandler, onOutsidePress, page,
+                                      /*embedded=*/true);
     // 点一行进详情页。★ **要在 popUp() 之前挂**：`rebuild()`（popUp() 里第一件事）就是按
     // 这个处理器决定那几行"可不可点"的 —— 挂晚了的话这一面板里的行没手型光标、点了也没
     // 反应，得关掉重开一次才行。
@@ -2446,11 +2364,9 @@ void MainWindowUI::toggleActivityPopover() {
     popover->refresh();
 }
 
-void MainWindowUI::setRunStateActive(bool active) {
-    m_runStateActive = active;
-    // 两种轨都露：展开轨是整格，图标轨是运行图标 + 进程数（RunStateButton 按宽度换样子）。
-    if (runStateButton != nullptr) {
-        revealRunStateButton(runStateButton, active);
+void MainWindowUI::setRunStateCount(int count) {
+    if (auto *button = dynamic_cast<RunStateButton *>(runStateButton)) {
+        button->setCount(count);
     }
 }
 
@@ -2459,12 +2375,16 @@ void MainWindowUI::setRunPanelAvailable(bool available) {
         return;
     }
     m_runPanelAvailable = available;
-    // 点不动的那一格**收的是鼠标**（理由见头文件里那段 NOTE：不用 setEnabled 是为了不让
-    // 里面那几行字跟着变灰）。顺带把 hover 高亮、手型指针、tooltip 一起收掉了 —— 它们
-    // 都挂在"这个控件收不收得到鼠标"上。
-    runStateButton->setAttribute(Qt::WA_TransparentForMouseEvents, !available);
-    // 点不动的格子不该再挂着"点一下向上展开实例列表"（鼠标都到不了它身上，也弹不出来）。
-    runStateButton->setToolTip(available ? MainWindowUI::bottomBarRunPanelTip() : QString());
+    // 点不动的那一格仍收鼠标：悬停要能显示「未运行」（图标轨里这一格没有字，靠它说明状态）。
+    // 点不开由 toggleBottomBarPanel() 里的 m_runPanelAvailable 把住；这里收掉手型指针和悬停 / 按下底色。
+    // 不用 setEnabled：那会让里面的字跟着变灰；焦点策略也不随状态变。
+    runStateButton->setCursor(available ? Qt::PointingHandCursor : Qt::ArrowCursor);
+    runStateButton->setProperty("wtfmlIdle", !available);
+    runStateButton->style()->unpolish(runStateButton);
+    runStateButton->style()->polish(runStateButton);
+    runStateButton->update();
+    runStateButton->setToolTip(available ? MainWindowUI::bottomBarRunPanelTip()
+                                         : MainWindowUI::runStateNotRunningText());
 }
 
 

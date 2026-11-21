@@ -871,12 +871,14 @@ int shootI85(QApplication &app, QMainWindow &window, MainWindowUI &ui, const Sho
     const auto setRunning = [&](int count) {
         shown = count;
         ui.setRunPanelAvailable(count > 0);
-        ui.setRunStateActive(count > 0);
-        ui.getRunStateButton()->setProperty("wtfmlRunCount", count);
-        ui.getRunStateLabel()->setText(MainWindowUI::runStateRunningCountText(count));
+        ui.setRunStateCount(count);
+        ui.getRunStateLabel()->setText(count > 0 ? MainWindowUI::runStateRunningCountText(count)
+                                                 : MainWindowUI::runStateNotRunningText());
         ui.getRunStateLabel()->setVisible(true);
         ui.getRunStateMarkLabel()->setPixmap(
-            MainWindowUI::runStateMarkPixmap(MainWindowUI::RunStateMark::Running, ui.getBottomBar()->palette()));
+            MainWindowUI::runStateMarkPixmap(count > 0 ? MainWindowUI::RunStateMark::Running
+                                                       : MainWindowUI::RunStateMark::Idle,
+                                             ui.getBottomBar()->palette()));
         ui.getRunStateMarkLabel()->setVisible(true);
         pump();
     };
@@ -1056,7 +1058,7 @@ int shootR179c(QApplication &app, QMainWindow &window, MainWindowUI &ui, const S
         }
     }
 
-    // ---- #24：任务中心，运行中实例那一栏收着 / 露着 ----
+    // ---- 任务中心（运行中的进程那一栏已去掉，统一看轨底入口） ----
     ui.setTaskCenterContent([] { return siteTaskItems(); }, [] {});
     for (const QSize size : {QSize(1600, 800), QSize(1024, 620)}) {
         window.resize(size);
@@ -1069,14 +1071,7 @@ int shootR179c(QApplication &app, QMainWindow &window, MainWindowUI &ui, const S
         if (QWidget *popover = window.findChild<QWidget *>(QStringLiteral("activityPopover"));
             popover != nullptr && popover->isVisible())
             popover->close();
-        auto *toggle = window.findChild<QPushButton *>(QStringLiteral("taskCenterRunningCollapse"));
-        shot(QStringLiteral("tasks-running-collapsed"));
-        if (toggle != nullptr && toggle->isVisible()) {
-            toggle->click();
-            pump();
-            shot(QStringLiteral("tasks-running-expanded"));
-            toggle->click();
-        }
+        shot(QStringLiteral("tasks-center"));
         if (ui.overlay() != nullptr && ui.overlay()->isOpen()) ui.overlay()->dismiss();
         pump();
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);

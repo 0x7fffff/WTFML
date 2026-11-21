@@ -2699,13 +2699,12 @@ int main(int argc, char *argv[]) {
 
         QLabel *runMark = window.findChild<QLabel *>(MainWindowUI::runStateMarkName());
         if (runState != nullptr && runDetail != nullptr && runMark != nullptr) {
-            // 这个进程里没起过游戏：轨底那一格**整格收起**（设计稿轨底只有任务环和工具箱），
-            // 文字仍按「未运行」那一档写好，等有事可说时一露出来就是对的。
+            // 这个进程里没起过游戏：轨底那一格常驻（进程起停时轨上不增减元素），写「未运行」。
             QPushButton *runButton =
                 window.findChild<QPushButton *>(MainWindowUI::runStateButtonName());
-            check(runButton != nullptr && !runButton->isVisible() &&
+            check(runButton != nullptr && !runButton->isHidden() &&
                       runState->text() == MainWindowUI::runStateNotRunningText(),
-                  "没有进程在跑时轨底运行状态那一格收起（文字备着「未运行」）", runState->text());
+                  "没有进程在跑时轨底运行状态那一格照旧在，写「未运行」", runState->text());
             check(runState->text() != MainWindowUI::runStateRunningCountText(1) &&
                       runState->text() != MainWindowUI::runStateRunningCountText(2),
                   "（不会说成「%1 个进程运行中」）",

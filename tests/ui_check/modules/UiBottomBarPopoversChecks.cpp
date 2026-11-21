@@ -638,17 +638,17 @@ int UiBottomBarPopoversChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget 
             //
             // NOTE: 这一节用 `click()` 点，不用真鼠标事件：`QAbstractButton::click()`
             // 在 disabled 的时候会**直接返回**（那样断言就白绿了），而这一格用的
-            // 是 WA_TransparentForMouseEvents、按钮本身是 enabled 的 —— 所以
+            // 是 toggle 里把住、按钮本身是 enabled 的 —— 所以
             // `click()` 照样发 clicked()，能不能弹出来全看 toggle 里那道闸。
             {
-                const auto describe = [runBtn]() {
+                const auto describe = [runBtn, &ui]() {
                     return QStringLiteral("收鼠标 %1 / tooltip「%2」")
-                        .arg(runBtn->testAttribute(Qt::WA_TransparentForMouseEvents)
+                        .arg(!ui.runPanelAvailable()
                                  ? QStringLiteral("是")
                                  : QStringLiteral("不是"))
                         .arg(runBtn->toolTip());
                 };
-                check(!runBtn->testAttribute(Qt::WA_TransparentForMouseEvents) &&
+                check(ui.runPanelAvailable() &&
                           runBtn->toolTip() == MainWindowUI::bottomBarRunPanelTip(),
                       "I4 没被告知「没有实例在跑」时，这一格照旧点得开（鼠标收得到、"
                       "悬停那句话也挂着）",
@@ -656,10 +656,10 @@ int UiBottomBarPopoversChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget 
 
                 ui.setRunPanelAvailable(false);
                 QApplication::processEvents();
-                check(runBtn->testAttribute(Qt::WA_TransparentForMouseEvents) &&
-                          runBtn->toolTip().isEmpty(),
-                      "I4 被告知「没有实例在跑」之后：这一格**不再收鼠标**、"
-                      "那句「点一下向上展开」也摘掉了",
+                check(!ui.runPanelAvailable() &&
+                          runBtn->toolTip() == MainWindowUI::runStateNotRunningText(),
+                      "I4 被告知「没有实例在跑」之后：这一格点不开、"
+                      "悬停提示换成「未运行」",
                       describe());
 
                 runBtn->click();
